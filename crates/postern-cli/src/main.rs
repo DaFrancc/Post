@@ -47,6 +47,16 @@ enum Command {
         #[arg(long)]
         bot: bool,
     },
+    /// Link a new device to your account.
+    Link {
+        #[command(subcommand)]
+        cmd: LinkCommand,
+    },
+    /// List your devices, or rename or remove one.
+    Devices {
+        #[command(subcommand)]
+        cmd: Option<DevicesCommand>,
+    },
     /// Show the account on this device.
     Whoami,
     /// Fetch everything new and send what is queued.
@@ -113,6 +123,74 @@ enum Command {
     Schema,
 }
 
+#[derive(Subcommand)]
+enum LinkCommand {
+    /// On the new device: show a code, and wait for it to be entered on one
+    /// of your existing devices (up to ten minutes).
+    New {
+        /// Server URL, wss://...
+        #[arg(long)]
+        server: String,
+        /// A name for this device, shown only on your own devices. Default:
+        /// the computer's host name.
+        #[arg(long)]
+        name: Option<String>,
+        /// The account is a bot account.
+        #[arg(long)]
+        bot: bool,
+    },
+    /// On one of your devices: add the device showing this code.
+    Add {
+        code: String,
+        /// Approve without asking.
+        #[arg(long)]
+        yes: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum DevicesCommand {
+    /// Name one of your devices.
+    Rename {
+        /// Device ID, or its first few characters.
+        device: String,
+        name: String,
+    },
+    /// Remove another of your devices from your account and every conversation.
+    Remove {
+        /// Device ID, or its first few characters.
+        device: String,
+        /// Remove without asking.
+        #[arg(long)]
+        yes: bool,
+    },
+}
+
+/// The computer's host name, for naming a newly linked device.
+fn default_device_name() -> String {
+    let from_file = std::fs::read_to_string("/etc/hostname").ok().map(|s| s.trim().to_string());
+    from_file
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("COMPUTERNAME").ok())
+        .or_else(|| std::env::var("HOSTNAME").ok())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "command line".into())
+}
+
+/// Ask a yes/no question on the terminal. Without a terminal, refuse unless
+/// the caller passed `--yes`, so a script never approves something by accident.
+fn confirm(question: &str) -> anyhow::Result<bool> {
+    use std::io::{BufRead as _, IsTerminal as _, Write as _};
+    if !std::io::stdin().is_terminal() {
+        anyhow::bail!("{question}\nno terminal to ask on; pass --yes to go ahead");
+    }
+    eprint!("{question} [y/N] ");
+    std::io::stderr().flush()?;
+    let mut line = String::new();
+    std::io::stdin().lock().read_line(&mut line)?;
+    Ok(matches!(line.trim(), "y" | "Y" | "yes" | "Yes"))
+}
+
 fn default_profile() -> anyhow::Result<PathBuf> {
     if let Some(d) = std::env::var_os("XDG_DATA_HOME") {
         return Ok(PathBuf::from(d).join("postern"));
@@ -130,6 +208,11 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         Command::Register { server, invite, username, bot } => {
             ("register", json!({ "server": server, "invite": invite, "username": username, "bot": bot }))
         }
+        Command::Devices { cmd: None } => ("devices", json!({})),
+        Command::Devices { cmd: Some(DevicesCommand::Rename { device, name }) } => {
+            ("rename_device", json!({ "device": device, "name": name }))
+        }
+        Command::Devices { cmd: Some(DevicesCommand::Remove { device, .. }) } => ("remove_device", json!({ "device": device })),
         Command::Whoami => ("whoami", json!({})),
         Command::Sync => ("sync", json!({})),
         Command::Dm { username } => ("start_dm", json!({ "username": username })),
@@ -149,7 +232,7 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         Command::Nickname { username, nickname } => ("set_nickname", json!({ "username": username, "nickname": nickname })),
         Command::Person { username } => ("person", json!({ "username": username })),
         Command::SafetyNumber { username } => ("safety_number", json!({ "username": username })),
-        Command::Keygen { .. } | Command::Daemon { .. } | Command::Schema => return None,
+        Command::Keygen { .. } | Command::Daemon { .. } | Command::Schema | Command::Link { .. } => return None,
     })
 }
 
@@ -228,6 +311,13 @@ fn print_human(method: &str, v: &Value) {
             }
         }
         "safety_number" => println!("{}", s(v, "safety_number")),
+        "devices" => {
+            for d in v.as_array().into_iter().flatten() {
+                let name = if s(d, "name").is_empty() { "(unnamed)" } else { s(d, "name") };
+                let this = if d["this_device"] == true { "  (this device)" } else { "" };
+                println!("{}  {name}{this}", s(d, "id"));
+            }
+        }
         _ => println!("ok"),
     }
 }
@@ -266,6 +356,22 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         return Ok(());
     }
 
+    if let Command::Link { cmd } = &cli.command {
+        return run_link(&core, cmd, cli.json).await;
+    }
+    if let Command::Devices { cmd: Some(DevicesCommand::Remove { device, yes: false }) } = &cli.command {
+        let name = core
+            .devices()
+            .await?
+            .into_iter()
+            .find(|d| d.id.starts_with(&device.to_ascii_lowercase()))
+            .map(|d| if d.name.is_empty() { d.id } else { format!("\"{}\" ({})", d.name, d.id) })
+            .unwrap_or_else(|| device.clone());
+        if !confirm(&format!("Remove device {name}? It is signed out and removed from every conversation."))? {
+            anyhow::bail!("not removed");
+        }
+    }
+
     let (method, params) = to_call(&cli.command).context("unknown command")?;
     let info = postern_api::method(method).context("unknown method")?;
     if info.needs == Needs::Connection {
@@ -286,6 +392,64 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             std::process::exit(1);
         }
         Err(e) => anyhow::bail!(e.message),
+    }
+    Ok(())
+}
+
+async fn api_call(core: &Core, method: &str, params: Value) -> anyhow::Result<Value> {
+    postern_api::call(core, method, params).await.map_err(|e| anyhow::anyhow!(e.message))
+}
+
+/// Print a result line now, even when stdout is a pipe, because the command
+/// keeps running after it.
+fn print_now(line: impl std::fmt::Display) -> anyhow::Result<()> {
+    use std::io::Write as _;
+    println!("{line}");
+    std::io::stdout().flush()?;
+    Ok(())
+}
+
+/// Linking takes two calls with a person in between, so it does not fit the
+/// one-call-per-subcommand shape of the rest.
+async fn run_link(core: &Core, cmd: &LinkCommand, json_out: bool) -> anyhow::Result<()> {
+    match cmd {
+        LinkCommand::New { server, name, bot } => {
+            let name = name.clone().unwrap_or_else(default_device_name);
+            let code = api_call(core, "link_begin", json!({ "server": server, "name": name, "bot": bot })).await?;
+            if json_out {
+                print_now(&code)?;
+            } else {
+                print_now(format_args!(
+                    "On one of your devices, run:\n\n    postern link add {}\n\nWaiting for that (the code works for ten minutes)...",
+                    s(&code, "code")
+                ))?;
+            }
+            let id = api_call(core, "link_finish", json!({})).await?;
+            if json_out {
+                print_now(&id)?;
+            } else {
+                println!("Linked. This device is now part of {}'s account.", s(&id, "username"));
+                print_human("whoami", &id);
+            }
+        }
+        LinkCommand::Add { code, yes } => {
+            core.connect().await?;
+            let req = api_call(core, "link_inspect", json!({ "code": code })).await?;
+            let name = if s(&req, "name").is_empty() { "unnamed".to_string() } else { s(&req, "name").to_string() };
+            let question = format!(
+                "Add the device \"{name}\" ({}) to your account? It will see new messages in every conversation you are in.",
+                s(&req, "device_id")
+            );
+            if !yes && !confirm(&question)? {
+                anyhow::bail!("not linked");
+            }
+            let done = api_call(core, "link_approve", json!({ "code": code })).await?;
+            if json_out {
+                print_now(&done)?;
+            } else {
+                println!("Linked \"{name}\". It has been added to your conversations.");
+            }
+        }
     }
     Ok(())
 }
@@ -317,6 +481,9 @@ mod tests {
             Command::Person { username: "a".into() },
             Command::SafetyNumber { username: "a".into() },
             Command::Nickname { username: "a".into(), nickname: "b".into() },
+            Command::Devices { cmd: None },
+            Command::Devices { cmd: Some(DevicesCommand::Rename { device: "abcd".into(), name: "x".into() }) },
+            Command::Devices { cmd: Some(DevicesCommand::Remove { device: "abcd".into(), yes: true }) },
         ];
         for c in &cmds {
             let (m, _) = to_call(c).expect("maps");
