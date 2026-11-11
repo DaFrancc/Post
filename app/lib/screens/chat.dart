@@ -1918,6 +1918,9 @@ class _ComposerMenuState extends State<_ComposerMenu> {
   late final TextRange? _word = _findWord();
   List<String>? _suggestions;
 
+  /// Opens upward: fixed once chosen.
+  bool? _up;
+
   /// Under the pointer: a right-click on Linux leaves the cursor where it
   /// was, so the click's own position says which word was meant.
   TextRange? _findWord() {
@@ -2013,8 +2016,18 @@ class _ComposerMenuState extends State<_ComposerMenu> {
       ),
     ];
     final theme = PopupMenuTheme.of(context);
+    // Which way it opens, decided once from its full height (known from its
+    // rows) rather than from its size while it grows: a growing menu that
+    // fits below at first would flip above partway through.
+    // Decided on the first frame, allowing for all five corrections, which
+    // arrive a moment later.
+    final up = _up ??= () {
+      final shown = rows.fold<double>(0, (h, r) => h + (r is _MenuLine ? _MenuLine.height : 32));
+      final corrections = word != null && _suggestions == null ? 4 * 32 : 0;
+      return anchor.dy + 12 + shown + corrections > overlay.size.height - _MenuAtPointer.margin;
+    }();
     return CustomSingleChildLayout(
-      delegate: _MenuAtPointer(anchor),
+      delegate: _MenuAtPointer(anchor, up: up),
       // Clicks in the menu count as clicks in the field: it keeps focus.
       child: TextFieldTapRegion(
         // Opening as the other menus do: quickly, with a long ease-out.
@@ -2024,8 +2037,10 @@ class _ComposerMenuState extends State<_ComposerMenu> {
           curve: pMenuAnimation.curve!,
           builder: (context, v, child) => Opacity(
             opacity: (v * 3).clamp(0.0, 1.0),
-            // widthFactor 1: as wide as the menu, not the window.
-            child: Align(alignment: Alignment.topLeft, widthFactor: 1, heightFactor: v, child: child),
+            // Unrolls away from the pointer: opening up, its bottom stays put
+            // and its top rises. widthFactor 1: as wide as the menu, not the
+            // window.
+            child: Align(alignment: up ? Alignment.bottomLeft : Alignment.topLeft, widthFactor: 1, heightFactor: v, child: child),
           ),
           child: ConstrainedBox(
             constraints: const BoxConstraints(minWidth: 200, maxWidth: 280),
@@ -2048,33 +2063,37 @@ class _ComposerMenuState extends State<_ComposerMenu> {
   }
 }
 
-/// A menu with its corner at the pointer, as the app's other menus: below
-/// and to the right, or above and to the left where there is no room, and
-/// always inside the window.
+/// A menu with its corner at the pointer, as the app's other menus: to the
+/// right, or the left where there is no room; below, or above when [up]
+/// (decided beforehand from its full height); always inside the window.
 class _MenuAtPointer extends SingleChildLayoutDelegate {
-  _MenuAtPointer(this.at);
+  _MenuAtPointer(this.at, {required this.up});
 
   final Offset at;
-  static const _margin = 8.0;
+  final bool up;
+  static const margin = 8.0;
 
   @override
   BoxConstraints getConstraintsForChild(BoxConstraints constraints) => constraints.loosen();
 
   @override
   Offset getPositionForChild(Size size, Size child) {
-    var x = at.dx + child.width > size.width - _margin ? at.dx - child.width : at.dx;
-    var y = at.dy + child.height > size.height - _margin ? at.dy - child.height : at.dy;
-    x = x.clamp(_margin, math.max(_margin, size.width - child.width - _margin));
-    y = y.clamp(_margin, math.max(_margin, size.height - child.height - _margin));
+    var x = at.dx + child.width > size.width - margin ? at.dx - child.width : at.dx;
+    var y = up ? at.dy - child.height : at.dy;
+    x = x.clamp(margin, math.max(margin, size.width - child.width - margin));
+    y = y.clamp(margin, math.max(margin, size.height - child.height - margin));
     return Offset(x, y);
   }
 
   @override
-  bool shouldRelayout(_MenuAtPointer old) => old.at != at;
+  bool shouldRelayout(_MenuAtPointer old) => old.at != at || old.up != up;
 }
 
 class _MenuLine extends StatelessWidget {
   const _MenuLine();
+
+  /// 4 above, the line, 4 below.
+  static const height = 9.0;
 
   @override
   Widget build(BuildContext context) => const Padding(

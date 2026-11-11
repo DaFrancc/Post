@@ -302,8 +302,18 @@ void main() {
     // Right-clicking it offers corrections; picking one replaces the word.
     final editable = _editableIn(t.renderObject(find.byWidgetPredicate((w) => w is EditableText && !w.readOnly).last));
     final box = editable.getBoxesForSelection(const TextSelection(baseOffset: 5, extentOffset: 13)).first.toRect();
-    await t.tapAt(editable.localToGlobal(box.center), buttons: kSecondaryButton, kind: PointerDeviceKind.mouse);
+    final pointer = editable.localToGlobal(box.center);
+    await t.tapAt(pointer, buttons: kSecondaryButton, kind: PointerDeviceKind.mouse);
     await waitFor(t, find.text('Add to dictionary'));
+    // Over the composer, at the bottom of the window, it opens upward, and
+    // stays above the pointer on every frame of opening (it once started
+    // below and flipped up as it grew).
+    final menu = find.ancestor(of: find.text('Add to dictionary'), matching: find.byType(Material)).first;
+    final opening = Stopwatch()..start();
+    while (opening.elapsedMilliseconds < 500) {
+      expect(t.getRect(menu).bottom, lessThanOrEqualTo(pointer.dy + 1), reason: 'the menu went below the pointer while opening');
+      await t.pump();
+    }
     await waitFor(t, find.text('sentence'));
     await _shot(t, '05e-spelling-menu');
     await t.tap(find.text('sentence'));
