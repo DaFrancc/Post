@@ -1,6 +1,7 @@
 // Controls shared by every screen: fields, icon buttons, avatars, dialogs
 // and toasts, all drawn from the theme.
 
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind, kSecondaryMouseButton;
@@ -469,6 +470,118 @@ Future<T?> showContextMenu<T>(BuildContext context, Offset globalPosition, List<
     popUpAnimationStyle: pMenuAnimation,
     items: items,
   );
+}
+
+/// A menu that grows up out of [anchor], for a button near the bottom of the
+/// window: it looks like a context menu and moves like one, but unrolls
+/// upward from the button, and its entries (which may be tall) come in
+/// nearest first with a short stagger, so they arrive as one smooth motion
+/// rather than one jump each. An entry closes it with
+/// `Navigator.pop(context, value)`.
+Future<T?> showPopover<T>(BuildContext anchor, {required double width, required List<Widget> children}) {
+  final navigator = Navigator.of(anchor);
+  final overlay = navigator.overlay!.context.findRenderObject()! as RenderBox;
+  final box = anchor.findRenderObject()! as RenderBox;
+  final rect = box.localToGlobal(Offset.zero, ancestor: overlay) & box.size;
+  return navigator.push(_PopoverRoute<T>(anchor: rect, width: width, children: children));
+}
+
+class _PopoverRoute<T> extends PopupRoute<T> {
+  _PopoverRoute({required this.anchor, required this.width, required this.children});
+
+  final Rect anchor;
+  final double width;
+  final List<Widget> children;
+
+  @override
+  Color? get barrierColor => null;
+
+  @override
+  bool get barrierDismissible => true;
+
+  @override
+  String? get barrierLabel => 'Close menu';
+
+  // A popover is taller than most context menus, so it takes a little
+  // longer, and unrolls over the whole of it rather than the first part:
+  // the same speed on screen, with the same curve.
+  @override
+  Duration get transitionDuration => const Duration(milliseconds: 380);
+
+  @override
+  Duration get reverseTransitionDuration => const Duration(milliseconds: 250);
+
+  @override
+  Animation<double> createAnimation() =>
+      CurvedAnimation(parent: super.createAnimation(), curve: pMenuAnimation.curve!, reverseCurve: pMenuAnimation.reverseCurve);
+
+  @override
+  Widget buildPage(BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation) {
+    final theme = PopupMenuTheme.of(context);
+    final n = children.length;
+    // The box widens quickly, unrolls over nearly all the time and fades in
+    // over the first part; entries follow it in, nearest the button first.
+    final unit = 1 / (n + 1.5);
+    final width = CurveTween(curve: const Interval(0, 0.3)).animate(animation);
+    final height = CurveTween(curve: const Interval(0, 0.95)).animate(animation);
+    final fade = CurveTween(curve: const Interval(0, 0.25)).animate(animation);
+    return CustomSingleChildLayout(
+      delegate: _PopoverLayout(anchor),
+      child: SizedBox(
+        width: this.width,
+        child: FadeTransition(
+          opacity: fade,
+          child: Material(
+            color: theme.color,
+            shape: theme.shape,
+            elevation: theme.elevation ?? 8,
+            clipBehavior: Clip.antiAlias,
+            child: AnimatedBuilder(
+              animation: animation,
+              builder: (context, child) => Align(alignment: Alignment.bottomLeft, widthFactor: width.value, heightFactor: height.value, child: child),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final (i, c) in children.indexed)
+                      FadeTransition(
+                        // Nearest the button (the last) first.
+                        opacity: CurveTween(curve: Interval(0.5 * unit * (n - 1 - i), (0.5 * unit * (n - 1 - i) + 2 * unit).clamp(0, 1))).animate(animation),
+                        child: c,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Puts a popover just above its anchor, lined up with its left edge, kept
+/// inside the window.
+class _PopoverLayout extends SingleChildLayoutDelegate {
+  _PopoverLayout(this.anchor);
+
+  final Rect anchor;
+  static const _margin = 8.0;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) => BoxConstraints.loose(constraints.biggest).deflate(const EdgeInsets.all(_margin));
+
+  @override
+  Offset getPositionForChild(Size size, Size child) {
+    final x = anchor.left.clamp(_margin, math.max(_margin, size.width - child.width - _margin)).toDouble();
+    final y = (anchor.top - _margin - child.height).clamp(_margin, math.max(_margin, size.height - child.height - _margin)).toDouble();
+    return Offset(x, y);
+  }
+
+  @override
+  bool shouldRelayout(_PopoverLayout old) => old.anchor != anchor;
 }
 
 /// Calls [onMenu] the moment the right mouse button goes down, as desktop

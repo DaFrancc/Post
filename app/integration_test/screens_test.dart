@@ -207,10 +207,19 @@ void main() {
     await t.sendKeyEvent(LogicalKeyboardKey.escape);
     await settle(t);
 
-    await tap(t, find.text('Sam'));
+    // The status menu unrolls upward from the card.
+    await t.tap(find.text('Sam'));
+    for (final ms in [0, 60, 120]) {
+      await Future<void>.delayed(Duration(milliseconds: ms == 0 ? 0 : 60));
+      await _capture(t, '07a-presence-open-$ms');
+    }
     await _shot(t, '07-presence-menu');
+    final card = t.getRect(find.text('Sam'));
+    final away = t.getRect(find.text('Away'));
+    expect(away.bottom, lessThan(card.top), reason: 'the status menu opens above the card');
     await t.sendKeyEvent(LogicalKeyboardKey.escape);
     await settle(t);
+    expect(find.text('Away'), findsNothing, reason: 'Escape closes the status menu');
 
     await tap(t, find.byTooltip('New group'));
     await _shot(t, '08-new-group');

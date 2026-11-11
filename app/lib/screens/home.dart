@@ -781,22 +781,10 @@ class _YouCard extends StatelessWidget {
   }
 
   Future<void> _presenceMenu(BuildContext anchor) async {
-    final box = anchor.findRenderObject() as RenderBox;
-    final overlay = Overlay.of(anchor).context.findRenderObject() as RenderBox;
-    final at = box.localToGlobal(Offset.zero, ancestor: overlay);
-    final choice = await showMenu<PresenceChoice>(
-      context: anchor,
-      position: RelativeRect.fromRect(Rect.fromLTWH(at.dx, at.dy - 8, box.size.width, 0), Offset.zero & overlay.size),
-      constraints: const BoxConstraints(minWidth: 270, maxWidth: 270),
-      popUpAnimationStyle: pMenuAnimation,
-      items: [
-        for (final p in PresenceChoice.values)
-          PopupMenuItem(
-            value: p,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            child: _PresenceOption(choice: p, checked: p == state.ownPresence),
-          ),
-      ],
+    final choice = await showPopover<PresenceChoice>(
+      anchor,
+      width: 270,
+      children: [for (final p in PresenceChoice.values) _PresenceOption(choice: p, checked: p == state.ownPresence)],
     );
     if (choice == null) return;
     try {
@@ -814,40 +802,70 @@ String presenceChoiceLabel(PresenceChoice p) => switch (p) {
   PresenceChoice.invisible => 'Invisible',
 };
 
-class _PresenceOption extends StatelessWidget {
+/// One choice in the presence menu: picks it on a click, or Enter when it
+/// has the keyboard.
+class _PresenceOption extends StatefulWidget {
   const _PresenceOption({required this.choice, required this.checked});
 
   final PresenceChoice choice;
   final bool checked;
 
   @override
+  State<_PresenceOption> createState() => _PresenceOptionState();
+}
+
+class _PresenceOptionState extends State<_PresenceOption> {
+  bool _hover = false;
+  bool _focus = false;
+
+  @override
   Widget build(BuildContext context) {
+    final choice = widget.choice;
     final (word, help) = switch (choice) {
       PresenceChoice.online => ('online', 'Shown as online.'),
       PresenceChoice.away => ('away', 'Shown as away. Set by itself after 10 minutes idle.'),
       PresenceChoice.doNotDisturb => ('dnd', 'Shown as do not disturb. Your notifications are silenced.'),
       PresenceChoice.invisible => ('offline', 'Shown as offline. You still get everything.'),
     };
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(color: checked ? PColors.active : null, borderRadius: BorderRadius.circular(12)),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(padding: const EdgeInsets.only(top: 4), child: PresenceDot(word)),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(presenceChoiceLabel(choice), style: PType.name),
-                const SizedBox(height: 2),
-                Text(help, style: const TextStyle(fontSize: 12, height: 1.4, color: PColors.textFaint)),
-              ],
-            ),
+    void pick() => Navigator.of(context).pop(choice);
+    return FocusableActionDetector(
+      mouseCursor: SystemMouseCursors.click,
+      onShowHoverHighlight: (v) => setState(() => _hover = v),
+      onShowFocusHighlight: (v) => setState(() => _focus = v),
+      actions: {ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: (_) => pick())},
+      child: GestureDetector(
+        onTap: pick,
+        child: AnimatedContainer(
+          duration: PMotion.fast,
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: widget.checked ? PColors.active : (_hover || _focus ? PColors.hoverStrong : Colors.transparent),
+            borderRadius: BorderRadius.circular(10),
           ),
-        ],
+          child: _content(word, help),
+        ),
       ),
+    );
+  }
+
+  Widget _content(String word, String help) {
+    final choice = widget.choice;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(padding: const EdgeInsets.only(top: 4), child: PresenceDot(word)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(presenceChoiceLabel(choice), style: PType.name),
+              const SizedBox(height: 2),
+              Text(help, style: const TextStyle(fontSize: 12, height: 1.4, color: PColors.textFaint)),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
