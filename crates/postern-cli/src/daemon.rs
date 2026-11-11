@@ -9,36 +9,15 @@
 //! - `subscribe`: send this client `event` notifications from now on.
 //! - `schema`: the OpenRPC document.
 
-use std::time::Duration;
-
 use postern_api::{ApiError, Needs};
 use postern_core::Core;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncWrite, AsyncWriteExt as _, BufReader};
 use tokio::sync::mpsc;
 
-/// Keep the core connected: connect, process wakes until the connection
-/// drops, then reconnect with backoff. Runs until cancelled.
+/// Keep the core connected, reconnecting with backoff. Runs until cancelled.
 pub async fn supervise(core: Core) {
-    let mut delay = Duration::from_secs(1);
-    loop {
-        match core.connect().await {
-            Ok(()) => {
-                delay = Duration::from_secs(1);
-                if let Err(e) = core.listen().await {
-                    tracing::info!(error = %e, "connection lost");
-                }
-            }
-            Err(postern_core::Error::NotRegistered) => {
-                // Nothing to connect until `register` is called.
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                continue;
-            }
-            Err(e) => tracing::warn!(error = %e, retry_in = ?delay, "could not connect"),
-        }
-        tokio::time::sleep(delay).await;
-        delay = (delay * 2).min(Duration::from_secs(60));
-    }
+    core.run().await;
 }
 
 fn error_response(id: Value, code: i64, message: &str) -> Value {

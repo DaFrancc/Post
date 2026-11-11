@@ -572,6 +572,32 @@ impl Core {
         self.engine.lock().await.sync().await
     }
 
+    /// Stay connected for as long as the returned future runs: connect, stay
+    /// live, and reconnect with backoff (1 second doubling to a minute) when
+    /// the connection drops. Waits quietly while there is no account yet.
+    /// Cancel it by dropping or aborting the task running it.
+    pub async fn run(&self) {
+        let mut delay = std::time::Duration::from_secs(1);
+        loop {
+            match self.connect().await {
+                Ok(()) => {
+                    delay = std::time::Duration::from_secs(1);
+                    if let Err(e) = self.listen().await {
+                        tracing::info!(error = %e, "connection lost");
+                    }
+                }
+                Err(Error::NotRegistered) => {
+                    // Nothing to connect to until an account exists.
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    continue;
+                }
+                Err(e) => tracing::warn!(error = %e, retry_in = ?delay, "could not connect"),
+            }
+            tokio::time::sleep(delay).await;
+            delay = (delay * 2).min(std::time::Duration::from_secs(60));
+        }
+    }
+
     /// Stay live until a connection drops: process server wakes, relayed
     /// typing and presence, and repeat this account's presence every ten
     /// minutes. Returns [`Error::NotConnected`] when a connection drops; call
@@ -858,6 +884,7 @@ fn core_futures_are_send(c: &Core, conv: ConversationId, msg: MessageId) {
     send(c.is_connected());
     send(c.sync());
     send(c.listen());
+    send(c.run());
     send(c.start_dm(""));
     send(c.create_group("", &[]));
     send(c.members(conv));
