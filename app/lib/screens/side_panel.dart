@@ -113,10 +113,9 @@ class _MembersState extends State<_Members> {
   }
 
   Future<void> _memberMenu(MemberInfo m, Offset at) async {
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final choice = await showMenu<String>(
       context: context,
-      position: RelativeRect.fromRect(at & const Size(1, 1), Offset.zero & overlay.size),
+      position: menuAt(context, at),
       items: [
         if (!m.you) const PopupMenuItem(value: 'dm', child: Text('Message')),
         if (!m.you) const PopupMenuItem(value: 'nickname', child: Text('Set nickname')),

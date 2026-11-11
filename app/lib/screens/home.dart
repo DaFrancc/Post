@@ -526,10 +526,9 @@ class _ConversationRowState extends State<_ConversationRow> {
   Future<void> _menu(Offset at) async {
     final c = widget.c;
     final state = widget.state;
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
     final choice = await showMenu<String>(
       context: context,
-      position: RelativeRect.fromRect(at & const Size(1, 1), Offset.zero & overlay.size),
+      position: menuAt(context, at),
       items: [
         if (c.unread > 0) const PopupMenuItem(value: 'read', child: Text('Mark as read')),
         if (!c.isGroup && c.peer != null) const PopupMenuItem(value: 'nickname', child: Text('Set nickname')),

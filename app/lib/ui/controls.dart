@@ -347,6 +347,16 @@ class PDialogActions extends StatelessWidget {
   }
 }
 
+/// Where to open a context menu so its corner is at the pointer. Pointer
+/// positions are in window coordinates; menus open in the navigator's
+/// overlay, which sits inside the window frame (below the title bar, inside
+/// the margin), so the point is converted.
+RelativeRect menuAt(BuildContext context, Offset globalPosition) {
+  final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
+  final at = overlay.globalToLocal(globalPosition);
+  return RelativeRect.fromRect(at & const Size(1, 1), Offset.zero & overlay.size);
+}
+
 /// Ask before something that cannot be undone. Returns true to go ahead.
 Future<bool> confirm(BuildContext context, {required String title, required String body, required String action, bool danger = false}) async {
   final ok = await showDialog<bool>(

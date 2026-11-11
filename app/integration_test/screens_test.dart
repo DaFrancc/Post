@@ -12,6 +12,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -222,6 +223,17 @@ void main() {
 
     await _tap(t, find.text('Bob B'));
     await _shot(t, '06-dm-unread-read');
+
+    // A right-click menu opens with its corner at the pointer.
+    final click = t.getCenter(find.text('Carol C').first);
+    await t.tapAt(click, buttons: kSecondaryButton);
+    await _wait(t, find.text('Set nickname'));
+    await _shot(t, '06b-context-menu');
+    final item = t.getRect(find.byWidgetPredicate((w) => w is PopupMenuItem).first);
+    expect(item.left - click.dx, inInclusiveRange(0, 30), reason: 'menu starts at the pointer, not away from it');
+    expect(item.top - click.dy, inInclusiveRange(0, 30), reason: 'menu starts at the pointer, not away from it');
+    await t.sendKeyEvent(LogicalKeyboardKey.escape);
+    await _settle(t);
 
     await _tap(t, find.text('Sam'));
     await _shot(t, '07-presence-menu');
