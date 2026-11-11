@@ -14,7 +14,9 @@ abstract final class PColors {
   static const panelRaised = Color(0xFF161827);
   static const sunken = Color(0xFF0A0B12);
   static const hover = Color(0xFF181A29);
+  static const hoverStrong = Color(0xFF1D2034);
   static const selected = Color(0xFF1E2134);
+  static const dialog = Color(0xFF12131F);
   static const border = Color(0xFF1A1C2B);
   static const borderStrong = Color(0xFF2A2D44);
 
@@ -34,6 +36,15 @@ abstract final class PColors {
   static const dnd = Color(0xFFF25F7A);
   static const offline = Color(0xFF6B7088);
   static const danger = Color(0xFFF25F7A);
+  static const dangerSoft = Color(0xFF2A1520);
+  static const dangerText = Color(0xFFFFB3C1);
+  static const verified = Color(0xFF3DD68C);
+  static const unverified = Color(0xFFF2B33D);
+  static const adminSoft = Color(0xFF1D2240);
+  static const adminText = Color(0xFF9DB0FF);
+
+  /// Text on an avatar colour.
+  static const onAvatar = Color(0xFF0B0C14);
 
   /// Avatar colours, picked by a stable hash of the username.
   static const avatars = [
@@ -100,6 +111,30 @@ ThemeData posternTheme() {
     textTheme: base.textTheme.apply(bodyColor: PColors.text, displayColor: PColors.text, fontFamily: PType.body),
     dividerColor: PColors.border,
     splashFactory: InkSparkle.splashFactory,
+    popupMenuTheme: PopupMenuThemeData(
+      color: PColors.panelRaised,
+      surfaceTintColor: Colors.transparent,
+      elevation: 12,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: PColors.borderStrong)),
+      textStyle: const TextStyle(fontFamily: PType.body, fontSize: 14, color: PColors.text),
+    ),
+    dialogTheme: const DialogThemeData(backgroundColor: PColors.dialog, surfaceTintColor: Colors.transparent),
+    scrollbarTheme: ScrollbarThemeData(
+      thumbColor: WidgetStateProperty.all(PColors.borderStrong),
+      thickness: WidgetStateProperty.all(6),
+      radius: const Radius.circular(3),
+    ),
+    checkboxTheme: CheckboxThemeData(
+      side: const BorderSide(color: PColors.borderStrong, width: 1.5),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: PColors.accentText,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        textStyle: const TextStyle(fontFamily: PType.body, fontWeight: FontWeight.w500, fontSize: 13.5),
+      ),
+    ),
     tooltipTheme: const TooltipThemeData(
       decoration: BoxDecoration(color: PColors.panelRaised, borderRadius: BorderRadius.all(Radius.circular(8))),
       textStyle: TextStyle(fontFamily: PType.body, fontSize: 12.5, color: PColors.text),

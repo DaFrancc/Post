@@ -9,6 +9,7 @@ import 'package:postern/src/rust/api/client.dart';
 import 'package:postern/src/rust/api/error.dart';
 
 import '../theme.dart';
+import '../ui/controls.dart';
 
 /// Checks for the common mistakes, before anything is sent. The core checks
 /// again; these just say what is wrong, next to the field it is about.
@@ -219,10 +220,10 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       title: 'Create an account',
       onBack: _busy ? null : () => _go(_Step.choose),
       error: _error,
-      action: FilledButton(onPressed: _busy ? null : _register, child: _busy ? const _Spinner() : const Text('Create account')),
+      action: FilledButton(onPressed: _busy ? null : _register, child: _busy ? const PSpinner() : const Text('Create account')),
       children: [
-        _Field(label: 'Server', controller: _server, hint: 'wss://chat.example.org/v1/ws', enabled: !_busy, error: _fieldErrors['server']),
-        _Field(
+        PField(label: 'Server', controller: _server, hint: 'wss://chat.example.org/v1/ws', enabled: !_busy, error: _fieldErrors['server']),
+        PField(
           label: 'Invite code',
           controller: _invite,
           hint: 'From your server’s admin',
@@ -230,7 +231,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           mono: true,
           error: _fieldErrors['invite'],
         ),
-        _Field(
+        PField(
           label: 'Username',
           controller: _username,
           hint: 'e.g. sam',
@@ -248,10 +249,10 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       title: 'Link to my account',
       onBack: _busy ? null : () => _go(_Step.choose),
       error: _error,
-      action: FilledButton(onPressed: _busy ? null : _link, child: _busy ? const _Spinner() : const Text('Get a link code')),
+      action: FilledButton(onPressed: _busy ? null : _link, child: _busy ? const PSpinner() : const Text('Get a link code')),
       children: [
-        _Field(label: 'Server', controller: _server, hint: 'wss://chat.example.org/v1/ws', enabled: !_busy, error: _fieldErrors['server']),
-        _Field(
+        PField(label: 'Server', controller: _server, hint: 'wss://chat.example.org/v1/ws', enabled: !_busy, error: _fieldErrors['server']),
+        PField(
           label: 'Device name',
           controller: _deviceName,
           help: 'Shown only on your own devices.',
@@ -295,7 +296,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         ),
         const Row(
           children: [
-            _Spinner(),
+            PSpinner(),
             SizedBox(width: 12),
             Expanded(child: Text('Waiting for your other device. The code works for ten minutes.', style: PType.small)),
           ],
@@ -378,11 +379,7 @@ class _Form extends StatelessWidget {
         const SizedBox(height: 20),
         for (final c in children) ...[c, const SizedBox(height: 16)],
         if (error != null) ...[
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: const Color(0xFF2A1520), borderRadius: BorderRadius.circular(12)),
-            child: Text(error!, style: const TextStyle(fontSize: 13, height: 1.4, color: Color(0xFFFFB3C1))),
-          ),
+          PErrorBox(error!),
           const SizedBox(height: 16),
         ],
         if (action != null) Align(alignment: Alignment.centerRight, child: action!),
@@ -391,63 +388,3 @@ class _Form extends StatelessWidget {
   }
 }
 
-class _Field extends StatelessWidget {
-  const _Field({
-    required this.label,
-    required this.controller,
-    this.hint,
-    this.help,
-    this.error,
-    this.enabled = true,
-    this.mono = false,
-    this.onSubmitted,
-  });
-
-  final String label;
-  final TextEditingController controller;
-  final String? hint;
-  final String? help;
-  final String? error;
-  final bool enabled;
-  final bool mono;
-  final ValueChanged<String>? onSubmitted;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label.toUpperCase(), style: PType.label),
-        const SizedBox(height: 8),
-        TextField(
-          controller: controller,
-          enabled: enabled,
-          onSubmitted: onSubmitted,
-          autocorrect: false,
-          style: TextStyle(fontSize: 14.5, color: PColors.text, fontFamily: mono ? 'monospace' : PType.body),
-          decoration: InputDecoration(
-            hintText: hint,
-            enabledBorder: error == null
-                ? null
-                : OutlineInputBorder(borderRadius: BorderRadius.circular(PShape.controlRadius), borderSide: const BorderSide(color: PColors.danger)),
-          ),
-        ),
-        if (error != null) ...[
-          const SizedBox(height: 6),
-          Text(error!, style: const TextStyle(fontSize: 12.5, height: 1.4, color: Color(0xFFFF9DB0))),
-        ] else if (help != null) ...[
-          const SizedBox(height: 6),
-          Text(help!, style: PType.small),
-        ],
-      ],
-    );
-  }
-}
-
-class _Spinner extends StatelessWidget {
-  const _Spinner();
-
-  @override
-  Widget build(BuildContext context) =>
-      const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: PColors.accentText));
-}
