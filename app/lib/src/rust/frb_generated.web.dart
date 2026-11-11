@@ -65,7 +65,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Identity dco_decode_box_autoadd_identity(dynamic raw);
 
   @protected
+  MessageInfo dco_decode_box_autoadd_message_info(dynamic raw);
+
+  @protected
+  ProfileChange dco_decode_box_autoadd_profile_change(dynamic raw);
+
+  @protected
   ConversationInfo dco_decode_conversation_info(dynamic raw);
+
+  @protected
+  DeviceInfo dco_decode_device_info(dynamic raw);
 
   @protected
   ErrorKind dco_decode_error_kind(dynamic raw);
@@ -83,16 +92,43 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Identity dco_decode_identity(dynamic raw);
 
   @protected
+  LinkRequestInfo dco_decode_link_request_info(dynamic raw);
+
+  @protected
+  List<String> dco_decode_list_String(dynamic raw);
+
+  @protected
   List<ConversationInfo> dco_decode_list_conversation_info(dynamic raw);
+
+  @protected
+  List<DeviceInfo> dco_decode_list_device_info(dynamic raw);
+
+  @protected
+  List<MemberInfo> dco_decode_list_member_info(dynamic raw);
 
   @protected
   List<MessageInfo> dco_decode_list_message_info(dynamic raw);
 
   @protected
+  List<MessageVersionInfo> dco_decode_list_message_version_info(dynamic raw);
+
+  @protected
+  List<NoticeInfo> dco_decode_list_notice_info(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  MemberInfo dco_decode_member_info(dynamic raw);
+
+  @protected
   MessageInfo dco_decode_message_info(dynamic raw);
+
+  @protected
+  MessageVersionInfo dco_decode_message_version_info(dynamic raw);
+
+  @protected
+  NoticeInfo dco_decode_notice_info(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
@@ -101,7 +137,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Identity? dco_decode_opt_box_autoadd_identity(dynamic raw);
 
   @protected
+  MessageInfo? dco_decode_opt_box_autoadd_message_info(dynamic raw);
+
+  @protected
+  PersonInfo dco_decode_person_info(dynamic raw);
+
+  @protected
   PosternError dco_decode_postern_error(dynamic raw);
+
+  @protected
+  PresenceChoice dco_decode_presence_choice(dynamic raw);
+
+  @protected
+  PresenceState dco_decode_presence_state(dynamic raw);
+
+  @protected
+  ProfileChange dco_decode_profile_change(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
@@ -154,7 +205,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Identity sse_decode_box_autoadd_identity(SseDeserializer deserializer);
 
   @protected
+  MessageInfo sse_decode_box_autoadd_message_info(SseDeserializer deserializer);
+
+  @protected
+  ProfileChange sse_decode_box_autoadd_profile_change(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   ConversationInfo sse_decode_conversation_info(SseDeserializer deserializer);
+
+  @protected
+  DeviceInfo sse_decode_device_info(SseDeserializer deserializer);
 
   @protected
   ErrorKind sse_decode_error_kind(SseDeserializer deserializer);
@@ -172,18 +234,49 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Identity sse_decode_identity(SseDeserializer deserializer);
 
   @protected
+  LinkRequestInfo sse_decode_link_request_info(SseDeserializer deserializer);
+
+  @protected
+  List<String> sse_decode_list_String(SseDeserializer deserializer);
+
+  @protected
   List<ConversationInfo> sse_decode_list_conversation_info(
     SseDeserializer deserializer,
   );
 
   @protected
+  List<DeviceInfo> sse_decode_list_device_info(SseDeserializer deserializer);
+
+  @protected
+  List<MemberInfo> sse_decode_list_member_info(SseDeserializer deserializer);
+
+  @protected
   List<MessageInfo> sse_decode_list_message_info(SseDeserializer deserializer);
+
+  @protected
+  List<MessageVersionInfo> sse_decode_list_message_version_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  List<NoticeInfo> sse_decode_list_notice_info(SseDeserializer deserializer);
 
   @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  MemberInfo sse_decode_member_info(SseDeserializer deserializer);
+
+  @protected
   MessageInfo sse_decode_message_info(SseDeserializer deserializer);
+
+  @protected
+  MessageVersionInfo sse_decode_message_version_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  NoticeInfo sse_decode_notice_info(SseDeserializer deserializer);
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
@@ -192,7 +285,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Identity? sse_decode_opt_box_autoadd_identity(SseDeserializer deserializer);
 
   @protected
+  MessageInfo? sse_decode_opt_box_autoadd_message_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  PersonInfo sse_decode_person_info(SseDeserializer deserializer);
+
+  @protected
   PosternError sse_decode_postern_error(SseDeserializer deserializer);
+
+  @protected
+  PresenceChoice sse_decode_presence_choice(SseDeserializer deserializer);
+
+  @protected
+  PresenceState sse_decode_presence_state(SseDeserializer deserializer);
+
+  @protected
+  ProfileChange sse_decode_profile_change(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
@@ -252,10 +362,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_box_autoadd_identity(Identity self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_message_info(
+    MessageInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_profile_change(
+    ProfileChange self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_conversation_info(
     ConversationInfo self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_device_info(DeviceInfo self, SseSerializer serializer);
 
   @protected
   void sse_encode_error_kind(ErrorKind self, SseSerializer serializer);
@@ -273,8 +398,29 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_identity(Identity self, SseSerializer serializer);
 
   @protected
+  void sse_encode_link_request_info(
+    LinkRequestInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_conversation_info(
     List<ConversationInfo> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_device_info(
+    List<DeviceInfo> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_member_info(
+    List<MemberInfo> self,
     SseSerializer serializer,
   );
 
@@ -285,13 +431,37 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_message_version_info(
+    List<MessageVersionInfo> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_notice_info(
+    List<NoticeInfo> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
   );
 
   @protected
+  void sse_encode_member_info(MemberInfo self, SseSerializer serializer);
+
+  @protected
   void sse_encode_message_info(MessageInfo self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_message_version_info(
+    MessageVersionInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_notice_info(NoticeInfo self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
@@ -303,7 +473,28 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_message_info(
+    MessageInfo? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_person_info(PersonInfo self, SseSerializer serializer);
+
+  @protected
   void sse_encode_postern_error(PosternError self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_presence_choice(
+    PresenceChoice self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_presence_state(PresenceState self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_profile_change(ProfileChange self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);

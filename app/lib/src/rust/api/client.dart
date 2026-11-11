@@ -8,10 +8,16 @@ import 'error.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `app_event`, `conversation`, `identity`, `message`
+// These functions are ignored because they are not marked as `pub`: `app_event`, `conversation`, `identity`, `message`, `ms`, `sentence`
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>
 abstract class Client implements RustOpaqueInterface {
+  /// As an admin: add people to a group.
+  Future<void> addMembers({
+    required String conversation,
+    required List<String> usernames,
+  });
+
   /// On a new device: offer it for linking to an existing account on
   /// `server`, as `device_name`. Returns the code to show; then call
   /// [`Client::finish_link`].
@@ -20,8 +26,33 @@ abstract class Client implements RustOpaqueInterface {
     required String deviceName,
   });
 
+  /// One conversation.
+  Future<ConversationInfo> conversation({required String id});
+
   /// Conversations, most recent first.
   Future<List<ConversationInfo>> conversations();
+
+  /// Create a group named `name` with these people, the user as admin.
+  Future<ConversationInfo> createGroup({
+    required String name,
+    required List<String> usernames,
+  });
+
+  /// Delete one of the user's messages, with every version, for everyone.
+  Future<void> deleteMessage({
+    required String conversation,
+    required String messageId,
+  });
+
+  /// The account's devices, oldest first.
+  Future<List<DeviceInfo>> devices();
+
+  /// Edit one of the user's messages. Every version stays visible.
+  Future<MessageInfo> editMessage({
+    required String conversation,
+    required String messageId,
+    required String text,
+  });
 
   /// Live events, until the Dart stream is closed.
   Stream<AppEvent> events();
@@ -33,16 +64,57 @@ abstract class Client implements RustOpaqueInterface {
   /// The account on this device, if there is one yet.
   Future<Identity?> identity();
 
+  /// Whether the app is connected to the server now.
+  Future<bool> isConnected();
+
+  /// Leave a group, with all the user's devices.
+  Future<void> leaveGroup({required String conversation});
+
+  /// On this device: add the device behind a link code to the account and
+  /// every conversation.
+  Future<LinkRequestInfo> linkApprove({required String code});
+
+  /// On this device: which device a link code would add.
+  Future<LinkRequestInfo> linkInspect({required String code});
+
+  /// Mark a conversation read, on all the user's devices.
+  Future<void> markRead({required String conversation});
+
+  /// The members, the user first.
+  Future<List<MemberInfo>> members({required String conversation});
+
+  /// Every version of a message, the original first.
+  Future<List<MessageVersionInfo>> messageVersions({
+    required String conversation,
+    required String messageId,
+  });
+
   /// The newest `limit` messages of a conversation, oldest first.
   Future<List<MessageInfo>> messages({
     required String conversation,
     required int limit,
   });
 
+  /// Notices about a conversation, or with `None` about the account, oldest
+  /// first.
+  Future<List<NoticeInfo>> notices({String? conversation, required int limit});
+
   /// Open (creating if needed) the profile in `profile_dir`. Its database
   /// key comes from the platform keystore, made on first open.
   static Future<Client> open({required String profileDir}) =>
       RustLib.instance.api.crateApiClientClientOpen(profileDir: profileDir);
+
+  /// The presence the user chose.
+  Future<PresenceChoice> ownPresence();
+
+  /// What this device knows about someone.
+  Future<PersonInfo> person({required String username});
+
+  /// Someone's presence, as this device last heard it.
+  Future<PresenceState> presence({required String username});
+
+  /// Give this device fresh keys in every conversation now.
+  Future<void> refreshKeys();
 
   /// Create an account with an invite.
   Future<Identity> register({
@@ -51,15 +123,73 @@ abstract class Client implements RustOpaqueInterface {
     required String username,
   });
 
+  /// Remove another of the account's devices from it and every conversation.
+  Future<void> removeDevice({required String device});
+
+  /// As an admin: remove people from a group.
+  Future<void> removeMembers({
+    required String conversation,
+    required List<String> usernames,
+  });
+
+  /// Name one of the account's devices.
+  Future<void> renameDevice({required String device, required String name});
+
+  /// As an admin: rename a group.
+  Future<void> renameGroup({
+    required String conversation,
+    required String name,
+  });
+
   /// Stay connected until the app closes: run this once, without awaiting
   /// its end. It reconnects by itself.
   Future<void> run();
+
+  /// The safety number between the user and `username`: 12 groups of 5
+  /// digits, separated by spaces.
+  Future<String> safetyNumber({required String username});
 
   /// Send a text message.
   Future<MessageInfo> sendText({
     required String conversation,
     required String text,
   });
+
+  /// Tell a conversation the user is typing. Call it on every keystroke;
+  /// it sends at most every three seconds.
+  Future<void> sendTyping({required String conversation});
+
+  /// As an admin: make someone an admin, or stop them being one.
+  Future<void> setAdmin({
+    required String conversation,
+    required String username,
+    required bool admin,
+  });
+
+  /// Set (or clear, with "") the user's name in one conversation.
+  Future<void> setConversationName({
+    required String conversation,
+    required String name,
+  });
+
+  /// Set (or clear, with "") a private nickname for someone.
+  Future<void> setNickname({
+    required String username,
+    required String nickname,
+  });
+
+  /// Choose the presence others see.
+  Future<void> setPresence({required PresenceChoice choice});
+
+  /// Change the user's profile and share it with every conversation.
+  Future<void> setProfile({required ProfileChange change});
+
+  /// Record that the user compared safety numbers with someone, or (false)
+  /// withdraw it.
+  Future<void> setVerified({required String username, required bool verified});
+
+  /// Open a DM with `username`, creating it if needed.
+  Future<ConversationInfo> startDm({required String username});
 
   /// Fetch everything new now.
   Future<void> sync_();
@@ -121,6 +251,12 @@ class ConversationInfo {
   /// False once this device left or was removed.
   final bool following;
 
+  /// Messages from others since the user last read it.
+  final int unread;
+
+  /// The newest message, for a preview.
+  final MessageInfo? lastMessage;
+
   const ConversationInfo({
     required this.id,
     required this.isGroup,
@@ -128,6 +264,8 @@ class ConversationInfo {
     this.peer,
     required this.lastActivityMs,
     required this.following,
+    required this.unread,
+    this.lastMessage,
   });
 
   @override
@@ -137,7 +275,9 @@ class ConversationInfo {
       title.hashCode ^
       peer.hashCode ^
       lastActivityMs.hashCode ^
-      following.hashCode;
+      following.hashCode ^
+      unread.hashCode ^
+      lastMessage.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -149,12 +289,44 @@ class ConversationInfo {
           title == other.title &&
           peer == other.peer &&
           lastActivityMs == other.lastActivityMs &&
-          following == other.following;
+          following == other.following &&
+          unread == other.unread &&
+          lastMessage == other.lastMessage;
+}
+
+/// One of this account's devices.
+class DeviceInfo {
+  /// Device ID, hex.
+  final String id;
+
+  /// Its name; empty if none.
+  final String name;
+
+  /// The device this app runs on.
+  final bool thisDevice;
+
+  const DeviceInfo({
+    required this.id,
+    required this.name,
+    required this.thisDevice,
+  });
+
+  @override
+  int get hashCode => id.hashCode ^ name.hashCode ^ thisDevice.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DeviceInfo &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          name == other.name &&
+          thisDevice == other.thisDevice;
 }
 
 /// What changed. The app re-reads what it shows for that kind.
 enum EventKind {
-  /// The conversation list (one was added, renamed, left).
+  /// The conversation list (one was added, renamed, left, read).
   conversations,
 
   /// Messages in `conversation`.
@@ -166,7 +338,7 @@ enum EventKind {
   /// `username` is typing in `conversation`; `text` is what to show.
   typing,
 
-  /// `username`'s presence is now `text`.
+  /// `username`'s presence is now `text`: online, away, dnd or offline.
   presence,
 
   /// `username` added or removed devices.
@@ -221,6 +393,73 @@ class Identity {
           bot == other.bot;
 }
 
+/// A device asking to join this account.
+class LinkRequestInfo {
+  /// Its device ID, hex.
+  final String deviceId;
+
+  /// The name its user gave it; empty if none.
+  final String name;
+
+  const LinkRequestInfo({required this.deviceId, required this.name});
+
+  @override
+  int get hashCode => deviceId.hashCode ^ name.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LinkRequestInfo &&
+          runtimeType == other.runtimeType &&
+          deviceId == other.deviceId &&
+          name == other.name;
+}
+
+/// A member of a conversation.
+class MemberInfo {
+  /// Username.
+  final String username;
+
+  /// The name the viewer sees for them here.
+  final String shownName;
+
+  /// May add and remove people and change the group's details.
+  final bool admin;
+
+  /// How many of their devices are in the conversation.
+  final int devices;
+
+  /// It is the viewer.
+  final bool you;
+
+  const MemberInfo({
+    required this.username,
+    required this.shownName,
+    required this.admin,
+    required this.devices,
+    required this.you,
+  });
+
+  @override
+  int get hashCode =>
+      username.hashCode ^
+      shownName.hashCode ^
+      admin.hashCode ^
+      devices.hashCode ^
+      you.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MemberInfo &&
+          runtimeType == other.runtimeType &&
+          username == other.username &&
+          shownName == other.shownName &&
+          admin == other.admin &&
+          devices == other.devices &&
+          you == other.you;
+}
+
 /// A message.
 class MessageInfo {
   /// Message ID, hex.
@@ -250,6 +489,9 @@ class MessageInfo {
   /// A kind of message this version does not understand.
   final bool unsupported;
 
+  /// Edited at least once.
+  final bool edited;
+
   /// Number of versions, the original included.
   final int versions;
 
@@ -269,6 +511,7 @@ class MessageInfo {
     this.body,
     required this.deleted,
     required this.unsupported,
+    required this.edited,
     required this.versions,
     required this.pending,
     required this.failed,
@@ -285,6 +528,7 @@ class MessageInfo {
       body.hashCode ^
       deleted.hashCode ^
       unsupported.hashCode ^
+      edited.hashCode ^
       versions.hashCode ^
       pending.hashCode ^
       failed.hashCode;
@@ -303,7 +547,193 @@ class MessageInfo {
           body == other.body &&
           deleted == other.deleted &&
           unsupported == other.unsupported &&
+          edited == other.edited &&
           versions == other.versions &&
           pending == other.pending &&
           failed == other.failed;
+}
+
+/// One version of an edited message.
+class MessageVersionInfo {
+  /// 0 is the original.
+  final int version;
+
+  /// Its text.
+  final String body;
+
+  /// When it was written, by the sender's clock (Unix ms).
+  final PlatformInt64 atMs;
+
+  /// Not yet accepted by the server (own edits only).
+  final bool pending;
+
+  const MessageVersionInfo({
+    required this.version,
+    required this.body,
+    required this.atMs,
+    required this.pending,
+  });
+
+  @override
+  int get hashCode =>
+      version.hashCode ^ body.hashCode ^ atMs.hashCode ^ pending.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MessageVersionInfo &&
+          runtimeType == other.runtimeType &&
+          version == other.version &&
+          body == other.body &&
+          atMs == other.atMs &&
+          pending == other.pending;
+}
+
+/// Something the user was told, usually a security warning.
+class NoticeInfo {
+  /// When (Unix ms).
+  final PlatformInt64 atMs;
+
+  /// What happened, as a sentence.
+  final String text;
+
+  const NoticeInfo({required this.atMs, required this.text});
+
+  @override
+  int get hashCode => atMs.hashCode ^ text.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NoticeInfo &&
+          runtimeType == other.runtimeType &&
+          atMs == other.atMs &&
+          text == other.text;
+}
+
+/// What this device knows about a person.
+class PersonInfo {
+  /// Username.
+  final String username;
+
+  /// The name shown for them outside any conversation.
+  final String shownName;
+
+  /// The display name they chose; empty if none.
+  final String displayName;
+
+  /// The viewer's private nickname for them; empty if none.
+  final String nickname;
+
+  /// Their typing template; empty for the standard text.
+  final String typingTemplate;
+
+  /// Their note, if set and not expired.
+  final String? note;
+
+  /// The viewer compared safety numbers with them.
+  final bool verified;
+
+  const PersonInfo({
+    required this.username,
+    required this.shownName,
+    required this.displayName,
+    required this.nickname,
+    required this.typingTemplate,
+    this.note,
+    required this.verified,
+  });
+
+  @override
+  int get hashCode =>
+      username.hashCode ^
+      shownName.hashCode ^
+      displayName.hashCode ^
+      nickname.hashCode ^
+      typingTemplate.hashCode ^
+      note.hashCode ^
+      verified.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PersonInfo &&
+          runtimeType == other.runtimeType &&
+          username == other.username &&
+          shownName == other.shownName &&
+          displayName == other.displayName &&
+          nickname == other.nickname &&
+          typingTemplate == other.typingTemplate &&
+          note == other.note &&
+          verified == other.verified;
+}
+
+/// The presence the user chooses to show.
+enum PresenceChoice {
+  /// Shown online.
+  online,
+
+  /// Shown away.
+  away,
+
+  /// Shown as not to be disturbed; notifications are silenced.
+  doNotDisturb,
+
+  /// Shown offline; everything still arrives.
+  invisible,
+}
+
+/// What others see of someone.
+enum PresenceState {
+  /// Away from the app for a while, signed off, or invisible.
+  offline,
+
+  /// Using the app.
+  online,
+
+  /// Set by hand, or idle for ten minutes.
+  away,
+
+  /// Not to be disturbed.
+  doNotDisturb,
+}
+
+/// A change to the user's profile. `None` leaves a field as it is; an empty
+/// string clears it.
+class ProfileChange {
+  /// Display name.
+  final String? displayName;
+
+  /// Typing template, containing `$$NAME$$`.
+  final String? typingTemplate;
+
+  /// Note.
+  final String? note;
+
+  /// With a new note: keep it until changed, rather than for 24 hours.
+  final bool noteKeep;
+
+  const ProfileChange({
+    this.displayName,
+    this.typingTemplate,
+    this.note,
+    required this.noteKeep,
+  });
+
+  @override
+  int get hashCode =>
+      displayName.hashCode ^
+      typingTemplate.hashCode ^
+      note.hashCode ^
+      noteKeep.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ProfileChange &&
+          runtimeType == other.runtimeType &&
+          displayName == other.displayName &&
+          typingTemplate == other.typingTemplate &&
+          note == other.note &&
+          noteKeep == other.noteKeep;
 }
