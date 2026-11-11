@@ -762,12 +762,9 @@ class _FlyingState extends State<_Flying> with SingleTickerProviderStateMixin {
         final laid = drawn is RenderBox && drawn.hasSize ? drawn.size : from.size;
         final size = laid * grow;
 
-        // A big message swings less: the more lines and the wider they run,
-        // the gentler its arc. A short line takes the full swing; a long
-        // paragraph barely bows.
-        final lines = laid.height / ((widget.toStyle.fontSize ?? 14) * (widget.toStyle.height ?? 1.5));
-        final span = (laid.width / math.max(dest.width, 1)).clamp(0.0, 1.0);
-        final calm = 1 / (1 + 0.7 * math.max(lines - 1, 0)) * (1 - 0.5 * span);
+        // A longer message swings less: a few words take nearly the full
+        // swing, 80 characters half of it, a paragraph barely bows.
+        final calm = 1 / (1 + f.body.length / 80);
         final rise = (from.top - dest.top).abs();
         final bulge = math.min((90 + rise * 0.5).clamp(110.0, 220.0), local(row).width * 0.4) * calm;
         final at = _arc(from.topLeft, dest.topLeft, bulge, _travel.transform(v));
