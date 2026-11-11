@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:post/src/rust/api/client.dart';
 
 import '../state/app_state.dart';
+import '../state/spelling.dart';
 import '../theme.dart';
 import '../ui/arrival.dart';
 import '../ui/controls.dart';
@@ -20,6 +21,7 @@ import '../ui/markup.dart';
 import '../ui/markup_text.dart';
 import 'dialogs.dart';
 import 'home.dart' show Panel;
+import 'settings.dart' show SettingsSection, showSettings;
 
 /// Messages from one sender this close together share one header.
 const _groupWithin = Duration(minutes: 7);
@@ -650,6 +652,12 @@ class _ChatViewState extends State<ChatView> {
                 onKey: _composerKey,
                 onChanged: _typed,
                 onSend: _send,
+                contextMenuBuilder: (context, editable) => _ComposerMenu(
+                  editable: editable,
+                  misspelled: _composer.misspelled,
+                  spelling: _state.spelling,
+                  onSpellingSettings: () => unawaited(showSettings(this.context, _state, section: SettingsSection.spelling)),
+                ),
               ),
             )
           else
@@ -1890,6 +1898,191 @@ class _FormatButtonState extends State<_FormatButton> {
   }
 }
 
+/// The composer's right-click menu, in the app's menu style: corrections
+/// for a misspelled word and adding it to your dictionary, then the editing
+/// commands with their shortcuts, then spelling's own switch and settings.
+class _ComposerMenu extends StatefulWidget {
+  const _ComposerMenu({required this.editable, required this.misspelled, required this.spelling, required this.onSpellingSettings});
+
+  final EditableTextState editable;
+  final List<TextRange> misspelled;
+  final Spelling spelling;
+  final VoidCallback onSpellingSettings;
+
+  @override
+  State<_ComposerMenu> createState() => _ComposerMenuState();
+}
+
+class _ComposerMenuState extends State<_ComposerMenu> {
+  /// The misspelled word clicked, if one was.
+  late final TextRange? _word = _findWord();
+  List<String>? _suggestions;
+
+  /// Under the pointer: a right-click on Linux leaves the cursor where it
+  /// was, so the click's own position says which word was meant.
+  TextRange? _findWord() {
+    final e = widget.editable;
+    final text = e.textEditingValue.text;
+    final at = e.renderEditable.getPositionForPoint(e.contextMenuAnchors.primaryAnchor).offset;
+    for (final r in widget.misspelled) {
+      if (r.end <= text.length && r.start <= at && at <= r.end) return r;
+    }
+    return null;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final w = _word;
+    if (w != null) {
+      unawaited(
+        widget.spelling.suggest(w.textInside(widget.editable.textEditingValue.text)).then((s) {
+          if (mounted) setState(() => _suggestions = s);
+        }),
+      );
+    }
+  }
+
+  void _close() => widget.editable.hideToolbar();
+
+  void _replace(TextRange r, String with_) {
+    final v = widget.editable.textEditingValue;
+    widget.editable.userUpdateTextEditingValue(
+      TextEditingValue(
+        text: v.text.replaceRange(r.start, r.end, with_),
+        selection: TextSelection.collapsed(offset: r.start + with_.length),
+      ),
+      SelectionChangedCause.toolbar,
+    );
+    _close();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final e = widget.editable;
+    final s = widget.spelling;
+    final word = _word;
+    final text = e.textEditingValue.text;
+    final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final anchor = overlay.globalToLocal(e.contextMenuAnchors.primaryAnchor);
+    final rows = <Widget>[
+      if (word != null) ...[
+        if (_suggestions == null)
+          const PMenuRow(label: 'Looking for corrections…', onTap: null)
+        else if (_suggestions!.isEmpty)
+          const PMenuRow(label: 'No corrections', onTap: null)
+        else
+          for (final sug in _suggestions!) PMenuRow(label: sug, strong: true, onTap: () => _replace(word, sug)),
+        PMenuRow(
+          label: 'Add to dictionary',
+          onTap: () {
+            unawaited(s.addWord(word.textInside(text)));
+            _close();
+          },
+        ),
+        const _MenuLine(),
+      ],
+      PMenuRow(label: 'Cut', shortcut: 'Ctrl+X', onTap: e.cutEnabled ? () => e.cutSelection(SelectionChangedCause.toolbar) : null),
+      PMenuRow(label: 'Copy', shortcut: 'Ctrl+C', onTap: e.copyEnabled ? () => e.copySelection(SelectionChangedCause.toolbar) : null),
+      PMenuRow(label: 'Paste', shortcut: 'Ctrl+V', onTap: e.pasteEnabled ? () => unawaited(e.pasteText(SelectionChangedCause.toolbar)) : null),
+      PMenuRow(
+        label: 'Select all',
+        shortcut: 'Ctrl+A',
+        onTap: e.selectAllEnabled && text.isNotEmpty
+            ? () {
+                e.selectAll(SelectionChangedCause.toolbar);
+                _close();
+              }
+            : null,
+      ),
+      const _MenuLine(),
+      PMenuRow(
+        label: 'Check spelling',
+        checked: s.enabled,
+        onTap: () {
+          unawaited(s.setEnabled(!s.enabled));
+          _close();
+        },
+      ),
+      PMenuRow(
+        label: 'Spelling settings…',
+        onTap: () {
+          _close();
+          widget.onSpellingSettings();
+        },
+      ),
+    ];
+    final theme = PopupMenuTheme.of(context);
+    return CustomSingleChildLayout(
+      delegate: _MenuAtPointer(anchor),
+      // Clicks in the menu count as clicks in the field: it keeps focus.
+      child: TextFieldTapRegion(
+        // Opening as the other menus do: quickly, with a long ease-out.
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: 1),
+          duration: pMenuAnimation.duration!,
+          curve: pMenuAnimation.curve!,
+          builder: (context, v, child) => Opacity(
+            opacity: (v * 3).clamp(0.0, 1.0),
+            // widthFactor 1: as wide as the menu, not the window.
+            child: Align(alignment: Alignment.topLeft, widthFactor: 1, heightFactor: v, child: child),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 200, maxWidth: 280),
+            child: IntrinsicWidth(
+              child: Material(
+                color: theme.color,
+                shape: theme.shape,
+                elevation: theme.elevation ?? 8,
+                clipBehavior: Clip.antiAlias,
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: rows),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A menu with its corner at the pointer, as the app's other menus: below
+/// and to the right, or above and to the left where there is no room, and
+/// always inside the window.
+class _MenuAtPointer extends SingleChildLayoutDelegate {
+  _MenuAtPointer(this.at);
+
+  final Offset at;
+  static const _margin = 8.0;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) => constraints.loosen();
+
+  @override
+  Offset getPositionForChild(Size size, Size child) {
+    var x = at.dx + child.width > size.width - _margin ? at.dx - child.width : at.dx;
+    var y = at.dy + child.height > size.height - _margin ? at.dy - child.height : at.dy;
+    x = x.clamp(_margin, math.max(_margin, size.width - child.width - _margin));
+    y = y.clamp(_margin, math.max(_margin, size.height - child.height - _margin));
+    return Offset(x, y);
+  }
+
+  @override
+  bool shouldRelayout(_MenuAtPointer old) => old.at != at;
+}
+
+class _MenuLine extends StatelessWidget {
+  const _MenuLine();
+
+  @override
+  Widget build(BuildContext context) => const Padding(
+    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+    child: Divider(height: 1, thickness: 1, color: PColors.borderStrong),
+  );
+}
+
 class _Composer extends StatelessWidget {
   const _Composer({
     required this.controller,
@@ -1903,6 +2096,7 @@ class _Composer extends StatelessWidget {
     required this.onKey,
     required this.onChanged,
     required this.onSend,
+    required this.contextMenuBuilder,
   });
 
   static const typingStyle = TextStyle(fontFamily: PType.body, fontSize: 12.5, color: PColors.textMuted);
@@ -1928,6 +2122,9 @@ class _Composer extends StatelessWidget {
   final FocusOnKeyEventCallback onKey;
   final ValueChanged<String> onChanged;
   final VoidCallback onSend;
+
+  /// Its right-click menu.
+  final EditableTextContextMenuBuilder contextMenuBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -2022,6 +2219,7 @@ class _Composer extends StatelessWidget {
                             // it holds (inline code is smaller), so the box
                             // never changes height for a style.
                             strutStyle: StrutStyle.fromTextStyle(_composerText, forceStrutHeight: true),
+                            contextMenuBuilder: contextMenuBuilder,
                             decoration: InputDecoration(
                               hintText: placeholder,
                               hintStyle: _composerText.copyWith(color: PColors.textFaint),

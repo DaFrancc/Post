@@ -374,24 +374,73 @@ class PMenuItem<T> extends PopupMenuEntry<T> {
 }
 
 class _PMenuItemState<T> extends State<PMenuItem<T>> {
+  @override
+  Widget build(BuildContext context) {
+    final w = widget;
+    return PMenuRow(label: w.label, caption: w.caption, icon: w.icon, danger: w.danger, onTap: () => Navigator.of(context).pop<T>(w.value));
+  }
+}
+
+/// How a menu entry looks, for menus that are not popup routes (the
+/// composer's, drawn by the text field). [PMenuItem] is one of these.
+class PMenuRow extends StatefulWidget {
+  const PMenuRow({
+    super.key,
+    required this.label,
+    required this.onTap,
+    this.caption,
+    this.icon,
+    this.shortcut,
+    this.danger = false,
+    this.strong = false,
+    this.enabled = true,
+    this.checked,
+  });
+
+  final String label;
+
+  /// Null: shown disabled.
+  final VoidCallback? onTap;
+  final String? caption;
+  final IconData? icon;
+
+  /// Its keyboard shortcut, shown faint on the right, like "Ctrl+C".
+  final String? shortcut;
+  final bool danger;
+
+  /// Bold: spelling suggestions.
+  final bool strong;
+  final bool enabled;
+
+  /// A setting that is on or off: a check on the right when on.
+  final bool? checked;
+
+  @override
+  State<PMenuRow> createState() => _PMenuRowState();
+}
+
+class _PMenuRowState extends State<PMenuRow> {
   bool _hover = false;
 
   @override
   Widget build(BuildContext context) {
     final w = widget;
-    final fg = w.danger ? PColors.danger : (_hover ? PColors.textStrong : PColors.text);
+    final live = w.enabled && w.onTap != null;
+    final hover = _hover && live;
+    final fg = !live ? PColors.textFaint : (w.danger ? PColors.danger : (hover ? PColors.textStrong : PColors.text));
+    final icon = w.checked == true ? Icons.check_rounded : w.icon;
     return MouseRegion(
-      cursor: SystemMouseCursors.click,
+      cursor: live ? SystemMouseCursors.click : SystemMouseCursors.basic,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
-        onTap: () => Navigator.of(context).pop<T>(w.value),
+        onTap: live ? w.onTap : null,
         child: AnimatedContainer(
           duration: PMotion.fast,
-          height: w.height,
+          height: w.caption == null ? 32 : 46,
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
-            color: _hover ? (w.danger ? PColors.dangerSoft : PColors.active) : Colors.transparent,
+            color: hover ? (w.danger ? PColors.dangerSoft : PColors.active) : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Row(
@@ -405,7 +454,7 @@ class _PMenuItemState<T> extends State<PMenuItem<T>> {
                       w.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: fg),
+                      style: TextStyle(fontSize: 14, fontWeight: w.strong ? FontWeight.w700 : FontWeight.w500, color: fg),
                     ),
                     if (w.caption != null)
                       Text(
@@ -417,7 +466,11 @@ class _PMenuItemState<T> extends State<PMenuItem<T>> {
                   ],
                 ),
               ),
-              if (w.icon != null) ...[const SizedBox(width: 12), Icon(w.icon, size: 16, color: w.danger ? fg : PColors.textMuted)],
+              if (w.shortcut != null) ...[const SizedBox(width: 12), Text(w.shortcut!, style: const TextStyle(fontSize: 12, color: PColors.textFaint))],
+              if (icon != null) ...[
+                const SizedBox(width: 12),
+                Icon(icon, size: 16, color: w.danger ? fg : (w.checked == true ? PColors.accentText : PColors.textMuted)),
+              ],
             ],
           ),
         ),

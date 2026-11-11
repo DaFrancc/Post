@@ -83,6 +83,22 @@ Future<void> _capture(WidgetTester t, String name) async {
   print('screenshot: ${file.absolute.path}');
 }
 
+/// The laid-out text of a text field, found under its render object.
+RenderEditable _editableIn(RenderObject root) {
+  RenderEditable? found;
+  void visit(RenderObject o) {
+    if (found != null) return;
+    if (o is RenderEditable) {
+      found = o;
+      return;
+    }
+    o.visitChildren(visit);
+  }
+
+  visit(root);
+  return found!;
+}
+
 /// Wait until no menu or dialog is open over the main screen: a closing
 /// one's barrier still takes taps.
 Future<void> _noRouteOpen(WidgetTester t) async {
@@ -282,6 +298,17 @@ void main() {
     final marked = spelled.misspelled;
     expect([for (final r in marked) r.textInside(typing.text)], ['sentense']);
     await _shot(t, '05d-spelling');
+
+    // Right-clicking it offers corrections; picking one replaces the word.
+    final editable = _editableIn(t.renderObject(find.byWidgetPredicate((w) => w is EditableText && !w.readOnly).last));
+    final box = editable.getBoxesForSelection(const TextSelection(baseOffset: 5, extentOffset: 13)).first.toRect();
+    await t.tapAt(editable.localToGlobal(box.center), buttons: kSecondaryButton, kind: PointerDeviceKind.mouse);
+    await waitFor(t, find.text('Add to dictionary'));
+    await waitFor(t, find.text('sentence'));
+    await _shot(t, '05e-spelling-menu');
+    await t.tap(find.text('sentence'));
+    await settle(t, 300);
+    expect(typing.text, 'this sentence has a typo ');
     expect(t.getRect(find.byWidgetPredicate((w) => w is TextField).last).height, oneLine, reason: 'formatting keeps the composer one line tall');
     typing.clear();
 
