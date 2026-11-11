@@ -339,6 +339,10 @@ void main() {
       find.ancestor(of: find.text('Filters'), matching: find.byWidgetPredicate((w) => w is Container && w.constraints?.maxWidth == 340)),
     );
     expect(suggestions.right, closeTo(searchBox.right, 1), reason: 'the suggestions line up with the box');
+    // Its placeholder sits in the middle of it, to the pixel.
+    final searchHint = t.getRect(find.text('Search (Ctrl+F)'));
+    expect(searchHint.center.dy, closeTo(searchBox.center.dy, 0.5), reason: 'the search text is centred in the box');
+    expect(searchBox.height, 36, reason: 'one line is the box at its own height');
     // Set directly: simulated keys never reach a text field as text.
     final searchText = t.widget<EditableText>(find.descendant(of: searchField, matching: find.byType(EditableText))).controller;
     searchText.value = const TextEditingValue(text: 'from:', selection: TextSelection.collapsed(offset: 5));

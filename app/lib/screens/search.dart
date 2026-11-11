@@ -341,6 +341,15 @@ class _SearchBoxState extends State<SearchBox> {
   }
 
   Widget _field(List<SearchFilter> filters) {
+    // Desktop's compact density would quietly take padding off the field,
+    // leaving it shorter than the box and sitting at its top.
+    return Theme(
+      data: Theme.of(context).copyWith(visualDensity: VisualDensity.standard),
+      child: _fieldItself(filters),
+    );
+  }
+
+  Widget _fieldItself(List<SearchFilter> filters) {
     return TextField(
       controller: _text,
       focusNode: _focus,
