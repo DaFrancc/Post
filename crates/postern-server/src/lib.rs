@@ -6,6 +6,7 @@
 //! it keeps no record of who is in which conversation.
 
 pub mod db;
+mod link;
 mod session;
 mod tokens;
 
@@ -43,6 +44,7 @@ pub(crate) struct State {
     pub domain: String,
     pub db: Db,
     pub hub: Hub,
+    pub links: link::Links,
 }
 
 /// The database, used from blocking threads one request at a time.
@@ -237,7 +239,12 @@ pub enum StartError {
 pub fn spawn(listener: TcpListener, config: Config) -> Result<Running, StartError> {
     postern_identity::chain::validate_domain(&config.server_domain).map_err(|_| StartError::Domain)?;
     let conn = db::open(&config.db_path, &config.db_key)?;
-    let state = Arc::new(State { domain: config.server_domain, db: Db(Arc::new(Mutex::new(conn))), hub: Hub::default() });
+    let state = Arc::new(State {
+        domain: config.server_domain,
+        db: Db(Arc::new(Mutex::new(conn))),
+        hub: Hub::default(),
+        links: link::Links::default(),
+    });
     let addr = listener.local_addr()?;
 
     let gc_db = state.db.clone();

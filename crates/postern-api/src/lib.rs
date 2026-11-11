@@ -117,6 +117,33 @@ pub struct SafetyNumber {
     pub safety_number: String,
 }
 
+/// A link code to enter on another device.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct LinkCode {
+    /// 25 characters in groups of five. Case, spaces and dashes do not matter.
+    pub code: String,
+}
+
+/// A device being linked.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct LinkRequest {
+    /// The new device's ID, hex.
+    pub device_id: String,
+    /// The name it was given; empty if none.
+    pub name: String,
+}
+
+/// One of your devices.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct Device {
+    /// Device ID, hex.
+    pub id: String,
+    /// Its name; empty if none.
+    pub name: String,
+    /// The device answering this call.
+    pub this_device: bool,
+}
+
 /// An empty result.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct Done {}
@@ -157,6 +184,16 @@ pub enum Event {
     ProfileChanged {
         /// Their username.
         username: String,
+    },
+    /// An account added or removed devices. If it is your own account and the
+    /// change was not yours, remove the device from another of your devices.
+    DevicesChanged {
+        /// Whose devices, possibly yours.
+        username: String,
+        /// Devices added.
+        added: u32,
+        /// Devices removed.
+        removed: u32,
     },
     /// Something you should know, usually a security warning.
     Notice {
@@ -220,6 +257,7 @@ pub fn event(e: core::Event) -> Event {
             Event::MessageDeleted { conversation: conversation.to_string(), message: id.to_string() }
         }
         core::Event::ProfileChanged { username } => Event::ProfileChanged { username },
+        core::Event::DevicesChanged { username, added, removed } => Event::DevicesChanged { username, added, removed },
         core::Event::Notice { conversation, text } => Event::Notice { conversation: conversation.map(|c| c.to_string()), text },
     }
 }
@@ -239,6 +277,45 @@ pub struct RegisterParams {
     /// Register a bot account (needs a bot invite).
     #[serde(default)]
     pub bot: bool,
+}
+
+/// `link_begin`: offer this new device for linking to an existing account.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LinkBeginParams {
+    /// Server URL, `wss://...`.
+    pub server: String,
+    /// A name for this device, shown only on your own devices.
+    pub name: String,
+    /// The account is a bot account.
+    #[serde(default)]
+    pub bot: bool,
+}
+
+/// A link code shown by a new device.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CodeParams {
+    /// The code.
+    pub code: String,
+}
+
+/// One of your devices.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DeviceParams {
+    /// Device ID, or an unambiguous prefix of at least four characters.
+    pub device: String,
+}
+
+/// `rename_device`: name one of your devices.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RenameDeviceParams {
+    /// Device ID, or an unambiguous prefix of at least four characters.
+    pub device: String,
+    /// The new name.
+    pub name: String,
 }
 
 /// A method with no parameters.
@@ -379,6 +456,13 @@ macro_rules! methods {
 
 methods! {
     "register", Registration, RegisterParams, Identity, "Create an account with an invite.";
+    "link_begin", Registration, LinkBeginParams, LinkCode, "On a new device: get a code to link it to your account from another device.";
+    "link_finish", Registration, NoParams, Identity, "On the new device: wait for the code to be approved, then join.";
+    "link_inspect", Connection, CodeParams, LinkRequest, "On one of your devices: which device a link code would add.";
+    "link_approve", Connection, CodeParams, LinkRequest, "On one of your devices: add the device behind a link code.";
+    "devices", Local, NoParams, Vec<Device>, "Your devices, oldest first.";
+    "rename_device", Connection, RenameDeviceParams, Done, "Name one of your devices.";
+    "remove_device", Connection, DeviceParams, Done, "Remove another of your devices from your account and every conversation.";
     "whoami", Local, NoParams, Option<Identity>, "The account on this device, if any.";
     "sync", Connection, NoParams, Done, "Fetch everything new and send what is queued.";
     "start_dm", Connection, UserParams, Conversation, "Open a DM with a user, creating it if needed.";
@@ -457,6 +541,34 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
         "register" => {
             let p: RegisterParams = params(p)?;
             ok(identity(core.register(&p.server, &p.invite, &p.username, p.bot).await?))
+        }
+        "link_begin" => {
+            let p: LinkBeginParams = params(p)?;
+            ok(LinkCode { code: core.begin_link(&p.server, &p.name, p.bot).await? })
+        }
+        "link_finish" => {
+            params::<NoParams>(p)?;
+            ok(identity(core.finish_link().await?))
+        }
+        "link_inspect" | "link_approve" => {
+            let p: CodeParams = params(p)?;
+            let r = if name == "link_inspect" { core.link_inspect(&p.code).await? } else { core.link_approve(&p.code).await? };
+            ok(LinkRequest { device_id: r.device_id, name: r.name })
+        }
+        "devices" => {
+            params::<NoParams>(p)?;
+            let ds = core.devices().await?;
+            ok(ds.into_iter().map(|d| Device { id: d.id, name: d.name, this_device: d.this_device }).collect::<Vec<_>>())
+        }
+        "rename_device" => {
+            let p: RenameDeviceParams = params(p)?;
+            core.rename_device(&p.device, &p.name).await?;
+            ok(Done {})
+        }
+        "remove_device" => {
+            let p: DeviceParams = params(p)?;
+            core.remove_device(&p.device).await?;
+            ok(Done {})
         }
         "whoami" => {
             params::<NoParams>(p)?;

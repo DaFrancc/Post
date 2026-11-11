@@ -26,7 +26,7 @@ const FIRST_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 enum Kind {
     Session { account: AccountId, device: DeviceId },
-    Anonymous { subscribed: Vec<Vec<u8>>, limiter: Limiter },
+    Anonymous { subscribed: Vec<Vec<u8>>, limiter: Limiter, links_created: u32 },
 }
 
 /// Ephemeral signals one anonymous connection may send per second. Typing
@@ -126,7 +126,7 @@ pub(crate) async fn run(mut socket: WebSocket, state: Arc<State>) {
         }
     } else {
         let mut conn =
-            Conn { state: state.clone(), id, inbox, kind: Kind::Anonymous { subscribed: Vec::new(), limiter: Limiter::new() } };
+            Conn { state: state.clone(), id, inbox, kind: Kind::Anonymous { subscribed: Vec::new(), limiter: Limiter::new(), links_created: 0 } };
         let r = conn.handle(request).await.unwrap_or_else(Reply::Error);
         if !reply(&mut socket, first.id, r).await {
             conn.close();
@@ -223,8 +223,9 @@ impl Conn {
         }
         match &mut self.kind {
             Kind::Session { account, device } => Self::session_request(&self.state, *account, *device, req).await,
-            Kind::Anonymous { subscribed, limiter } => {
-                Self::anonymous_request(&self.state, self.id, &self.inbox, subscribed, limiter, req).await
+            Kind::Anonymous { subscribed, limiter, links_created } => {
+                let ctx = Anon { id: self.id, inbox: &self.inbox, subscribed, limiter, links_created };
+                Self::anonymous_request(&self.state, ctx, req).await
             }
         }
     }
@@ -265,14 +266,8 @@ impl Conn {
         })
     }
 
-    async fn anonymous_request(
-        st: &Arc<State>,
-        id: u64,
-        inbox: &Arc<Inbox>,
-        subscribed: &mut Vec<Vec<u8>>,
-        limiter: &mut Limiter,
-        req: Request,
-    ) -> db::Result<Reply> {
+    async fn anonymous_request(st: &Arc<State>, ctx: Anon<'_>, req: Request) -> db::Result<Reply> {
+        let Anon { id, inbox, subscribed, limiter, links_created } = ctx;
         Ok(match req {
             Request::CreateGroup(r) => {
                 let welcomed = st.db.run(move |c| db::create_group(c, &r)).await?;
@@ -319,7 +314,21 @@ impl Conn {
                 st.hub.relay(&r.group_id, &r.payload, id);
                 Reply::Empty(proto::Empty {})
             }
+            Request::LinkPut(r) => {
+                st.links.put(&r, links_created)?;
+                Reply::Empty(proto::Empty {})
+            }
+            Request::LinkGet(r) => Reply::LinkSlot(st.links.get(&r).await?),
             _ => return Err(wrong_connection(false)),
         })
     }
+}
+
+/// An anonymous connection's own state, borrowed for one request.
+struct Anon<'a> {
+    id: u64,
+    inbox: &'a Arc<Inbox>,
+    subscribed: &'a mut Vec<Vec<u8>>,
+    limiter: &'a mut Limiter,
+    links_created: &'a mut u32,
 }

@@ -31,6 +31,8 @@ zeroize.workspace = true
 url.workspace = true
 ed25519-dalek.workspace = true
 sha2.workspace = true
+chacha20poly1305.workspace = true
+hkdf.workspace = true
 blind-rsa-signatures.workspace = true
 
 [dev-dependencies]

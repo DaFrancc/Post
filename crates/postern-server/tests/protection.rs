@@ -115,8 +115,11 @@ async fn connection_kinds_never_mix() {
     let (mut session, _) = Client::register(&server, "alice").await;
     let send = proto::Send { group_id: vec![1; 16], access_key: vec![2; 32], client_msg_id: vec![3; 16], message: vec![] };
     assert_eq!(code(&session.call(Request::Send(send.clone())).await), ErrorCode::WrongConnection);
-    let claim = proto::ClaimKeyPackages { token: None, account_id: vec![0; 32] };
+    let claim = proto::ClaimKeyPackages { account_id: vec![0; 32], ..Default::default() };
     assert_eq!(code(&session.call(Request::ClaimKeyPackages(claim)).await), ErrorCode::WrongConnection);
+    // Linking runs anonymously too: a new device has no account to log in with.
+    let put = proto::LinkPut { rendezvous: vec![1; 16], slot: 0, payload: vec![1] };
+    assert_eq!(code(&session.call(Request::LinkPut(put)).await), ErrorCode::WrongConnection);
 
     // An anonymous connection, once used for conversations, cannot log in or
     // make device requests.
@@ -173,7 +176,9 @@ async fn tokens_are_required_unforgeable_and_single_use() {
     };
 
     let mut anon = Client::connect(&server.running.url()).await;
-    let claim = |t: Option<proto::Token>| Request::ClaimKeyPackages(proto::ClaimKeyPackages { token: t, account_id: account.clone() });
+    let claim = |t: Option<proto::Token>| {
+        Request::ClaimKeyPackages(proto::ClaimKeyPackages { token: t, account_id: account.clone(), ..Default::default() })
+    };
     // No token.
     assert_eq!(code(&anon.call(claim(None)).await), ErrorCode::BadToken);
     // A forged token: right shape, signature over a different message.

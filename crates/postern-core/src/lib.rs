@@ -11,6 +11,7 @@
 
 mod content;
 mod engine;
+mod link;
 mod net;
 mod provider;
 mod store;
@@ -262,6 +263,26 @@ pub struct Person {
     pub note: Option<String>,
 }
 
+/// A device asking to join this account, as shown before approving it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkRequest {
+    /// The new device's ID, hex.
+    pub device_id: String,
+    /// The name its user gave it; empty if none was valid.
+    pub name: String,
+}
+
+/// One of this account's devices.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Device {
+    /// Its ID, hex.
+    pub id: String,
+    /// The name it was given; empty if none.
+    pub name: String,
+    /// Whether it is the device this call runs on.
+    pub this_device: bool,
+}
+
 /// A change to this account's profile. `None` leaves a field unchanged.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProfileUpdate {
@@ -297,6 +318,18 @@ pub enum Event {
     ProfileChanged {
         /// Their username.
         username: String,
+    },
+    /// An account added or removed devices. Contacts stay verified through
+    /// this (the safety number does not change), but a device added to your
+    /// own account by another of your devices deserves a look: if it was not
+    /// you, remove it.
+    DevicesChanged {
+        /// Whose devices, possibly your own.
+        username: String,
+        /// How many devices were added.
+        added: u32,
+        /// How many were removed.
+        removed: u32,
     },
     /// Something the user should know about, usually a security warning.
     Notice {
@@ -399,6 +432,61 @@ impl Core {
         self.identity().await.ok_or(Error::NotRegistered)
     }
 
+    /// On a new device: offer it for linking to an existing account on
+    /// `server`. Returns the code to enter on one of that account's devices;
+    /// then call [`Core::finish_link`]. `bot` must match the account.
+    pub async fn begin_link(&self, server: &str, device_name: &str, bot: bool) -> Result<String> {
+        Ok(self.engine.lock().await.begin_link(server, device_name, bot).await?.to_string())
+    }
+
+    /// On the new device: wait (up to ten minutes) for the code to be
+    /// entered and approved, then log in and join the account's conversations.
+    pub async fn finish_link(&self) -> Result<Identity> {
+        self.engine.lock().await.finish_link().await?;
+        self.identity().await.ok_or(Error::NotRegistered)
+    }
+
+    /// On an existing device: which device a link code would add.
+    pub async fn link_inspect(&self, code: &str) -> Result<LinkRequest> {
+        let offer = self.engine.lock().await.link_inspect(code).await?;
+        Ok(LinkRequest { device_id: offer.entry.device_id().to_string(), name: offer.name })
+    }
+
+    /// On an existing device: add the device behind a link code to this
+    /// account and to every conversation.
+    pub async fn link_approve(&self, code: &str) -> Result<LinkRequest> {
+        let offer = self.engine.lock().await.link_approve(code).await?;
+        Ok(LinkRequest { device_id: offer.entry.device_id().to_string(), name: offer.name })
+    }
+
+    /// This account's devices, oldest first.
+    pub async fn devices(&self) -> Result<Vec<Device>> {
+        let engine = self.engine.lock().await;
+        let me = engine.me.as_ref().filter(|_| engine.registered).ok_or(Error::NotRegistered)?.device;
+        Ok(engine
+            .devices()?
+            .into_iter()
+            .map(|(id, name)| Device { id: id.to_string(), name, this_device: id == me })
+            .collect())
+    }
+
+    /// Name one of this account's devices, given its ID or an unambiguous
+    /// prefix. The name is shared only with the account's own devices.
+    pub async fn rename_device(&self, device: &str, name: &str) -> Result<()> {
+        let mut engine = self.engine.lock().await;
+        let id = engine.resolve_device(device)?;
+        engine.rename_device(id, name).await
+    }
+
+    /// Remove another of this account's devices, given its ID or an
+    /// unambiguous prefix. It is cut off from the server and from every
+    /// conversation; the account's contacts see that it was removed.
+    pub async fn remove_device(&self, device: &str) -> Result<()> {
+        let mut engine = self.engine.lock().await;
+        let id = engine.resolve_device(device)?;
+        engine.remove_device(id).await
+    }
+
     /// Log in and catch up. Safe to call when already connected.
     pub async fn connect(&self) -> Result<()> {
         self.engine.lock().await.connect().await
@@ -438,7 +526,7 @@ impl Core {
     /// A conversation by ID.
     pub fn conversation(&self, id: ConversationId) -> Result<Conversation> {
         self.read(|c| {
-            let row = store::conversation(c, &id.0)?.ok_or(Error::NotFound("conversation"))?;
+            let row = store::conversation(c, &id.0)?.filter(|r| r.kind != store::KIND_SELF).ok_or(Error::NotFound("conversation"))?;
             conversation_from_row(c, &row)
         })
     }
@@ -585,6 +673,13 @@ fn core_futures_are_send(c: &Core, conv: ConversationId, msg: MessageId) {
     fn send<T: Send>(_: T) {}
     send(c.identity());
     send(c.register("", "", "", false));
+    send(c.begin_link("", "", false));
+    send(c.finish_link());
+    send(c.link_inspect(""));
+    send(c.link_approve(""));
+    send(c.devices());
+    send(c.rename_device("", ""));
+    send(c.remove_device(""));
     send(c.connect());
     send(c.is_connected());
     send(c.sync());

@@ -11,6 +11,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::{DbKey, Error, Result};
 
+/// Version 1 of the schema, plus tables added since. New tables may be added
+/// here; changes to existing tables go in [`MIGRATIONS`].
 const SCHEMA: &str = r"
 CREATE TABLE IF NOT EXISTS meta (
     k  TEXT PRIMARY KEY,
@@ -46,6 +48,8 @@ CREATE TABLE IF NOT EXISTS conversations (
 -- One live DM per peer. A duplicate created concurrently is retired, and its
 -- messages are shown in the live one (design section 8, Delivery).
 CREATE UNIQUE INDEX IF NOT EXISTS one_live_dm_per_peer ON conversations(peer_account) WHERE kind = 1 AND active = 1;
+-- One live self group. If two were ever created, the lower ID wins, as for DMs.
+CREATE UNIQUE INDEX IF NOT EXISTS one_live_self_group ON conversations(kind) WHERE kind = 3 AND active = 1;
 CREATE TABLE IF NOT EXISTS messages (
     pk              INTEGER PRIMARY KEY,
     group_id        BLOB NOT NULL,
@@ -90,6 +94,14 @@ CREATE TABLE IF NOT EXISTS pending_groups (
     group_id  BLOB PRIMARY KEY,
     request   BLOB NOT NULL
 );
+-- A commit staged in OpenMLS and sent, or about to be sent, to the server.
+-- It is merged when it shows up in the group's log, and dropped if another
+-- commit took its epoch. At most one per group, as OpenMLS allows.
+CREATE TABLE IF NOT EXISTS pending_commits (
+    group_id       BLOB PRIMARY KEY,
+    client_msg_id  BLOB NOT NULL,
+    request        BLOB NOT NULL
+);
 -- Anonymous tokens (design section 8). Each is deleted before it is spent,
 -- so no token is ever presented twice.
 CREATE TABLE IF NOT EXISTS tokens (
@@ -115,7 +127,7 @@ CREATE TABLE IF NOT EXISTS conversation_names (
     PRIMARY KEY (group_id, account_id)
 );
 -- Names this user gives others, visible only to them. Synced between their
--- own devices through the self group from phase 3.
+-- own devices through the self group; migration 2 adds msg_id and seq.
 CREATE TABLE IF NOT EXISTS nicknames (
     account_id  BLOB PRIMARY KEY,
     name        TEXT NOT NULL
@@ -141,6 +153,8 @@ pub const STATE_FAILED: i64 = 3;
 pub const KIND_DM: i64 = 1;
 /// A named group.
 pub const KIND_GROUP: i64 = 2;
+/// This account's self group. Never listed as a conversation.
+pub const KIND_SELF: i64 = 3;
 
 /// Open a profile database with its key. Fails with [`Error::WrongKey`] if
 /// the key does not match.
@@ -161,9 +175,37 @@ pub fn open(path: &Path, key: &DbKey) -> Result<Connection> {
     Ok(conn)
 }
 
-/// Create tables, both ours and OpenMLS's.
+/// Changes to existing tables, in order. `SCHEMA` creates version 1 (and any
+/// tables added since, which `IF NOT EXISTS` handles); entry `i` here takes a
+/// database from version `i + 1` to `i + 2`. Never edit an entry once
+/// released: add a new one.
+const MIGRATIONS: &[&str] = &[
+    // 2: nicknames and device names sync through the self group, ordered by
+    // the self group's log (see `synced_set_pending`).
+    "ALTER TABLE nicknames ADD COLUMN msg_id BLOB;
+     ALTER TABLE nicknames ADD COLUMN seq INTEGER DEFAULT 0;
+     CREATE TABLE device_names (
+         device_id  BLOB PRIMARY KEY,
+         name       TEXT NOT NULL,
+         msg_id     BLOB,
+         seq        INTEGER
+     );",
+];
+
+/// Create tables, both ours and OpenMLS's, and bring old databases up to date.
 pub fn migrate(conn: &mut Connection) -> Result<()> {
     conn.execute_batch(SCHEMA)?;
+    // Version 0 is a database made before versioning: it has version 1's tables.
+    let version = conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?.max(1) as usize;
+    if version > MIGRATIONS.len() + 1 {
+        return Err(Error::Storage(format!("this profile was written by a newer Postern (schema version {version}); update the app")));
+    }
+    for (i, sql) in MIGRATIONS.iter().enumerate().skip(version - 1) {
+        let tx = conn.transaction()?;
+        tx.execute_batch(sql)?;
+        tx.pragma_update(None, "user_version", i as i64 + 2)?;
+        tx.commit()?;
+    }
     crate::provider::migrate(conn).map_err(Error::Storage)?;
     Ok(())
 }
@@ -191,6 +233,11 @@ pub fn meta_get(conn: &Connection, k: &str) -> Result<Option<Vec<u8>>> {
 
 pub fn meta_put(conn: &Connection, k: &str, v: &[u8]) -> Result<()> {
     conn.execute("INSERT INTO meta (k, v) VALUES (?1, ?2) ON CONFLICT (k) DO UPDATE SET v = excluded.v", params![k, v])?;
+    Ok(())
+}
+
+pub fn meta_delete(conn: &Connection, k: &str) -> Result<()> {
+    conn.execute("DELETE FROM meta WHERE k = ?1", [k])?;
     Ok(())
 }
 
@@ -324,10 +371,28 @@ pub fn dm_with(conn: &Connection, peer: &AccountId) -> Result<Option<Conversatio
         .optional()?)
 }
 
-/// Live conversations, most recently active first.
+/// Live conversations, most recently active first. The self group is not a
+/// conversation and is left out.
 pub fn conversations(conn: &Connection) -> Result<Vec<ConversationRow>> {
-    let mut stmt = conn.prepare(&format!("SELECT {CONV_COLS} FROM conversations WHERE active = 1 ORDER BY last_activity DESC"))?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {CONV_COLS} FROM conversations WHERE active = 1 AND kind != 3 ORDER BY last_activity DESC"
+    ))?;
     Ok(stmt.query_map([], conv_row)?.collect::<rusqlite::Result<_>>()?)
+}
+
+/// Groups that should hear about account-wide changes such as a new profile:
+/// every live conversation this device is still in, and the self group.
+pub fn broadcast_groups(conn: &Connection) -> Result<Vec<[u8; 16]>> {
+    let mut stmt = conn.prepare(&format!("SELECT {CONV_COLS} FROM conversations WHERE active = 1 AND following = 1"))?;
+    Ok(stmt.query_map([], conv_row)?.map(|r| r.map(|c| c.group_id)).collect::<rusqlite::Result<_>>()?)
+}
+
+/// The live self group, if this device is in one.
+pub fn self_group(conn: &Connection) -> Result<Option<[u8; 16]>> {
+    Ok(conn
+        .query_row(&format!("SELECT {CONV_COLS} FROM conversations WHERE kind = 3 AND active = 1"), [], conv_row)
+        .optional()?
+        .map(|c| c.group_id))
 }
 
 /// Groups this device still fetches: every conversation it has not been
@@ -459,7 +524,7 @@ pub fn mark_sent(conn: &Connection, group: &[u8], client_msg_id: &[u8], seq: u64
         params![i64_of(seq), STATE_SENT, group, client_msg_id, STATE_PENDING],
     )?;
     conn.execute("UPDATE message_versions SET seq = ?1 WHERE group_id = ?2 AND edit_id = ?3", params![i64_of(seq), group, client_msg_id])?;
-    Ok(())
+    synced_placed(conn, client_msg_id, Some(seq))
 }
 
 pub fn mark_failed(conn: &Connection, group: &[u8], client_msg_id: &[u8]) -> Result<()> {
@@ -467,7 +532,7 @@ pub fn mark_failed(conn: &Connection, group: &[u8], client_msg_id: &[u8]) -> Res
         "UPDATE messages SET state = ?1 WHERE group_id = ?2 AND id = ?3 AND state = ?4",
         params![STATE_FAILED, group, client_msg_id, STATE_PENDING],
     )?;
-    Ok(())
+    synced_placed(conn, client_msg_id, None)
 }
 
 pub fn record_own_send(conn: &Connection, group: &[u8], client_msg_id: &[u8]) -> Result<()> {
@@ -611,6 +676,31 @@ pub fn pending_group_remove(conn: &Connection, group: &[u8]) -> Result<()> {
     Ok(())
 }
 
+pub fn pending_commit_put(conn: &Connection, group: &[u8], client_msg_id: &[u8], request: &[u8]) -> Result<()> {
+    conn.execute(
+        "INSERT INTO pending_commits (group_id, client_msg_id, request) VALUES (?1, ?2, ?3)",
+        params![group, client_msg_id, request],
+    )?;
+    Ok(())
+}
+
+/// The pending commit for a group: (client_msg_id, request).
+pub fn pending_commit(conn: &Connection, group: &[u8]) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
+    Ok(conn
+        .query_row("SELECT client_msg_id, request FROM pending_commits WHERE group_id = ?1", [group], |r| Ok((r.get(0)?, r.get(1)?)))
+        .optional()?)
+}
+
+pub fn pending_commits(conn: &Connection) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+    let mut stmt = conn.prepare("SELECT group_id, request FROM pending_commits")?;
+    Ok(stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?)
+}
+
+pub fn pending_commit_remove(conn: &Connection, group: &[u8]) -> Result<()> {
+    conn.execute("DELETE FROM pending_commits WHERE group_id = ?1", [group])?;
+    Ok(())
+}
+
 pub fn tokens_available(conn: &Connection) -> Result<u32> {
     Ok(conn.query_row("SELECT count(*) FROM tokens WHERE valid_until > ?1", [i64_of(now_ms() + 3_600_000)], |r| r.get(0))?)
 }
@@ -707,21 +797,98 @@ pub fn conversation_name(conn: &Connection, group: &[u8], account: &[u8]) -> Res
         .optional()?)
 }
 
-/// Set or clear (empty name) this user's private nickname for someone.
-pub fn set_nickname(conn: &Connection, account: &[u8], name: &str) -> Result<()> {
-    if name.is_empty() {
-        conn.execute("DELETE FROM nicknames WHERE account_id = ?1", [account])?;
-    } else {
-        conn.execute(
-            "INSERT INTO nicknames (account_id, name) VALUES (?1, ?2) ON CONFLICT (account_id) DO UPDATE SET name = excluded.name",
-            params![account, name],
-        )?;
+pub fn nickname(conn: &Connection, account: &[u8]) -> Result<Option<String>> {
+    synced_get(conn, Synced::Nickname, account)
+}
+
+// ---------------------------------------------------------------- self-group sync
+
+/// Values an account's devices keep in step through its self group.
+///
+/// Order follows the self group's log. A value's `seq` is the log position of
+/// the message that set it. NULL means this device set it and the server has
+/// not placed it yet; 0 means it was set with no self group to share it. A
+/// value from the log replaces one with a lower position. A pending local
+/// value is never replaced: its message will land after everything already
+/// logged, so it is the newer one. An empty name clears a value and stays as
+/// a marker, so an older value cannot come back.
+#[derive(Clone, Copy, Debug)]
+pub enum Synced {
+    /// Private nicknames, keyed by account.
+    Nickname,
+    /// Device names, keyed by device.
+    DeviceName,
+}
+
+impl Synced {
+    fn table(self) -> (&'static str, &'static str) {
+        match self {
+            Synced::Nickname => ("nicknames", "account_id"),
+            Synced::DeviceName => ("device_names", "device_id"),
+        }
     }
+}
+
+/// Set a value on this device. With `msg_id`, the message carrying it to the
+/// self group; without, it stays local.
+pub fn synced_set_local(conn: &Connection, kind: Synced, key: &[u8], name: &str, msg_id: Option<&[u8]>) -> Result<()> {
+    let (t, k) = kind.table();
+    let seq: Option<i64> = if msg_id.is_some() { None } else { Some(0) };
+    conn.execute(
+        &format!(
+            "INSERT INTO {t} ({k}, name, msg_id, seq) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT ({k}) DO UPDATE SET name = excluded.name, msg_id = excluded.msg_id, seq = excluded.seq"
+        ),
+        params![key, name, msg_id, seq],
+    )?;
     Ok(())
 }
 
-pub fn nickname(conn: &Connection, account: &[u8]) -> Result<Option<String>> {
-    Ok(conn.query_row("SELECT name FROM nicknames WHERE account_id = ?1", [account], |r| r.get(0)).optional()?)
+/// Apply a value from the self group's log at position `seq`. Returns whether
+/// it changed anything.
+pub fn synced_apply(conn: &Connection, kind: Synced, key: &[u8], name: &str, seq: u64) -> Result<bool> {
+    let (t, k) = kind.table();
+    let n = conn.execute(
+        &format!(
+            "INSERT INTO {t} ({k}, name, msg_id, seq) VALUES (?1, ?2, NULL, ?3)
+             ON CONFLICT ({k}) DO UPDATE SET name = excluded.name, msg_id = NULL, seq = excluded.seq
+             WHERE {t}.seq IS NOT NULL AND {t}.seq < excluded.seq"
+        ),
+        params![key, name, i64_of(seq)],
+    )?;
+    Ok(n > 0)
+}
+
+/// Apply a value from a snapshot: only where this device has none.
+pub fn synced_fill(conn: &Connection, kind: Synced, key: &[u8], name: &str, seq: u64) -> Result<bool> {
+    let (t, k) = kind.table();
+    let n = conn.execute(&format!("INSERT OR IGNORE INTO {t} ({k}, name, msg_id, seq) VALUES (?1, ?2, NULL, ?3)"), params![key, name, i64_of(seq)])?;
+    Ok(n > 0)
+}
+
+pub fn synced_get(conn: &Connection, kind: Synced, key: &[u8]) -> Result<Option<String>> {
+    let (t, k) = kind.table();
+    Ok(conn.query_row(&format!("SELECT name FROM {t} WHERE {k} = ?1 AND name != ''"), [key], |r| r.get(0)).optional()?)
+}
+
+/// Every set value, for a snapshot.
+pub fn synced_all(conn: &Connection, kind: Synced) -> Result<Vec<(Vec<u8>, String)>> {
+    let (t, k) = kind.table();
+    let mut stmt = conn.prepare(&format!("SELECT {k}, name FROM {t} WHERE name != ''"))?;
+    Ok(stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?)
+}
+
+/// The message carrying our own values landed at `seq`, or (`None`) failed for
+/// good and stays local.
+fn synced_placed(conn: &Connection, msg_id: &[u8], seq: Option<u64>) -> Result<()> {
+    for kind in [Synced::Nickname, Synced::DeviceName] {
+        let (t, _) = kind.table();
+        conn.execute(
+            &format!("UPDATE {t} SET seq = ?1 WHERE msg_id = ?2 AND seq IS NULL"),
+            params![i64_of(seq.unwrap_or(0)), msg_id],
+        )?;
+    }
+    Ok(())
 }
 
 /// The name a viewer sees for `account` in conversation `group` (design
@@ -747,4 +914,69 @@ pub fn shown_name(conn: &Connection, group: Option<&[u8]>, account: &[u8]) -> Re
 pub fn add_notice(conn: &Connection, group: Option<&[u8]>, text: &str) -> Result<()> {
     conn.execute("INSERT INTO notices (group_id, at, text) VALUES (?1, ?2, ?3)", params![group, i64_of(now_ms()), text])?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn db() -> Connection {
+        let mut c = Connection::open_in_memory().expect("memory db");
+        migrate(&mut c).expect("migrate");
+        c
+    }
+
+    #[test]
+    fn version_one_databases_are_migrated() {
+        // A profile written before schema versioning.
+        let mut c = Connection::open_in_memory().expect("memory db");
+        c.execute_batch(SCHEMA).expect("v1 schema");
+        c.execute("INSERT INTO nicknames (account_id, name) VALUES (x'01', 'Ally')", []).expect("v1 row");
+        migrate(&mut c).expect("migrate");
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).expect("version");
+        assert_eq!(version as usize, MIGRATIONS.len() + 1);
+        assert_eq!(nickname(&c, &[1]).expect("read").as_deref(), Some("Ally"));
+        // A value set before syncing existed loses to anything from the log.
+        assert!(synced_apply(&c, Synced::Nickname, &[1], "Al", 1).expect("apply"));
+        // Running again changes nothing.
+        migrate(&mut c).expect("migrate again");
+        assert_eq!(nickname(&c, &[1]).expect("read").as_deref(), Some("Al"));
+        // A newer schema is refused rather than misread.
+        c.pragma_update(None, "user_version", 99).expect("set version");
+        assert!(migrate(&mut c).is_err());
+    }
+
+    #[test]
+    fn synced_values_follow_log_order() {
+        let c = db();
+        let get = |c: &Connection| nickname(c, &[1]).expect("read");
+
+        // A pending local change is newer than anything already logged.
+        synced_set_local(&c, Synced::Nickname, &[1], "mine", Some(b"m1")).expect("set");
+        assert!(!synced_apply(&c, Synced::Nickname, &[1], "older", 4).expect("apply"));
+        assert_eq!(get(&c).as_deref(), Some("mine"));
+
+        // Once placed at 5, it loses to later entries only.
+        synced_placed(&c, b"m1", Some(5)).expect("placed");
+        assert!(!synced_apply(&c, Synced::Nickname, &[1], "older", 3).expect("apply"));
+        assert!(synced_apply(&c, Synced::Nickname, &[1], "newer", 7).expect("apply"));
+        assert_eq!(get(&c).as_deref(), Some("newer"));
+
+        // A snapshot fills gaps and never overwrites.
+        assert!(!synced_fill(&c, Synced::Nickname, &[1], "stale", 9).expect("fill"));
+        assert!(synced_fill(&c, Synced::Nickname, &[2], "filled", 9).expect("fill"));
+        assert_eq!(nickname(&c, &[2]).expect("read").as_deref(), Some("filled"));
+
+        // Clearing leaves a marker, so an older value cannot return.
+        assert!(synced_apply(&c, Synced::Nickname, &[1], "", 10).expect("clear"));
+        assert_eq!(get(&c), None);
+        assert!(!synced_fill(&c, Synced::Nickname, &[1], "stale", 11).expect("fill"));
+        assert!(!synced_apply(&c, Synced::Nickname, &[1], "older", 8).expect("apply"));
+        assert_eq!(synced_all(&c, Synced::Nickname).expect("all"), vec![(vec![2], "filled".to_string())]);
+
+        // A change that failed to send stays, and gives way to the log.
+        synced_set_local(&c, Synced::DeviceName, &[3], "laptop", Some(b"m2")).expect("set");
+        synced_placed(&c, b"m2", None).expect("failed");
+        assert!(synced_apply(&c, Synced::DeviceName, &[3], "work laptop", 1).expect("apply"));
+    }
 }
