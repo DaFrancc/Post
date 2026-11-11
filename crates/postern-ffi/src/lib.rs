@@ -10,6 +10,7 @@
 
 pub mod api;
 mod keystore;
+mod spell_catalog;
 
 #[allow(unsafe_code, missing_docs, clippy::unwrap_used)]
 mod frb_generated;

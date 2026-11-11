@@ -189,9 +189,15 @@ abstract class Client implements RustOpaqueInterface {
   /// Change the user's profile and share it with every conversation.
   Future<void> setProfile({required ProfileChange change});
 
+  /// Set (or with `None` clear) an app setting on this device.
+  Future<void> setSetting({required String key, String? value});
+
   /// Record that the user compared safety numbers with someone, or (false)
   /// withdraw it.
   Future<void> setVerified({required String username, required bool verified});
+
+  /// An app setting on this device, kept in the encrypted profile.
+  Future<String?> setting({required String key});
 
   /// Open a DM with `username`, creating it if needed.
   Future<ConversationInfo> startDm({required String username});

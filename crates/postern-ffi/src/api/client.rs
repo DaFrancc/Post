@@ -321,6 +321,16 @@ impl Client {
         Ok(self.core.set_profile(update).await?)
     }
 
+    /// An app setting on this device, kept in the encrypted profile.
+    pub async fn setting(&self, key: String) -> Result<Option<String>, PosternError> {
+        Ok(self.core.setting(&key)?)
+    }
+
+    /// Set (or with `None` clear) an app setting on this device.
+    pub async fn set_setting(&self, key: String, value: Option<String>) -> Result<(), PosternError> {
+        Ok(self.core.set_setting(&key, value.as_deref()).await?)
+    }
+
     // ------------------------------------------------------------ connection
 
     /// Stay connected until the app closes: run this once, without awaiting

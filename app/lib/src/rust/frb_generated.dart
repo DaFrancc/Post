@@ -5,6 +5,7 @@
 
 import 'api/client.dart';
 import 'api/error.dart';
+import 'api/spell.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -70,7 +71,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => -842953182;
+  int get rustContentHash => -1998187965;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -273,10 +274,21 @@ abstract class RustLibApi extends BaseApi {
     required ProfileChange change,
   });
 
+  Future<void> crateApiClientClientSetSetting({
+    required Client that,
+    required String key,
+    String? value,
+  });
+
   Future<void> crateApiClientClientSetVerified({
     required Client that,
     required String username,
     required bool verified,
+  });
+
+  Future<String?> crateApiClientClientSetting({
+    required Client that,
+    required String key,
   });
 
   Future<ConversationInfo> crateApiClientClientStartDm({
@@ -286,13 +298,65 @@ abstract class RustLibApi extends BaseApi {
 
   Future<void> crateApiClientClientSync({required Client that});
 
+  Future<void> crateApiSpellSpellerAddWord({
+    required Speller that,
+    required String word,
+  });
+
+  Future<List<Misspelling>> crateApiSpellSpellerCheck({
+    required Speller that,
+    required String text,
+  });
+
+  Future<List<String>> crateApiSpellSpellerLanguages({required Speller that});
+
+  Future<Speller> crateApiSpellSpellerLoad({
+    required String dir,
+    required List<String> languages,
+    required List<String> words,
+  });
+
+  Future<void> crateApiSpellSpellerRemoveWord({
+    required Speller that,
+    required String word,
+  });
+
+  Future<List<String>> crateApiSpellSpellerSuggest({
+    required Speller that,
+    required String word,
+  });
+
   Future<void> crateApiClientInitApp();
+
+  Future<void> crateApiSpellSpellInstall({
+    required String dir,
+    required String code,
+    required List<int> aff,
+    required List<int> dic,
+  });
+
+  Future<List<SpellLanguage>> crateApiSpellSpellLanguages({
+    required String dir,
+  });
+
+  Future<void> crateApiSpellSpellRemove({
+    required String dir,
+    required String code,
+  });
+
+  Future<List<String>> crateApiSpellSpellUrls({required String code});
 
   RustArcIncrementStrongCountFnType get rust_arc_increment_strong_count_Client;
 
   RustArcDecrementStrongCountFnType get rust_arc_decrement_strong_count_Client;
 
   CrossPlatformFinalizerArg get rust_arc_decrement_strong_count_ClientPtr;
+
+  RustArcIncrementStrongCountFnType get rust_arc_increment_strong_count_Speller;
+
+  RustArcDecrementStrongCountFnType get rust_arc_decrement_strong_count_Speller;
+
+  CrossPlatformFinalizerArg get rust_arc_decrement_strong_count_SpellerPtr;
 }
 
 class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
@@ -1771,6 +1835,46 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<void> crateApiClientClientSetSetting({
+    required Client that,
+    required String key,
+    String? value,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
+            that,
+            serializer,
+          );
+          sse_encode_String(key, serializer);
+          sse_encode_opt_String(value, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 40,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_postern_error,
+        ),
+        constMeta: kCrateApiClientClientSetSettingConstMeta,
+        argValues: [that, key, value],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiClientClientSetSettingConstMeta =>
+      const TaskConstMeta(
+        debugName: "Client_set_setting",
+        argNames: ["that", "key", "value"],
+      );
+
+  @override
   Future<void> crateApiClientClientSetVerified({
     required Client that,
     required String username,
@@ -1789,7 +1893,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 40,
+            funcId: 41,
             port: port_,
           );
         },
@@ -1811,6 +1915,44 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<String?> crateApiClientClientSetting({
+    required Client that,
+    required String key,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
+            that,
+            serializer,
+          );
+          sse_encode_String(key, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 42,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_opt_String,
+          decodeErrorData: sse_decode_postern_error,
+        ),
+        constMeta: kCrateApiClientClientSettingConstMeta,
+        argValues: [that, key],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiClientClientSettingConstMeta =>
+      const TaskConstMeta(
+        debugName: "Client_setting",
+        argNames: ["that", "key"],
+      );
+
+  @override
   Future<ConversationInfo> crateApiClientClientStartDm({
     required Client that,
     required String username,
@@ -1827,7 +1969,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 41,
+            funcId: 43,
             port: port_,
           );
         },
@@ -1861,7 +2003,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 42,
+            funcId: 44,
             port: port_,
           );
         },
@@ -1880,6 +2022,225 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "Client_sync", argNames: ["that"]);
 
   @override
+  Future<void> crateApiSpellSpellerAddWord({
+    required Speller that,
+    required String word,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+            that,
+            serializer,
+          );
+          sse_encode_String(word, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 45,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiSpellSpellerAddWordConstMeta,
+        argValues: [that, word],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSpellSpellerAddWordConstMeta =>
+      const TaskConstMeta(
+        debugName: "Speller_add_word",
+        argNames: ["that", "word"],
+      );
+
+  @override
+  Future<List<Misspelling>> crateApiSpellSpellerCheck({
+    required Speller that,
+    required String text,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+            that,
+            serializer,
+          );
+          sse_encode_String(text, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 46,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_misspelling,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiSpellSpellerCheckConstMeta,
+        argValues: [that, text],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSpellSpellerCheckConstMeta => const TaskConstMeta(
+    debugName: "Speller_check",
+    argNames: ["that", "text"],
+  );
+
+  @override
+  Future<List<String>> crateApiSpellSpellerLanguages({required Speller that}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+            that,
+            serializer,
+          );
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 47,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiSpellSpellerLanguagesConstMeta,
+        argValues: [that],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSpellSpellerLanguagesConstMeta =>
+      const TaskConstMeta(debugName: "Speller_languages", argNames: ["that"]);
+
+  @override
+  Future<Speller> crateApiSpellSpellerLoad({
+    required String dir,
+    required List<String> languages,
+    required List<String> words,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(dir, serializer);
+          sse_encode_list_String(languages, serializer);
+          sse_encode_list_String(words, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 48,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData:
+              sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller,
+          decodeErrorData: sse_decode_postern_error,
+        ),
+        constMeta: kCrateApiSpellSpellerLoadConstMeta,
+        argValues: [dir, languages, words],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSpellSpellerLoadConstMeta => const TaskConstMeta(
+    debugName: "Speller_load",
+    argNames: ["dir", "languages", "words"],
+  );
+
+  @override
+  Future<void> crateApiSpellSpellerRemoveWord({
+    required Speller that,
+    required String word,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+            that,
+            serializer,
+          );
+          sse_encode_String(word, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 49,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiSpellSpellerRemoveWordConstMeta,
+        argValues: [that, word],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSpellSpellerRemoveWordConstMeta =>
+      const TaskConstMeta(
+        debugName: "Speller_remove_word",
+        argNames: ["that", "word"],
+      );
+
+  @override
+  Future<List<String>> crateApiSpellSpellerSuggest({
+    required Speller that,
+    required String word,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+            that,
+            serializer,
+          );
+          sse_encode_String(word, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 50,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiSpellSpellerSuggestConstMeta,
+        argValues: [that, word],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSpellSpellerSuggestConstMeta =>
+      const TaskConstMeta(
+        debugName: "Speller_suggest",
+        argNames: ["that", "word"],
+      );
+
+  @override
   Future<void> crateApiClientInitApp() {
     return handler.executeNormal(
       NormalTask(
@@ -1888,7 +2249,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 43,
+            funcId: 51,
             port: port_,
           );
         },
@@ -1906,6 +2267,134 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiClientInitAppConstMeta =>
       const TaskConstMeta(debugName: "init_app", argNames: []);
 
+  @override
+  Future<void> crateApiSpellSpellInstall({
+    required String dir,
+    required String code,
+    required List<int> aff,
+    required List<int> dic,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(dir, serializer);
+          sse_encode_String(code, serializer);
+          sse_encode_list_prim_u_8_loose(aff, serializer);
+          sse_encode_list_prim_u_8_loose(dic, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 52,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_postern_error,
+        ),
+        constMeta: kCrateApiSpellSpellInstallConstMeta,
+        argValues: [dir, code, aff, dic],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSpellSpellInstallConstMeta => const TaskConstMeta(
+    debugName: "spell_install",
+    argNames: ["dir", "code", "aff", "dic"],
+  );
+
+  @override
+  Future<List<SpellLanguage>> crateApiSpellSpellLanguages({
+    required String dir,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(dir, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 53,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_spell_language,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiSpellSpellLanguagesConstMeta,
+        argValues: [dir],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSpellSpellLanguagesConstMeta =>
+      const TaskConstMeta(debugName: "spell_languages", argNames: ["dir"]);
+
+  @override
+  Future<void> crateApiSpellSpellRemove({
+    required String dir,
+    required String code,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(dir, serializer);
+          sse_encode_String(code, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 54,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_postern_error,
+        ),
+        constMeta: kCrateApiSpellSpellRemoveConstMeta,
+        argValues: [dir, code],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSpellSpellRemoveConstMeta =>
+      const TaskConstMeta(debugName: "spell_remove", argNames: ["dir", "code"]);
+
+  @override
+  Future<List<String>> crateApiSpellSpellUrls({required String code}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(code, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 55,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_String,
+          decodeErrorData: sse_decode_postern_error,
+        ),
+        constMeta: kCrateApiSpellSpellUrlsConstMeta,
+        argValues: [code],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSpellSpellUrlsConstMeta =>
+      const TaskConstMeta(debugName: "spell_urls", argNames: ["code"]);
+
   RustArcIncrementStrongCountFnType
   get rust_arc_increment_strong_count_Client => wire
       .rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient;
@@ -1913,6 +2402,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   RustArcDecrementStrongCountFnType
   get rust_arc_decrement_strong_count_Client => wire
       .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient;
+
+  RustArcIncrementStrongCountFnType
+  get rust_arc_increment_strong_count_Speller => wire
+      .rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller;
+
+  RustArcDecrementStrongCountFnType
+  get rust_arc_decrement_strong_count_Speller => wire
+      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller;
 
   @protected
   AnyhowException dco_decode_AnyhowException(dynamic raw) {
@@ -1930,6 +2427,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  Speller
+  dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return SpellerImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
   Client
   dco_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
     dynamic raw,
@@ -1939,12 +2445,30 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  Speller
+  dco_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return SpellerImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
   Client
   dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
     dynamic raw,
   ) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return ClientImpl.frbInternalDcoDecode(raw as List<dynamic>);
+  }
+
+  @protected
+  Speller
+  dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    dynamic raw,
+  ) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return SpellerImpl.frbInternalDcoDecode(raw as List<dynamic>);
   }
 
   @protected
@@ -2116,15 +2640,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<Misspelling> dco_decode_list_misspelling(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_misspelling).toList();
+  }
+
+  @protected
   List<NoticeInfo> dco_decode_list_notice_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_notice_info).toList();
   }
 
   @protected
+  List<int> dco_decode_list_prim_u_8_loose(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as List<int>;
+  }
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Uint8List;
+  }
+
+  @protected
+  List<SpellLanguage> dco_decode_list_spell_language(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_spell_language).toList();
   }
 
   @protected
@@ -2176,6 +2718,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       body: dco_decode_String(arr[1]),
       atMs: dco_decode_i_64(arr[2]),
       pending: dco_decode_bool(arr[3]),
+    );
+  }
+
+  @protected
+  Misspelling dco_decode_misspelling(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return Misspelling(
+      start: dco_decode_u_32(arr[0]),
+      end: dco_decode_u_32(arr[1]),
     );
   }
 
@@ -2265,9 +2819,29 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SpellLanguage dco_decode_spell_language(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return SpellLanguage(
+      code: dco_decode_String(arr[0]),
+      name: dco_decode_String(arr[1]),
+      bytes: dco_decode_u_64(arr[2]),
+      installed: dco_decode_bool(arr[3]),
+    );
+  }
+
+  @protected
   int dco_decode_u_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
+  }
+
+  @protected
+  BigInt dco_decode_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dcoDecodeU64(raw);
   }
 
   @protected
@@ -2308,6 +2882,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  Speller
+  sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return SpellerImpl.frbInternalSseDecode(
+      sse_decode_usize(deserializer),
+      sse_decode_i_32(deserializer),
+    );
+  }
+
+  @protected
   Client
   sse_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
     SseDeserializer deserializer,
@@ -2320,12 +2906,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  Speller
+  sse_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return SpellerImpl.frbInternalSseDecode(
+      sse_decode_usize(deserializer),
+      sse_decode_i_32(deserializer),
+    );
+  }
+
+  @protected
   Client
   sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
     SseDeserializer deserializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return ClientImpl.frbInternalSseDecode(
+      sse_decode_usize(deserializer),
+      sse_decode_i_32(deserializer),
+    );
+  }
+
+  @protected
+  Speller
+  sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return SpellerImpl.frbInternalSseDecode(
       sse_decode_usize(deserializer),
       sse_decode_i_32(deserializer),
     );
@@ -2549,6 +3159,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<Misspelling> sse_decode_list_misspelling(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <Misspelling>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_misspelling(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<NoticeInfo> sse_decode_list_notice_info(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -2561,10 +3183,31 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var len_ = sse_decode_i_32(deserializer);
+    return deserializer.buffer.getUint8List(len_);
+  }
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
     return deserializer.buffer.getUint8List(len_);
+  }
+
+  @protected
+  List<SpellLanguage> sse_decode_list_spell_language(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <SpellLanguage>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_spell_language(deserializer));
+    }
+    return ans_;
   }
 
   @protected
@@ -2632,6 +3275,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       atMs: var_atMs,
       pending: var_pending,
     );
+  }
+
+  @protected
+  Misspelling sse_decode_misspelling(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_start = sse_decode_u_32(deserializer);
+    var var_end = sse_decode_u_32(deserializer);
+    return Misspelling(start: var_start, end: var_end);
   }
 
   @protected
@@ -2736,9 +3387,30 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SpellLanguage sse_decode_spell_language(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_code = sse_decode_String(deserializer);
+    var var_name = sse_decode_String(deserializer);
+    var var_bytes = sse_decode_u_64(deserializer);
+    var var_installed = sse_decode_bool(deserializer);
+    return SpellLanguage(
+      code: var_code,
+      name: var_name,
+      bytes: var_bytes,
+      installed: var_installed,
+    );
+  }
+
+  @protected
   int sse_decode_u_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint32();
+  }
+
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getBigUint64();
   }
 
   @protected
@@ -2782,6 +3454,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @protected
   void
+  sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    Speller self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize(
+      (self as SpellerImpl).frbInternalSseEncode(move: true),
+      serializer,
+    );
+  }
+
+  @protected
+  void
   sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
     Client self,
     SseSerializer serializer,
@@ -2795,6 +3480,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   @protected
   void
+  sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    Speller self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize(
+      (self as SpellerImpl).frbInternalSseEncode(move: false),
+      serializer,
+    );
+  }
+
+  @protected
+  void
   sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
     Client self,
     SseSerializer serializer,
@@ -2802,6 +3500,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_usize(
       (self as ClientImpl).frbInternalSseEncode(move: null),
+      serializer,
+    );
+  }
+
+  @protected
+  void
+  sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    Speller self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_usize(
+      (self as SpellerImpl).frbInternalSseEncode(move: null),
       serializer,
     );
   }
@@ -3009,6 +3720,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_misspelling(
+    List<Misspelling> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_misspelling(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_notice_info(
     List<NoticeInfo> self,
     SseSerializer serializer,
@@ -3021,6 +3744,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_prim_u_8_loose(
+    List<int> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    serializer.buffer.putUint8List(
+      self is Uint8List ? self : Uint8List.fromList(self),
+    );
+  }
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
@@ -3028,6 +3763,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.length, serializer);
     serializer.buffer.putUint8List(self);
+  }
+
+  @protected
+  void sse_encode_list_spell_language(
+    List<SpellLanguage> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_spell_language(item, serializer);
+    }
   }
 
   @protected
@@ -3068,6 +3815,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.body, serializer);
     sse_encode_i_64(self.atMs, serializer);
     sse_encode_bool(self.pending, serializer);
+  }
+
+  @protected
+  void sse_encode_misspelling(Misspelling self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self.start, serializer);
+    sse_encode_u_32(self.end, serializer);
   }
 
   @protected
@@ -3157,9 +3911,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_spell_language(SpellLanguage self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.code, serializer);
+    sse_encode_String(self.name, serializer);
+    sse_encode_u_64(self.bytes, serializer);
+    sse_encode_bool(self.installed, serializer);
+  }
+
+  @protected
   void sse_encode_u_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putUint32(self);
+  }
+
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putBigUint64(self);
   }
 
   @protected
@@ -3477,6 +4246,12 @@ class ClientImpl extends RustOpaque implements Client {
       .api
       .crateApiClientClientSetProfile(that: this, change: change);
 
+  /// Set (or with `None` clear) an app setting on this device.
+  Future<void> setSetting({required String key, String? value}) => RustLib
+      .instance
+      .api
+      .crateApiClientClientSetSetting(that: this, key: key, value: value);
+
   /// Record that the user compared safety numbers with someone, or (false)
   /// withdraw it.
   Future<void> setVerified({
@@ -3488,6 +4263,10 @@ class ClientImpl extends RustOpaque implements Client {
     verified: verified,
   );
 
+  /// An app setting on this device, kept in the encrypted profile.
+  Future<String?> setting({required String key}) =>
+      RustLib.instance.api.crateApiClientClientSetting(that: this, key: key);
+
   /// Open a DM with `username`, creating it if needed.
   Future<ConversationInfo> startDm({required String username}) => RustLib
       .instance
@@ -3497,4 +4276,48 @@ class ClientImpl extends RustOpaque implements Client {
   /// Fetch everything new now.
   Future<void> sync_() =>
       RustLib.instance.api.crateApiClientClientSync(that: this);
+}
+
+@sealed
+class SpellerImpl extends RustOpaque implements Speller {
+  // Not to be used by end users
+  SpellerImpl.frbInternalDcoDecode(List<dynamic> wire)
+    : super.frbInternalDcoDecode(wire, _kStaticData);
+
+  // Not to be used by end users
+  SpellerImpl.frbInternalSseDecode(BigInt ptr, int externalSizeOnNative)
+    : super.frbInternalSseDecode(ptr, externalSizeOnNative, _kStaticData);
+
+  static final _kStaticData = RustArcStaticData(
+    rustArcIncrementStrongCount:
+        RustLib.instance.api.rust_arc_increment_strong_count_Speller,
+    rustArcDecrementStrongCount:
+        RustLib.instance.api.rust_arc_decrement_strong_count_Speller,
+    rustArcDecrementStrongCountPtr:
+        RustLib.instance.api.rust_arc_decrement_strong_count_SpellerPtr,
+  );
+
+  /// Accept a word from now on. The app keeps the list, and passes it to
+  /// [`Speller::load`] next time.
+  Future<void> addWord({required String word}) =>
+      RustLib.instance.api.crateApiSpellSpellerAddWord(that: this, word: word);
+
+  /// The words in `text` that no chosen dictionary knows. Skips what is
+  /// not prose: words with digits or underscores, all-capitals
+  /// abbreviations, and anything in a chunk that looks like a link or an
+  /// address.
+  Future<List<Misspelling>> check({required String text}) =>
+      RustLib.instance.api.crateApiSpellSpellerCheck(that: this, text: text);
+
+  /// The dictionaries actually loaded.
+  Future<List<String>> languages() =>
+      RustLib.instance.api.crateApiSpellSpellerLanguages(that: this);
+
+  /// Stop accepting a word added earlier.
+  Future<void> removeWord({required String word}) => RustLib.instance.api
+      .crateApiSpellSpellerRemoveWord(that: this, word: word);
+
+  /// Up to five corrections, from every chosen dictionary.
+  Future<List<String>> suggest({required String word}) =>
+      RustLib.instance.api.crateApiSpellSpellerSuggest(that: this, word: word);
 }

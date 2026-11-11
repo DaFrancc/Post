@@ -64,6 +64,11 @@ flutter_rust_bridge = "=2.13.0"
 # Linux: the Secret Service (GNOME Keyring, KWallet), over encrypted D-Bus.
 keyring-core = "1.0"
 zbus-secret-service-keyring-store = { version = "1.0", features = ["rt-tokio-crypto-rust"] }
+# Spellchecking in the app: Hunspell dictionaries read in pure Rust, many of
+# them in legacy encodings that are converted to UTF-8 first.
+spellbook = "0.4"
+encoding_rs = "0.8"
+base64 = "0.22"
 # Anonymous tokens, RFC 9474. Uses rsa 0.10, which fixed the Marvin timing
 # side channel (RUSTSEC-2023-0071) by moving to constant-time arithmetic.
 blind-rsa-signatures = "0.18"

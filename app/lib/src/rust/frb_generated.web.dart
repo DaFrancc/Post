@@ -8,6 +8,7 @@
 
 import 'api/client.dart';
 import 'api/error.dart';
+import 'api/spell.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -28,6 +29,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   get rust_arc_decrement_strong_count_ClientPtr => wire
       .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient;
 
+  CrossPlatformFinalizerArg
+  get rust_arc_decrement_strong_count_SpellerPtr => wire
+      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller;
+
   @protected
   AnyhowException dco_decode_AnyhowException(dynamic raw);
 
@@ -38,14 +43,32 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  Speller
+  dco_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    dynamic raw,
+  );
+
+  @protected
   Client
   dco_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
     dynamic raw,
   );
 
   @protected
+  Speller
+  dco_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    dynamic raw,
+  );
+
+  @protected
   Client
   dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
+    dynamic raw,
+  );
+
+  @protected
+  Speller
+  dco_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
     dynamic raw,
   );
 
@@ -113,10 +136,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<MessageVersionInfo> dco_decode_list_message_version_info(dynamic raw);
 
   @protected
+  List<Misspelling> dco_decode_list_misspelling(dynamic raw);
+
+  @protected
   List<NoticeInfo> dco_decode_list_notice_info(dynamic raw);
 
   @protected
+  List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  List<SpellLanguage> dco_decode_list_spell_language(dynamic raw);
 
   @protected
   MemberInfo dco_decode_member_info(dynamic raw);
@@ -126,6 +158,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MessageVersionInfo dco_decode_message_version_info(dynamic raw);
+
+  @protected
+  Misspelling dco_decode_misspelling(dynamic raw);
 
   @protected
   NoticeInfo dco_decode_notice_info(dynamic raw);
@@ -155,7 +190,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ProfileChange dco_decode_profile_change(dynamic raw);
 
   @protected
+  SpellLanguage dco_decode_spell_language(dynamic raw);
+
+  @protected
   int dco_decode_u_32(dynamic raw);
+
+  @protected
+  BigInt dco_decode_u_64(dynamic raw);
 
   @protected
   int dco_decode_u_8(dynamic raw);
@@ -176,14 +217,32 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  Speller
+  sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   Client
   sse_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
     SseDeserializer deserializer,
   );
 
   @protected
+  Speller
+  sse_decode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   Client
   sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  Speller
+  sse_decode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
     SseDeserializer deserializer,
   );
 
@@ -259,10 +318,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<Misspelling> sse_decode_list_misspelling(SseDeserializer deserializer);
+
+  @protected
   List<NoticeInfo> sse_decode_list_notice_info(SseDeserializer deserializer);
 
   @protected
+  List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
+  List<SpellLanguage> sse_decode_list_spell_language(
+    SseDeserializer deserializer,
+  );
 
   @protected
   MemberInfo sse_decode_member_info(SseDeserializer deserializer);
@@ -274,6 +344,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   MessageVersionInfo sse_decode_message_version_info(
     SseDeserializer deserializer,
   );
+
+  @protected
+  Misspelling sse_decode_misspelling(SseDeserializer deserializer);
 
   @protected
   NoticeInfo sse_decode_notice_info(SseDeserializer deserializer);
@@ -305,7 +378,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ProfileChange sse_decode_profile_change(SseDeserializer deserializer);
 
   @protected
+  SpellLanguage sse_decode_spell_language(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_u_32(SseDeserializer deserializer);
+
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_8(SseDeserializer deserializer);
@@ -331,6 +410,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void
+  sse_encode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    Speller self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
   sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
     Client self,
     SseSerializer serializer,
@@ -338,8 +424,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void
+  sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    Speller self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
   sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
     Client self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void
+  sse_encode_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    Speller self,
     SseSerializer serializer,
   );
 
@@ -437,14 +537,29 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_misspelling(
+    List<Misspelling> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_notice_info(
     List<NoticeInfo> self,
     SseSerializer serializer,
   );
 
   @protected
+  void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_list_spell_language(
+    List<SpellLanguage> self,
     SseSerializer serializer,
   );
 
@@ -459,6 +574,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     MessageVersionInfo self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_misspelling(Misspelling self, SseSerializer serializer);
 
   @protected
   void sse_encode_notice_info(NoticeInfo self, SseSerializer serializer);
@@ -497,7 +615,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_profile_change(ProfileChange self, SseSerializer serializer);
 
   @protected
+  void sse_encode_spell_language(SpellLanguage self, SseSerializer serializer);
+
+  @protected
   void sse_encode_u_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_8(int self, SseSerializer serializer);
@@ -529,6 +653,22 @@ class RustLibWire implements BaseWire {
       .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
         ptr,
       );
+
+  void
+  rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    int ptr,
+  ) => wasmModule
+      .rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+        ptr,
+      );
+
+  void
+  rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    int ptr,
+  ) => wasmModule
+      .rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+        ptr,
+      );
 }
 
 @JS('wasm_bindgen')
@@ -544,6 +684,16 @@ extension type RustLibWasmModule._(JSObject _) implements JSObject {
 
   external void
   rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
+    int ptr,
+  );
+
+  external void
+  rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
+    int ptr,
+  );
+
+  external void
+  rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller(
     int ptr,
   );
 }
