@@ -186,6 +186,37 @@ pub enum PresenceChoice {
     Invisible,
 }
 
+/// A search: words (each the start of a word, any case or accents) and
+/// filters, all of which must match.
+pub struct SearchOptions {
+    /// The words.
+    pub text: String,
+    /// Only in this conversation.
+    pub conversation: Option<String>,
+    /// Only sent by this username.
+    pub from: Option<String>,
+    /// Only messages with a link.
+    pub has_link: bool,
+    /// Only sent at or after this (Unix ms).
+    pub after_ms: Option<u64>,
+    /// Only sent before this (Unix ms).
+    pub before_ms: Option<u64>,
+    /// Oldest first, rather than newest.
+    pub oldest_first: bool,
+    /// At most this many: the page size.
+    pub limit: u32,
+    /// Skipping this many first: where the page starts.
+    pub offset: u32,
+}
+
+/// What a search found.
+pub struct SearchFound {
+    /// How many match in all.
+    pub total: u32,
+    /// The page asked for.
+    pub messages: Vec<MessageInfo>,
+}
+
 /// A change to the user's profile. `None` leaves a field as it is; an empty
 /// string clears it.
 pub struct ProfileChange {
@@ -466,13 +497,23 @@ impl Client {
         Ok(self.core.messages(id, limit)?.into_iter().map(message).collect())
     }
 
-    /// Messages containing every word of `text` (any case), newest first:
-    /// in one conversation, or all; from one username, or anyone. From this
-    /// device's copy only.
-    pub async fn search(&self, text: String, conversation: Option<String>, from: Option<String>, limit: u32) -> Result<Vec<MessageInfo>, PostError> {
-        let conversation = conversation.map(|c| c.parse::<ConversationId>()).transpose()?;
-        let query = core::SearchQuery { text, conversation, from, limit };
-        Ok(self.core.search(&query)?.into_iter().map(message).collect())
+    /// Messages matching a search, from this device's index: how many in
+    /// all, and the page asked for.
+    pub async fn search(&self, query: SearchOptions) -> Result<SearchFound, PostError> {
+        let conversation = query.conversation.map(|c| c.parse::<ConversationId>()).transpose()?;
+        let q = core::SearchQuery {
+            text: query.text,
+            conversation,
+            from: query.from,
+            has_link: query.has_link,
+            after_ms: query.after_ms,
+            before_ms: query.before_ms,
+            oldest_first: query.oldest_first,
+            limit: query.limit,
+            offset: query.offset,
+        };
+        let found = self.core.search(&q)?;
+        Ok(SearchFound { total: found.total, messages: found.messages.into_iter().map(message).collect() })
     }
 
     /// Send a text message.

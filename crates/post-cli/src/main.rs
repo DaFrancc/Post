@@ -88,8 +88,17 @@ enum Command {
         /// Only sent by this username.
         #[arg(long)]
         from: Option<String>,
+        /// Only messages with a link.
+        #[arg(long)]
+        has_link: bool,
+        /// Oldest first.
+        #[arg(long)]
+        oldest: bool,
         #[arg(long, default_value_t = 50)]
         limit: u32,
+        /// Skip this many first.
+        #[arg(long, default_value_t = 0)]
+        offset: u32,
     },
     /// Send a message to a conversation, or to a user's DM.
     Send {
@@ -333,9 +342,17 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         }
         Command::Conversations => ("conversations", json!({})),
         Command::Messages { conversation, limit } => ("messages", json!({ "conversation": conversation, "limit": limit })),
-        Command::Search { text, conversation, from, limit } => (
+        Command::Search { text, conversation, from, has_link, oldest, limit, offset } => (
             "search",
-            json!({ "text": text.as_deref().unwrap_or_default(), "conversation": conversation, "from": from, "limit": limit }),
+            json!({
+                "text": text.as_deref().unwrap_or_default(),
+                "conversation": conversation,
+                "from": from,
+                "has_link": has_link,
+                "oldest_first": oldest,
+                "limit": limit,
+                "offset": offset,
+            }),
         ),
         Command::Send { to, conversation, text } => ("send", json!({ "to": to, "conversation": conversation, "text": text })),
         Command::Edit { conversation, message, text } => {
@@ -420,7 +437,14 @@ fn print_human(method: &str, v: &Value) {
             }
         }
         "messages" | "search" => {
-            for m in v.as_array().into_iter().flatten() {
+            // A search gives a total and a page; messages, just the list.
+            let list = if method == "search" {
+                println!("{} found", v["total"]);
+                &v["messages"]
+            } else {
+                v
+            };
+            for m in list.as_array().into_iter().flatten() {
                 let body = if m["deleted"] == true {
                     "[message deleted]".to_string()
                 } else if m["unsupported"] == true {

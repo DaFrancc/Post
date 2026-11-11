@@ -94,6 +94,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ProfileChange dco_decode_box_autoadd_profile_change(dynamic raw);
 
   @protected
+  SearchOptions dco_decode_box_autoadd_search_options(dynamic raw);
+
+  @protected
+  BigInt dco_decode_box_autoadd_u_64(dynamic raw);
+
+  @protected
   ConversationInfo dco_decode_conversation_info(dynamic raw);
 
   @protected
@@ -175,6 +181,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   MessageInfo? dco_decode_opt_box_autoadd_message_info(dynamic raw);
 
   @protected
+  BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
+
+  @protected
   PersonInfo dco_decode_person_info(dynamic raw);
 
   @protected
@@ -188,6 +197,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ProfileChange dco_decode_profile_change(dynamic raw);
+
+  @protected
+  SearchFound dco_decode_search_found(dynamic raw);
+
+  @protected
+  SearchOptions dco_decode_search_options(dynamic raw);
 
   @protected
   SpellLanguage dco_decode_spell_language(dynamic raw);
@@ -270,6 +285,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ProfileChange sse_decode_box_autoadd_profile_change(
     SseDeserializer deserializer,
   );
+
+  @protected
+  SearchOptions sse_decode_box_autoadd_search_options(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
 
   @protected
   ConversationInfo sse_decode_conversation_info(SseDeserializer deserializer);
@@ -363,6 +386,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
+
+  @protected
   PersonInfo sse_decode_person_info(SseDeserializer deserializer);
 
   @protected
@@ -376,6 +402,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ProfileChange sse_decode_profile_change(SseDeserializer deserializer);
+
+  @protected
+  SearchFound sse_decode_search_found(SseDeserializer deserializer);
+
+  @protected
+  SearchOptions sse_decode_search_options(SseDeserializer deserializer);
 
   @protected
   SpellLanguage sse_decode_spell_language(SseDeserializer deserializer);
@@ -472,6 +504,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     ProfileChange self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_box_autoadd_search_options(
+    SearchOptions self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
 
   @protected
   void sse_encode_conversation_info(
@@ -597,6 +638,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_person_info(PersonInfo self, SseSerializer serializer);
 
   @protected
@@ -613,6 +657,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_profile_change(ProfileChange self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_search_found(SearchFound self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_search_options(SearchOptions self, SseSerializer serializer);
 
   @protected
   void sse_encode_spell_language(SpellLanguage self, SseSerializer serializer);

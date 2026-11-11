@@ -184,6 +184,25 @@ pub fn open(path: &Path, key: &DbKey) -> Result<Connection> {
     Ok(conn)
 }
 
+/// A trigger that puts one message back into the search index as it now
+/// is: out, then in again with its latest text, unless it is deleted, not
+/// understood, or has no text.
+macro_rules! reindex_trigger {
+    ($name:literal, $when:literal, $group:literal, $id:literal) => {
+        concat!(
+            "CREATE TRIGGER ", $name, " ", $when, " BEGIN
+                 DELETE FROM message_search WHERE rowid = (SELECT pk FROM messages WHERE group_id = ", $group, " AND id = ", $id, ");
+                 INSERT INTO message_search (rowid, body)
+                     SELECT m.pk, (SELECT body FROM message_versions v WHERE v.group_id = m.group_id AND v.message_id = m.id
+                                   ORDER BY v.seq IS NULL DESC, v.seq DESC, v.pk DESC LIMIT 1)
+                     FROM messages m
+                     WHERE m.group_id = ", $group, " AND m.id = ", $id, " AND m.deleted_at IS NULL AND m.unsupported = 0
+                       AND EXISTS (SELECT 1 FROM message_versions v WHERE v.group_id = m.group_id AND v.message_id = m.id);
+             END;"
+        )
+    };
+}
+
 /// Changes to existing tables, in order. `SCHEMA` creates version 1 (and any
 /// tables added since, which `IF NOT EXISTS` handles); entry `i` here takes a
 /// database from version `i + 1` to `i + 2`. Never edit an entry once
@@ -229,6 +248,29 @@ const MIGRATIONS: &[&str] = &[
     // 8: how each person's messages arrive on screen (their profile's
     // arrival preset; empty for the app's default).
     "ALTER TABLE profiles ADD COLUMN arrival TEXT NOT NULL DEFAULT '';",
+    // 9: a full-text index of messages, for search: each message's latest
+    // text under its row's pk, for messages not deleted and understood. It
+    // lives in this (encrypted) database like everything else. Words match
+    // ignoring case and accents. Triggers keep it current through sends,
+    // edits (including a pending edit being accepted, which can change
+    // which version is latest) and deletes, whatever code makes them.
+    concat!(
+        "CREATE VIRTUAL TABLE message_search USING fts5(body, tokenize = 'unicode61 remove_diacritics 2');",
+        reindex_trigger!("search_version_added", "AFTER INSERT ON message_versions", "NEW.group_id", "NEW.message_id"),
+        reindex_trigger!("search_version_sent", "AFTER UPDATE OF seq ON message_versions", "NEW.group_id", "NEW.message_id"),
+        reindex_trigger!("search_version_gone", "AFTER DELETE ON message_versions", "OLD.group_id", "OLD.message_id"),
+        reindex_trigger!("search_message_added", "AFTER INSERT ON messages", "NEW.group_id", "NEW.id"),
+        reindex_trigger!("search_message_changed", "AFTER UPDATE OF deleted_at, unsupported ON messages", "NEW.group_id", "NEW.id"),
+        "CREATE TRIGGER search_message_gone AFTER DELETE ON messages BEGIN
+             DELETE FROM message_search WHERE rowid = OLD.pk;
+         END;
+         INSERT INTO message_search (rowid, body)
+             SELECT m.pk, (SELECT body FROM message_versions v WHERE v.group_id = m.group_id AND v.message_id = m.id
+                           ORDER BY v.seq IS NULL DESC, v.seq DESC, v.pk DESC LIMIT 1)
+             FROM messages m
+             WHERE m.deleted_at IS NULL AND m.unsupported = 0
+               AND EXISTS (SELECT 1 FROM message_versions v WHERE v.group_id = m.group_id AND v.message_id = m.id);"
+    ),
 ];
 
 /// Create tables, both ours and OpenMLS's, and bring old databases up to date.
@@ -647,12 +689,17 @@ pub struct MessageRow {
     pub versions: u32,
 }
 
-const MSG_SELECT: &str = "
-SELECT m.group_id, m.id, m.sender_account, m.outgoing, m.sent_at, m.state, m.unsupported, m.deleted_at IS NOT NULL,
+/// A message's columns as [`msg_row`] reads them, from `messages m`.
+macro_rules! msg_columns {
+    () => {
+        "m.group_id, m.id, m.sender_account, m.outgoing, m.sent_at, m.state, m.unsupported, m.deleted_at IS NOT NULL,
        (SELECT body FROM message_versions v WHERE v.group_id = m.group_id AND v.message_id = m.id
          ORDER BY v.seq IS NULL DESC, v.seq DESC, v.pk DESC LIMIT 1),
-       (SELECT count(*) FROM message_versions v WHERE v.group_id = m.group_id AND v.message_id = m.id)
-FROM messages m";
+       (SELECT count(*) FROM message_versions v WHERE v.group_id = m.group_id AND v.message_id = m.id)"
+    };
+}
+
+const MSG_SELECT: &str = concat!("SELECT ", msg_columns!(), " FROM messages m");
 
 fn msg_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<MessageRow> {
     Ok(MessageRow {
@@ -696,18 +743,75 @@ pub fn messages(conn: &Connection, groups: &[Vec<u8>], limit: u32) -> Result<Vec
     Ok(out)
 }
 
-/// Every message there is something to search in: not deleted, understood,
-/// in a conversation the user can see (not the self group), with its
-/// latest text; newest first. Optionally only one sender's.
-pub fn searchable(conn: &Connection, sender: Option<&[u8]>) -> Result<Vec<MessageRow>> {
+/// What to search for: every part is optional, and all given must match.
+#[derive(Default)]
+pub struct SearchFilter<'a> {
+    /// Words, each matching a word that starts with it, ignoring case and
+    /// accents.
+    pub words: Vec<String>,
+    pub sender: Option<&'a [u8]>,
+    /// Only in these groups.
+    pub groups: Option<&'a [Vec<u8>]>,
+    /// Sent at or after, and before (Unix ms).
+    pub after: Option<i64>,
+    pub before: Option<i64>,
+    /// Only messages with a link.
+    pub has_link: bool,
+    pub oldest_first: bool,
+}
+
+/// The FTS5 query for `words`: each a quoted phrase (so nothing typed is
+/// read as query syntax) matching as a prefix, all of them required.
+pub fn fts_query(words: &[String]) -> Option<String> {
+    let terms: Vec<String> = words.iter().filter(|w| !w.trim().is_empty()).map(|w| format!("\"{}\"*", w.replace('"', "\"\""))).collect();
+    (!terms.is_empty()).then(|| terms.join(" "))
+}
+
+/// Messages matching `f` from the search index (which holds every message
+/// that is not deleted and is understood, by its latest text), in
+/// conversations the user can see: how many in all, and the page asked for.
+pub fn search(conn: &Connection, f: &SearchFilter<'_>, limit: u32, offset: u32) -> Result<(u32, Vec<MessageRow>)> {
+    let mut wheres = vec![format!("c.kind != {KIND_SELF}")];
+    let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+    if let Some(q) = fts_query(&f.words) {
+        wheres.push("message_search MATCH ?".into());
+        args.push(Box::new(q));
+    }
+    if let Some(s) = f.sender {
+        wheres.push("m.sender_account = ?".into());
+        args.push(Box::new(s.to_vec()));
+    }
+    if let Some(groups) = f.groups {
+        if groups.is_empty() {
+            return Ok((0, Vec::new()));
+        }
+        wheres.push(format!("m.group_id IN ({})", vec!["?"; groups.len()].join(", ")));
+        args.extend(groups.iter().map(|g| Box::new(g.clone()) as Box<dyn rusqlite::ToSql>));
+    }
+    if let Some(t) = f.after {
+        wheres.push("m.sent_at >= ?".into());
+        args.push(Box::new(t));
+    }
+    if let Some(t) = f.before {
+        wheres.push("m.sent_at < ?".into());
+        args.push(Box::new(t));
+    }
+    if f.has_link {
+        wheres.push("(instr(lower(message_search.body), 'http://') > 0 OR instr(lower(message_search.body), 'https://') > 0)".into());
+    }
+    let from = format!(
+        "FROM message_search JOIN messages m ON m.pk = message_search.rowid JOIN conversations c ON c.group_id = m.group_id WHERE {}",
+        wheres.join(" AND ")
+    );
+    let refs: Vec<&dyn rusqlite::ToSql> = args.iter().map(|a| a.as_ref()).collect();
+    let total: u32 = conn.query_row(&format!("SELECT count(*) {from}"), refs.as_slice(), |r| r.get(0))?;
+    let order = if f.oldest_first { "ASC" } else { "DESC" };
     let mut stmt = conn.prepare(&format!(
-        "{MSG_SELECT} JOIN conversations c ON c.group_id = m.group_id
-         WHERE c.kind != {KIND_SELF} AND m.deleted_at IS NULL AND m.unsupported = 0
-           AND (?1 IS NULL OR m.sender_account = ?1)
-         ORDER BY m.sent_at DESC, m.pk DESC"
+        "SELECT {} {from} ORDER BY m.sent_at {order}, m.pk {order} LIMIT {limit} OFFSET {offset}",
+        msg_columns!()
     ))?;
-    let rows = stmt.query_map(params![sender], msg_row)?.collect::<rusqlite::Result<_>>()?;
-    Ok(rows)
+    let rows = stmt.query_map(refs.as_slice(), msg_row)?.collect::<rusqlite::Result<_>>()?;
+    Ok((total, rows))
 }
 
 /// Messages from others in `groups` past each group's read position, not

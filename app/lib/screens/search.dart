@@ -77,10 +77,20 @@ class _SearchPanelState extends State<SearchPanel> {
     final run = ++_run;
     final q = parseSearch(_state.searchText);
     try {
-      final found = await _state.client.search(text: q.words, conversation: _state.searchAll ? null : _state.selected, from: q.from, limit: 100);
+      final found = await _state.client.search(
+        query: SearchOptions(
+          text: q.words,
+          conversation: _state.searchAll ? null : _state.selected,
+          from: q.from,
+          hasLink: false,
+          oldestFirst: false,
+          limit: 100,
+          offset: 0,
+        ),
+      );
       if (mounted && run == _run) {
         setState(() {
-          _results = found;
+          _results = found.messages;
           _error = null;
         });
       }

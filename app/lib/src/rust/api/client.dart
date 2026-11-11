@@ -154,15 +154,9 @@ abstract class Client implements RustOpaqueInterface {
   /// digits, separated by spaces.
   Future<String> safetyNumber({required String username});
 
-  /// Messages containing every word of `text` (any case), newest first:
-  /// in one conversation, or all; from one username, or anyone. From this
-  /// device's copy only.
-  Future<List<MessageInfo>> search({
-    required String text,
-    String? conversation,
-    String? from,
-    required int limit,
-  });
+  /// Messages matching a search, from this device's index: how many in
+  /// all, and the page asked for.
+  Future<SearchFound> search({required SearchOptions query});
 
   /// Send a text message.
   Future<MessageInfo> sendText({
@@ -770,4 +764,96 @@ class ProfileChange {
           note == other.note &&
           noteKeep == other.noteKeep &&
           arrival == other.arrival;
+}
+
+/// What a search found.
+class SearchFound {
+  /// How many match in all.
+  final int total;
+
+  /// The page asked for.
+  final List<MessageInfo> messages;
+
+  const SearchFound({required this.total, required this.messages});
+
+  @override
+  int get hashCode => total.hashCode ^ messages.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SearchFound &&
+          runtimeType == other.runtimeType &&
+          total == other.total &&
+          messages == other.messages;
+}
+
+/// A search: words (each the start of a word, any case or accents) and
+/// filters, all of which must match.
+class SearchOptions {
+  /// The words.
+  final String text;
+
+  /// Only in this conversation.
+  final String? conversation;
+
+  /// Only sent by this username.
+  final String? from;
+
+  /// Only messages with a link.
+  final bool hasLink;
+
+  /// Only sent at or after this (Unix ms).
+  final BigInt? afterMs;
+
+  /// Only sent before this (Unix ms).
+  final BigInt? beforeMs;
+
+  /// Oldest first, rather than newest.
+  final bool oldestFirst;
+
+  /// At most this many: the page size.
+  final int limit;
+
+  /// Skipping this many first: where the page starts.
+  final int offset;
+
+  const SearchOptions({
+    required this.text,
+    this.conversation,
+    this.from,
+    required this.hasLink,
+    this.afterMs,
+    this.beforeMs,
+    required this.oldestFirst,
+    required this.limit,
+    required this.offset,
+  });
+
+  @override
+  int get hashCode =>
+      text.hashCode ^
+      conversation.hashCode ^
+      from.hashCode ^
+      hasLink.hashCode ^
+      afterMs.hashCode ^
+      beforeMs.hashCode ^
+      oldestFirst.hashCode ^
+      limit.hashCode ^
+      offset.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SearchOptions &&
+          runtimeType == other.runtimeType &&
+          text == other.text &&
+          conversation == other.conversation &&
+          from == other.from &&
+          hasLink == other.hasLink &&
+          afterMs == other.afterMs &&
+          beforeMs == other.beforeMs &&
+          oldestFirst == other.oldestFirst &&
+          limit == other.limit &&
+          offset == other.offset;
 }

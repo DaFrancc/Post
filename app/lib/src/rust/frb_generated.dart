@@ -234,12 +234,9 @@ abstract class RustLibApi extends BaseApi {
     required String username,
   });
 
-  Future<List<MessageInfo>> crateApiClientClientSearch({
+  Future<SearchFound> crateApiClientClientSearch({
     required Client that,
-    required String text,
-    String? conversation,
-    String? from,
-    required int limit,
+    required SearchOptions query,
   });
 
   Future<MessageInfo> crateApiClientClientSendText({
@@ -1567,12 +1564,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<List<MessageInfo>> crateApiClientClientSearch({
+  Future<SearchFound> crateApiClientClientSearch({
     required Client that,
-    required String text,
-    String? conversation,
-    String? from,
-    required int limit,
+    required SearchOptions query,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -1582,10 +1576,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             that,
             serializer,
           );
-          sse_encode_String(text, serializer);
-          sse_encode_opt_String(conversation, serializer);
-          sse_encode_opt_String(from, serializer);
-          sse_encode_u_32(limit, serializer);
+          sse_encode_box_autoadd_search_options(query, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1594,11 +1585,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
         },
         codec: SseCodec(
-          decodeSuccessData: sse_decode_list_message_info,
+          decodeSuccessData: sse_decode_search_found,
           decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientSearchConstMeta,
-        argValues: [that, text, conversation, from, limit],
+        argValues: [that, query],
         apiImpl: this,
       ),
     );
@@ -1606,7 +1597,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiClientClientSearchConstMeta => const TaskConstMeta(
     debugName: "Client_search",
-    argNames: ["that", "text", "conversation", "from", "limit"],
+    argNames: ["that", "query"],
   );
 
   @override
@@ -2573,6 +2564,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SearchOptions dco_decode_box_autoadd_search_options(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_search_options(raw);
+  }
+
+  @protected
+  BigInt dco_decode_box_autoadd_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_u_64(raw);
+  }
+
+  @protected
   ConversationInfo dco_decode_conversation_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -2815,6 +2818,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_u_64(raw);
+  }
+
+  @protected
   PersonInfo dco_decode_person_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -2868,6 +2877,37 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       note: dco_decode_opt_String(arr[2]),
       noteKeep: dco_decode_bool(arr[3]),
       arrival: dco_decode_opt_String(arr[4]),
+    );
+  }
+
+  @protected
+  SearchFound dco_decode_search_found(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return SearchFound(
+      total: dco_decode_u_32(arr[0]),
+      messages: dco_decode_list_message_info(arr[1]),
+    );
+  }
+
+  @protected
+  SearchOptions dco_decode_search_options(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    return SearchOptions(
+      text: dco_decode_String(arr[0]),
+      conversation: dco_decode_opt_String(arr[1]),
+      from: dco_decode_opt_String(arr[2]),
+      hasLink: dco_decode_bool(arr[3]),
+      afterMs: dco_decode_opt_box_autoadd_u_64(arr[4]),
+      beforeMs: dco_decode_opt_box_autoadd_u_64(arr[5]),
+      oldestFirst: dco_decode_bool(arr[6]),
+      limit: dco_decode_u_32(arr[7]),
+      offset: dco_decode_u_32(arr[8]),
     );
   }
 
@@ -3050,6 +3090,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_profile_change(deserializer));
+  }
+
+  @protected
+  SearchOptions sse_decode_box_autoadd_search_options(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_search_options(deserializer));
+  }
+
+  @protected
+  BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_u_64(deserializer));
   }
 
   @protected
@@ -3382,6 +3436,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_u_64(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   PersonInfo sse_decode_person_info(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_username = sse_decode_String(deserializer);
@@ -3440,6 +3505,39 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       note: var_note,
       noteKeep: var_noteKeep,
       arrival: var_arrival,
+    );
+  }
+
+  @protected
+  SearchFound sse_decode_search_found(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_total = sse_decode_u_32(deserializer);
+    var var_messages = sse_decode_list_message_info(deserializer);
+    return SearchFound(total: var_total, messages: var_messages);
+  }
+
+  @protected
+  SearchOptions sse_decode_search_options(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_text = sse_decode_String(deserializer);
+    var var_conversation = sse_decode_opt_String(deserializer);
+    var var_from = sse_decode_opt_String(deserializer);
+    var var_hasLink = sse_decode_bool(deserializer);
+    var var_afterMs = sse_decode_opt_box_autoadd_u_64(deserializer);
+    var var_beforeMs = sse_decode_opt_box_autoadd_u_64(deserializer);
+    var var_oldestFirst = sse_decode_bool(deserializer);
+    var var_limit = sse_decode_u_32(deserializer);
+    var var_offset = sse_decode_u_32(deserializer);
+    return SearchOptions(
+      text: var_text,
+      conversation: var_conversation,
+      from: var_from,
+      hasLink: var_hasLink,
+      afterMs: var_afterMs,
+      beforeMs: var_beforeMs,
+      oldestFirst: var_oldestFirst,
+      limit: var_limit,
+      offset: var_offset,
     );
   }
 
@@ -3637,6 +3735,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_profile_change(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_search_options(
+    SearchOptions self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_search_options(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_64(self, serializer);
   }
 
   @protected
@@ -3925,6 +4038,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_u_64(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_person_info(PersonInfo self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.username, serializer);
@@ -3967,6 +4090,27 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.note, serializer);
     sse_encode_bool(self.noteKeep, serializer);
     sse_encode_opt_String(self.arrival, serializer);
+  }
+
+  @protected
+  void sse_encode_search_found(SearchFound self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self.total, serializer);
+    sse_encode_list_message_info(self.messages, serializer);
+  }
+
+  @protected
+  void sse_encode_search_options(SearchOptions self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.text, serializer);
+    sse_encode_opt_String(self.conversation, serializer);
+    sse_encode_opt_String(self.from, serializer);
+    sse_encode_bool(self.hasLink, serializer);
+    sse_encode_opt_box_autoadd_u_64(self.afterMs, serializer);
+    sse_encode_opt_box_autoadd_u_64(self.beforeMs, serializer);
+    sse_encode_bool(self.oldestFirst, serializer);
+    sse_encode_u_32(self.limit, serializer);
+    sse_encode_u_32(self.offset, serializer);
   }
 
   @protected
@@ -4244,21 +4388,10 @@ class ClientImpl extends RustOpaque implements Client {
       .api
       .crateApiClientClientSafetyNumber(that: this, username: username);
 
-  /// Messages containing every word of `text` (any case), newest first:
-  /// in one conversation, or all; from one username, or anyone. From this
-  /// device's copy only.
-  Future<List<MessageInfo>> search({
-    required String text,
-    String? conversation,
-    String? from,
-    required int limit,
-  }) => RustLib.instance.api.crateApiClientClientSearch(
-    that: this,
-    text: text,
-    conversation: conversation,
-    from: from,
-    limit: limit,
-  );
+  /// Messages matching a search, from this device's index: how many in
+  /// all, and the page asked for.
+  Future<SearchFound> search({required SearchOptions query}) =>
+      RustLib.instance.api.crateApiClientClientSearch(that: this, query: query);
 
   /// Send a text message.
   Future<MessageInfo> sendText({

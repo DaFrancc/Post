@@ -1958,10 +1958,7 @@ fn wire__crate__api__client__Client_search_impl(
             let api_that = <RustOpaqueMoi<
                 flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
             >>::sse_decode(&mut deserializer);
-            let api_text = <String>::sse_decode(&mut deserializer);
-            let api_conversation = <Option<String>>::sse_decode(&mut deserializer);
-            let api_from = <Option<String>>::sse_decode(&mut deserializer);
-            let api_limit = <u32>::sse_decode(&mut deserializer);
+            let api_query = <crate::api::client::SearchOptions>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
@@ -1983,14 +1980,8 @@ fn wire__crate__api__client__Client_search_impl(
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::search(
-                            &*api_that_guard,
-                            api_text,
-                            api_conversation,
-                            api_from,
-                            api_limit,
-                        )
-                        .await?;
+                        let output_ok =
+                            crate::api::client::Client::search(&*api_that_guard, api_query).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3659,6 +3650,17 @@ impl SseDecode for Option<crate::api::client::MessageInfo> {
     }
 }
 
+impl SseDecode for Option<u64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<u64>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for crate::api::client::PersonInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -3737,6 +3739,44 @@ impl SseDecode for crate::api::client::ProfileChange {
             note: var_note,
             note_keep: var_noteKeep,
             arrival: var_arrival,
+        };
+    }
+}
+
+impl SseDecode for crate::api::client::SearchFound {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_total = <u32>::sse_decode(deserializer);
+        let mut var_messages = <Vec<crate::api::client::MessageInfo>>::sse_decode(deserializer);
+        return crate::api::client::SearchFound {
+            total: var_total,
+            messages: var_messages,
+        };
+    }
+}
+
+impl SseDecode for crate::api::client::SearchOptions {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_text = <String>::sse_decode(deserializer);
+        let mut var_conversation = <Option<String>>::sse_decode(deserializer);
+        let mut var_from = <Option<String>>::sse_decode(deserializer);
+        let mut var_hasLink = <bool>::sse_decode(deserializer);
+        let mut var_afterMs = <Option<u64>>::sse_decode(deserializer);
+        let mut var_beforeMs = <Option<u64>>::sse_decode(deserializer);
+        let mut var_oldestFirst = <bool>::sse_decode(deserializer);
+        let mut var_limit = <u32>::sse_decode(deserializer);
+        let mut var_offset = <u32>::sse_decode(deserializer);
+        return crate::api::client::SearchOptions {
+            text: var_text,
+            conversation: var_conversation,
+            from: var_from,
+            has_link: var_hasLink,
+            after_ms: var_afterMs,
+            before_ms: var_beforeMs,
+            oldest_first: var_oldestFirst,
+            limit: var_limit,
+            offset: var_offset,
         };
     }
 }
@@ -4319,6 +4359,55 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::client::ProfileChange>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::client::SearchFound {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.total.into_into_dart().into_dart(),
+            self.messages.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::client::SearchFound
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::SearchFound>
+    for crate::api::client::SearchFound
+{
+    fn into_into_dart(self) -> crate::api::client::SearchFound {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::client::SearchOptions {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.text.into_into_dart().into_dart(),
+            self.conversation.into_into_dart().into_dart(),
+            self.from.into_into_dart().into_dart(),
+            self.has_link.into_into_dart().into_dart(),
+            self.after_ms.into_into_dart().into_dart(),
+            self.before_ms.into_into_dart().into_dart(),
+            self.oldest_first.into_into_dart().into_dart(),
+            self.limit.into_into_dart().into_dart(),
+            self.offset.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::client::SearchOptions
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::SearchOptions>
+    for crate::api::client::SearchOptions
+{
+    fn into_into_dart(self) -> crate::api::client::SearchOptions {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::spell::SpellLanguage {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -4700,6 +4789,16 @@ impl SseEncode for Option<crate::api::client::MessageInfo> {
     }
 }
 
+impl SseEncode for Option<u64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <u64>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for crate::api::client::PersonInfo {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -4766,6 +4865,29 @@ impl SseEncode for crate::api::client::ProfileChange {
         <Option<String>>::sse_encode(self.note, serializer);
         <bool>::sse_encode(self.note_keep, serializer);
         <Option<String>>::sse_encode(self.arrival, serializer);
+    }
+}
+
+impl SseEncode for crate::api::client::SearchFound {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u32>::sse_encode(self.total, serializer);
+        <Vec<crate::api::client::MessageInfo>>::sse_encode(self.messages, serializer);
+    }
+}
+
+impl SseEncode for crate::api::client::SearchOptions {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.text, serializer);
+        <Option<String>>::sse_encode(self.conversation, serializer);
+        <Option<String>>::sse_encode(self.from, serializer);
+        <bool>::sse_encode(self.has_link, serializer);
+        <Option<u64>>::sse_encode(self.after_ms, serializer);
+        <Option<u64>>::sse_encode(self.before_ms, serializer);
+        <bool>::sse_encode(self.oldest_first, serializer);
+        <u32>::sse_encode(self.limit, serializer);
+        <u32>::sse_encode(self.offset, serializer);
     }
 }
 

@@ -189,27 +189,42 @@ async fn search_finds_messages() {
     let gone = alice.send_text(dm.id, "secret rope plan").await.expect("send");
     alice.delete_message(dm.id, gone.id).await.expect("delete");
     let group = alice.create_group("climbing", &["bob".into(), "carol".into()]).await.expect("group");
-    alice.send_text(group.id, "rope check at noon").await.expect("send");
+    alice.send_text(group.id, "rope check at noon, see https://example.org/topo").await.expect("send");
     bob.sync().await.expect("sync");
     bob.send_text(dm.id, "noon works").await.expect("reply");
     alice.sync().await.expect("sync");
 
-    let q = |text: &str| SearchQuery { text: text.into(), conversation: None, from: None, limit: 50 };
-    let bodies = |found: Vec<post_core::Message>| found.into_iter().filter_map(|m| m.body).collect::<Vec<_>>();
-    // Every word, any case, any script; newest first, across conversations.
-    assert_eq!(bodies(alice.search(&q("NOON")).expect("search")), vec!["noon works", "rope check at noon", "Meet at the École at noon"]);
-    assert_eq!(bodies(alice.search(&q("école noon")).expect("search")), vec!["Meet at the École at noon"]);
+    let q = |text: &str| SearchQuery { text: text.into(), limit: 50, ..Default::default() };
+    let bodies = |found: post_core::SearchResults| found.messages.into_iter().filter_map(|m| m.body).collect::<Vec<_>>();
+    let search = |query: &SearchQuery| alice.search(query).expect("search");
+    // Every word, in any case; newest first, across conversations.
+    assert_eq!(
+        bodies(search(&q("NOON"))),
+        vec!["noon works", "rope check at noon, see https://example.org/topo", "Meet at the École at noon"]
+    );
+    // Accents ignored either way, and a word matches by its start.
+    assert_eq!(bodies(search(&q("ecole noon"))), vec!["Meet at the École at noon"]);
+    assert_eq!(bodies(search(&q("ÉCOLE"))), vec!["Meet at the École at noon"]);
+    assert_eq!(bodies(search(&q("quickd"))), vec!["bring the quickdraws"]);
     // An edit is found by its new text only; a deleted message not at all.
-    assert_eq!(bodies(alice.search(&q("quickdraws")).expect("search")), vec!["bring the quickdraws"]);
-    assert_eq!(bodies(alice.search(&q("rope")).expect("search")), vec!["rope check at noon"]);
-    // Narrowed to one conversation, or one sender.
-    let in_dm = SearchQuery { conversation: Some(dm.id), ..q("noon") };
-    assert_eq!(bodies(alice.search(&in_dm).expect("search")), vec!["noon works", "Meet at the École at noon"]);
-    let from_bob = SearchQuery { from: Some("bob".into()), ..q("") };
-    assert_eq!(bodies(alice.search(&from_bob).expect("search")), vec!["noon works"]);
-    let from_nobody = SearchQuery { from: Some("nobody".into()), ..q("noon") };
-    assert!(alice.search(&from_nobody).expect("search").is_empty());
-    assert!(alice.search(&q("   ")).expect("search").is_empty(), "nothing to look for finds nothing");
+    assert!(bodies(search(&q("bring rope"))).is_empty());
+    assert_eq!(bodies(search(&q("rope"))), vec!["rope check at noon, see https://example.org/topo"]);
+    // What is typed is never read as query syntax.
+    assert!(bodies(search(&q("noon\" OR \"x"))).is_empty());
+    assert!(bodies(search(&q("NEAR(noon"))).is_empty());
+    // Narrowed to one conversation, one sender, or messages with links.
+    assert_eq!(bodies(search(&SearchQuery { conversation: Some(dm.id), ..q("noon") })), vec!["noon works", "Meet at the École at noon"]);
+    assert_eq!(bodies(search(&SearchQuery { from: Some("bob".into()), ..q("") })), vec!["noon works"]);
+    assert!(bodies(search(&SearchQuery { from: Some("nobody".into()), ..q("noon") })).is_empty());
+    assert_eq!(bodies(search(&SearchQuery { has_link: true, ..q("") })), vec!["rope check at noon, see https://example.org/topo"]);
+    // Dates: nothing before the epoch's first second, everything after it.
+    assert!(bodies(search(&SearchQuery { before_ms: Some(1000), ..q("noon") })).is_empty());
+    assert_eq!(bodies(search(&SearchQuery { after_ms: Some(1000), ..q("noon") })).len(), 3);
+    // Oldest first, and by pages: the total counts every match.
+    let page = search(&SearchQuery { oldest_first: true, limit: 2, offset: 1, ..q("noon") });
+    assert_eq!(page.total, 3);
+    assert_eq!(bodies(page), vec!["rope check at noon, see https://example.org/topo", "noon works"]);
+    assert_eq!(search(&q("   ")).total, 0, "nothing to look for finds nothing");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

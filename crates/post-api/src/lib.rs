@@ -485,8 +485,9 @@ pub struct MessagesParams {
     pub limit: Option<u32>,
 }
 
-/// `search`: messages containing every word of `text`, ignoring case,
-/// newest first. Searches this device's copy only.
+/// `search`: messages matching every word of `text` (each the start of a
+/// word, ignoring case and accents) and every filter given. Searches this
+/// device's index only.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SearchParams {
@@ -499,9 +500,33 @@ pub struct SearchParams {
     /// Only sent by this username.
     #[serde(default)]
     pub from: Option<String>,
+    /// Only messages with a link.
+    #[serde(default)]
+    pub has_link: bool,
+    /// Only sent at or after this (Unix ms).
+    #[serde(default)]
+    pub after_ms: Option<u64>,
+    /// Only sent before this (Unix ms).
+    #[serde(default)]
+    pub before_ms: Option<u64>,
+    /// Oldest first, rather than newest.
+    #[serde(default)]
+    pub oldest_first: bool,
     /// At most this many. Default 50.
     #[serde(default)]
     pub limit: Option<u32>,
+    /// Skip this many first. Default 0.
+    #[serde(default)]
+    pub offset: Option<u32>,
+}
+
+/// What `search` found.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+pub struct SearchResults {
+    /// How many messages match in all.
+    pub total: u32,
+    /// The page asked for.
+    pub messages: Vec<Message>,
 }
 
 /// `send`: send a text message to a conversation, or to a user's DM.
@@ -654,7 +679,7 @@ methods! {
     "leave_group", Connection, ConversationParams, Done, "Leave a group, with all your devices.";
     "conversations", Local, NoParams, Vec<Conversation>, "Your conversations, most recent first.";
     "messages", Local, MessagesParams, Vec<Message>, "The newest messages of a conversation, oldest first.";
-    "search", Local, SearchParams, Vec<Message>, "Messages containing every word given, newest first, from this device's copy.";
+    "search", Local, SearchParams, SearchResults, "Messages matching the words and filters given, from this device's search index.";
     "send", Connection, SendParams, Message, "Send a text message.";
     "edit", Connection, EditParams, Message, "Edit one of your messages; earlier versions stay visible.";
     "delete", Connection, MessageParams, Done, "Delete one of your messages, with every version, for everyone.";
@@ -832,9 +857,15 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 text: p.text,
                 conversation: p.conversation.as_deref().map(id).transpose()?,
                 from: p.from,
+                has_link: p.has_link,
+                after_ms: p.after_ms,
+                before_ms: p.before_ms,
+                oldest_first: p.oldest_first,
                 limit: p.limit.unwrap_or(50),
+                offset: p.offset.unwrap_or(0),
             };
-            ok(core.search(&query)?.into_iter().map(message).collect::<Vec<_>>())
+            let found = core.search(&query)?;
+            ok(SearchResults { total: found.total, messages: found.messages.into_iter().map(message).collect() })
         }
         "send" => {
             let p: SendParams = params(p)?;

@@ -356,17 +356,38 @@ pub struct Device {
     pub this_device: bool,
 }
 
-/// What to search messages for. See [`Client::search`].
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// What to search messages for: everything given must match. See
+/// [`Client::search`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SearchQuery {
-    /// Words that must all appear, in any order and case.
+    /// Words that must all appear, in any order, case or accents; each
+    /// matches a word starting with it.
     pub text: String,
     /// Only in this conversation.
     pub conversation: Option<ConversationId>,
     /// Only sent by this username.
     pub from: Option<String>,
-    /// At most this many, newest first.
+    /// Only messages with a link.
+    pub has_link: bool,
+    /// Only sent at or after this (Unix ms).
+    pub after_ms: Option<u64>,
+    /// Only sent before this (Unix ms).
+    pub before_ms: Option<u64>,
+    /// Oldest first, rather than newest.
+    pub oldest_first: bool,
+    /// At most this many: the page size.
     pub limit: u32,
+    /// Skipping this many first: where the page starts.
+    pub offset: u32,
+}
+
+/// What a search found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SearchResults {
+    /// How many messages match in all.
+    pub total: u32,
+    /// The page asked for.
+    pub messages: Vec<Message>,
 }
 
 /// A change to this account's profile. `None` leaves a field unchanged.
@@ -880,14 +901,16 @@ impl Core {
         })
     }
 
-    /// Messages whose current text contains every word of `query.text`
-    /// (ignoring case, in any script), newest first. Searches this device's
-    /// copy only: nothing is asked of the server. Deleted messages are
-    /// never found, and an edited one is found by its latest text.
-    pub fn search(&self, query: &SearchQuery) -> Result<Vec<Message>> {
-        let words: Vec<String> = query.text.split_whitespace().map(str::to_lowercase).collect();
-        if words.is_empty() && query.from.is_none() {
-            return Ok(Vec::new());
+    /// Messages matching `query`, from this device's search index: nothing
+    /// is asked of the server. Each word matches a word starting with it,
+    /// ignoring case and accents ("ecole" finds "École"). Deleted messages
+    /// are never found, and an edited one is found by its latest text.
+    /// Gives how many match in all, and the page asked for.
+    pub fn search(&self, query: &SearchQuery) -> Result<SearchResults> {
+        let words: Vec<String> = query.text.split_whitespace().map(str::to_owned).collect();
+        let nothing = SearchResults { total: 0, messages: Vec::new() };
+        if words.is_empty() && query.from.is_none() && !query.has_link && query.after_ms.is_none() && query.before_ms.is_none() {
+            return Ok(nothing);
         }
         self.read(|c| {
             let groups = match query.conversation {
@@ -898,25 +921,21 @@ impl Core {
                 // Someone this device has never heard of sent nothing here.
                 Some(u) => match store::account_by_username(c, u)? {
                     Some((account, _)) => Some(account),
-                    None => return Ok(Vec::new()),
+                    None => return Ok(nothing),
                 },
                 None => None,
             };
-            let mut found = Vec::new();
-            for m in store::searchable(c, sender.as_ref().map(|a| a.0.as_slice()))? {
-                if found.len() >= query.limit as usize {
-                    break;
-                }
-                if groups.as_ref().is_some_and(|g| !g.contains(&m.group_id)) {
-                    continue;
-                }
-                let Some(body) = &m.body else { continue };
-                let body = body.to_lowercase();
-                if words.iter().all(|w| body.contains(w.as_str())) {
-                    found.push(message_from_row(c, &m)?);
-                }
-            }
-            Ok(found)
+            let filter = store::SearchFilter {
+                words,
+                sender: sender.as_ref().map(|a| a.0.as_slice()),
+                groups: groups.as_deref(),
+                after: query.after_ms.map(store::i64_of),
+                before: query.before_ms.map(store::i64_of),
+                has_link: query.has_link,
+                oldest_first: query.oldest_first,
+            };
+            let (total, rows) = store::search(c, &filter, query.limit, query.offset)?;
+            Ok(SearchResults { total, messages: rows.iter().map(|m| message_from_row(c, m)).collect::<Result<_>>()? })
         })
     }
 
