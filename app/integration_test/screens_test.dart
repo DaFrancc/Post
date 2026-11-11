@@ -248,7 +248,14 @@ void main() {
     await t.sendKeyEvent(LogicalKeyboardKey.keyB);
     await t.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     expect(typing.text, 'make this **bold**, `this` code');
+    // The toolbar floats over the selection, bold lit; its buttons format
+    // without taking the selection away.
+    await waitFor(t, find.byTooltip('Italic (Ctrl+I)'));
     await _shot(t, '05c-formatting');
+    await t.tap(find.byTooltip('Italic (Ctrl+I)'));
+    await t.pump();
+    expect(typing.text, 'make this ***bold***, `this` code');
+    expect(typing.selection.textInside(typing.text), 'bold', reason: 'the selection stays on the text');
     expect(t.getRect(find.byWidgetPredicate((w) => w is TextField).last).height, oneLine, reason: 'formatting keeps the composer one line tall');
     typing.clear();
 

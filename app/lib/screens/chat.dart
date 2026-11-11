@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderEditable;
 import 'package:flutter/services.dart';
 import 'package:post/src/rust/api/client.dart';
 
@@ -600,18 +601,24 @@ class _ChatViewState extends State<ChatView> {
                   ),
           ),
           if (c.following)
-            _Composer(
+            _FormatToolbar(
               controller: _composer,
               focus: _composerFocus,
-              placeholder: 'Message ${c.title}',
-              typing: typing,
-              typingKey: _typingKey,
               fieldKey: _composerFieldKey,
-              boxKey: _composerBoxKey,
-              holdHeight: _composerHold,
-              onKey: _composerKey,
-              onChanged: _typed,
-              onSend: _send,
+              onFormat: _format,
+              child: _Composer(
+                controller: _composer,
+                focus: _composerFocus,
+                placeholder: 'Message ${c.title}',
+                typing: typing,
+                typingKey: _typingKey,
+                fieldKey: _composerFieldKey,
+                boxKey: _composerBoxKey,
+                holdHeight: _composerHold,
+                onKey: _composerKey,
+                onChanged: _typed,
+                onSend: _send,
+              ),
             )
           else
             _LeftBanner(group: c.isGroup),
@@ -1661,6 +1668,193 @@ const _composerText = TextStyle(
   leadingDistribution: TextLeadingDistribution.even,
   color: PColors.text,
 );
+
+/// Formatting buttons floating just above the composer's selection, while
+/// there is one: bold, italic, underline, strikethrough, spoiler, quote and
+/// code, lit for the styles already there.
+class _FormatToolbar extends StatefulWidget {
+  const _FormatToolbar({required this.controller, required this.focus, required this.fieldKey, required this.onFormat, required this.child});
+
+  final TextEditingController controller;
+  final FocusNode focus;
+  final GlobalKey fieldKey;
+  final void Function(Edit Function(Edit)) onFormat;
+  final Widget child;
+
+  @override
+  State<_FormatToolbar> createState() => _FormatToolbarState();
+}
+
+class _FormatToolbarState extends State<_FormatToolbar> {
+  final _portal = OverlayPortalController();
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_update);
+    widget.focus.addListener(_update);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_update);
+    widget.focus.removeListener(_update);
+    super.dispose();
+  }
+
+  bool get _wanted {
+    final sel = widget.controller.selection;
+    return widget.focus.hasFocus && sel.isValid && !sel.isCollapsed;
+  }
+
+  void _update() {
+    // After this frame's layout, so the selection's place on screen is known.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_wanted) {
+        _portal.show();
+        setState(() {});
+      } else if (_portal.isShowing) {
+        _portal.hide();
+      }
+    });
+  }
+
+  /// The composer's text, as laid out.
+  RenderEditable? _editable() {
+    RenderEditable? found;
+    void visit(RenderObject o) {
+      if (found != null) return;
+      if (o is RenderEditable) {
+        found = o;
+        return;
+      }
+      o.visitChildren(visit);
+    }
+
+    final root = widget.fieldKey.currentContext?.findRenderObject();
+    if (root != null) visit(root);
+    return found;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return OverlayPortal(controller: _portal, overlayChildBuilder: _bar, child: widget.child);
+  }
+
+  Widget _bar(BuildContext context) {
+    final editable = _editable();
+    final overlay = Overlay.of(context).context.findRenderObject();
+    final sel = widget.controller.selection;
+    if (editable == null || !editable.attached || overlay is! RenderBox || !sel.isValid || sel.isCollapsed) return const SizedBox.shrink();
+    // Centred over the selection's first line, just above it.
+    final ends = editable.getEndpointsForSelection(sel);
+    final lineHeight = editable.preferredLineHeight;
+    final first = ends.first.point;
+    final last = ends.last.point;
+    final sameLine = (first.dy - last.dy).abs() < 1;
+    final x = sameLine ? (first.dx + last.dx) / 2 : first.dx;
+    final anchor = overlay.globalToLocal(editable.localToGlobal(Offset(x, first.dy - lineHeight)));
+    final text = widget.controller.text;
+    final marks = marksAt(text, sel.start, sel.end);
+    final lineStart = sel.start == 0 ? 0 : text.lastIndexOf('\n', sel.start - 1) + 1;
+    final quoted = text.startsWith('> ', lineStart);
+    const width = 7 * 32.0 + 2 * 9 + 8;
+    final left = (anchor.dx - width / 2).clamp(8.0, math.max(8.0, overlay.size.width - width - 8)).toDouble();
+    return Positioned(
+      left: left,
+      top: anchor.dy - 44,
+      // Taps here count as taps in the field: they leave it focused, with
+      // its selection.
+      child: TextFieldTapRegion(
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0, end: 1),
+          duration: PMotion.fast,
+          curve: PMotion.curve,
+          builder: (context, v, child) => Opacity(
+            opacity: v,
+            child: Transform.translate(offset: Offset(0, 4 * (1 - v)), child: child),
+          ),
+          child: Container(
+            height: 38,
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            decoration: BoxDecoration(
+              color: PColors.panelRaised,
+              border: Border.all(color: PColors.borderStrong),
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 14, offset: Offset(0, 4))],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final (mark, icon, tip) in const [
+                  (Mark.bold, Icons.format_bold_rounded, 'Bold (Ctrl+B)'),
+                  (Mark.italic, Icons.format_italic_rounded, 'Italic (Ctrl+I)'),
+                  (Mark.underline, Icons.format_underlined_rounded, 'Underline (Ctrl+U)'),
+                  (Mark.strike, Icons.format_strikethrough_rounded, 'Strikethrough (Ctrl+Shift+X)'),
+                  (Mark.spoiler, Icons.visibility_off_outlined, 'Spoiler'),
+                ])
+                  _FormatButton(icon: icon, tooltip: tip, on: marks.contains(mark), onTap: () => widget.onFormat((e) => toggleWrap(e, markerFor[mark]!))),
+                const _FormatDivider(),
+                _FormatButton(icon: Icons.format_quote_rounded, tooltip: 'Quote', on: quoted, onTap: () => widget.onFormat(toggleQuote)),
+                _FormatButton(icon: Icons.code_rounded, tooltip: 'Code (Ctrl+E)', on: false, onTap: () => widget.onFormat(toggleCode)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FormatDivider extends StatelessWidget {
+  const _FormatDivider();
+
+  @override
+  Widget build(BuildContext context) => Container(width: 1, height: 20, margin: const EdgeInsets.symmetric(horizontal: 4), color: PColors.borderStrong);
+}
+
+class _FormatButton extends StatefulWidget {
+  const _FormatButton({required this.icon, required this.tooltip, required this.on, required this.onTap});
+
+  final IconData icon;
+  final String tooltip;
+  final bool on;
+  final VoidCallback onTap;
+
+  @override
+  State<_FormatButton> createState() => _FormatButtonState();
+}
+
+class _FormatButtonState extends State<_FormatButton> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: widget.tooltip,
+      waitDuration: const Duration(milliseconds: 500),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: PMotion.fast,
+            width: 32,
+            height: 30,
+            decoration: BoxDecoration(
+              color: widget.on ? PColors.active : (_hover ? PColors.hoverStrong : Colors.transparent),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(widget.icon, size: 18, color: widget.on ? PColors.accentText : (_hover ? PColors.textStrong : PColors.textMuted)),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _Composer extends StatelessWidget {
   const _Composer({
