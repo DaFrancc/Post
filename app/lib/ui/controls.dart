@@ -548,11 +548,16 @@ Future<T?> showContextMenu<T>(BuildContext context, Offset globalPosition, List<
 /// there is no room, top edges lined up and kept inside the window. It
 /// grows out from the anchor's side with the menus' ease-out, and closes on
 /// a click outside or Escape.
-Future<T?> showBeside<T>(BuildContext anchor, {required double width, required Widget child}) {
+///
+/// [at] (window coordinates) puts it beside that point instead, such as
+/// where a word in a line of text was clicked.
+Future<T?> showBeside<T>(BuildContext anchor, {required double width, required Widget child, Offset? at}) {
   final navigator = Navigator.of(anchor);
   final overlay = navigator.overlay!.context.findRenderObject()! as RenderBox;
   final box = anchor.findRenderObject()! as RenderBox;
-  final rect = box.localToGlobal(Offset.zero, ancestor: overlay) & box.size;
+  final rect = at != null
+      ? Rect.fromCenter(center: overlay.globalToLocal(at), width: 4, height: 20)
+      : box.localToGlobal(Offset.zero, ancestor: overlay) & box.size;
   return navigator.push(_BesideRoute<T>(anchor: rect, width: width, child: child));
 }
 

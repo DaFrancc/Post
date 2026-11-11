@@ -169,6 +169,7 @@ class _ChatViewState extends State<ChatView> {
     unawaited(_loadMembers());
     _composerFocus.requestFocus();
     _composer.addListener(_spellSoon);
+    _composer.addListener(_mentionTyped);
     _state.spelling.addListener(_spellSoon);
   }
 
@@ -319,10 +320,113 @@ class _ChatViewState extends State<ChatView> {
     }
   }
 
+  // ---------------------------------------------------------------- typing a mention
+
+  /// The mention being typed in the composer (`@` and what follows it so
+  /// far), and the members it could be, best first; empty for no list.
+  ({int at, String query})? _mention;
+  List<MemberInfo> _mentionChoices = const [];
+  int _mentionPick = 0;
+
+  /// Escape closed the list for the mention whose `@` is here; it stays
+  /// closed until the cursor leaves that mention.
+  int? _mentionClosedAt;
+
+  void _mentionTyped() {
+    final v = _composer.value;
+    final typed = v.selection.isCollapsed && !v.composing.isValid ? mentionTyped(v.text, v.selection.baseOffset) : null;
+    if (typed?.at != _mentionClosedAt) _mentionClosedAt = null;
+    final choices = typed == null || typed.at == _mentionClosedAt ? const <MemberInfo>[] : _mentionMatches(typed.query);
+    final same = typed == _mention && listEquals([for (final m in choices) m.username], [for (final m in _mentionChoices) m.username]);
+    if (same) return;
+    setState(() {
+      _mention = typed;
+      _mentionChoices = choices;
+      _mentionPick = 0;
+    });
+  }
+
+  /// Members (not you) whose username, or a word of whose name, starts
+  /// with [q]: usernames matching first, then by name.
+  List<MemberInfo> _mentionMatches(String q) {
+    bool byName(MemberInfo m) => m.shownName.toLowerCase().split(RegExp(r'\s+')).any((w) => w.startsWith(q));
+    final found = _members.where((m) => !m.you && (m.username.startsWith(q) || byName(m))).toList()
+      ..sort((a, b) {
+        final byUsername = (a.username.startsWith(q) ? 0 : 1) - (b.username.startsWith(q) ? 0 : 1);
+        return byUsername != 0 ? byUsername : a.shownName.toLowerCase().compareTo(b.shownName.toLowerCase());
+      });
+    return found.take(8).toList();
+  }
+
+  /// Put the chosen member's mention in place of what was typed, with a
+  /// space after it to carry on typing.
+  void _pickMention(MemberInfo m) {
+    final typed = _mention;
+    if (typed == null) return;
+    final t = _composer.text;
+    // The whole name the cursor is in, up to what follows it too.
+    var end = typed.at + 1;
+    while (end < t.length && RegExp('[a-z0-9_]').hasMatch(t[end])) {
+      end++;
+    }
+    final spaced = end < t.length && t[end] == ' ';
+    final text = t.replaceRange(typed.at, end, '@${m.username}${spaced ? '' : ' '}');
+    _composer.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: typed.at + m.username.length + 2),
+    );
+    _composerFocus.requestFocus();
+  }
+
+  /// Keys for the list while it shows: arrows choose, Tab or Enter picks,
+  /// Escape closes it.
+  KeyEventResult _mentionKey(KeyEvent e) {
+    final n = _mentionChoices.length;
+    if (n == 0 || HardwareKeyboard.instance.isShiftPressed) return KeyEventResult.ignored;
+    switch (e.logicalKey) {
+      case LogicalKeyboardKey.arrowDown:
+        setState(() => _mentionPick = (_mentionPick + 1) % n);
+      case LogicalKeyboardKey.arrowUp:
+        setState(() => _mentionPick = (_mentionPick - 1 + n) % n);
+      case LogicalKeyboardKey.enter || LogicalKeyboardKey.numpadEnter || LogicalKeyboardKey.tab when e is KeyDownEvent:
+        _pickMention(_mentionChoices[_mentionPick]);
+      case LogicalKeyboardKey.escape when e is KeyDownEvent:
+        _mentionClosedAt = _mention?.at;
+        _mentionTyped();
+      default:
+        return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
+  }
+
+  /// Whether someone else's message mentions the viewer, remembered by its
+  /// text so the list's rebuilds do not parse every message again.
+  final _mentionCache = <String, (String, bool)>{};
+  bool _mentionsYou(MessageInfo m) {
+    final body = m.body;
+    if (m.outgoing || m.deleted || body == null) return false;
+    final known = _mentionCache[m.id];
+    if (known != null && known.$1 == body) return known.$2;
+    final you = mentionsIn(body).contains(_state.me.username);
+    _mentionCache[m.id] = (body, you);
+    return you;
+  }
+
+  /// The name a mentioned username shows as here: the name members see each
+  /// other by in this conversation, else any profile already loaded.
+  String _shownName(String username) {
+    for (final m in _members) {
+      if (m.username == username) return m.shownName;
+    }
+    return _state.knownName(username);
+  }
+
   Future<void> _loadMembers() async {
     try {
       final m = await _state.client.members(conversation: _id);
-      if (mounted) setState(() => _members = m);
+      if (!mounted) return;
+      setState(() => _members = m);
+      _mentionTyped();
     } catch (_) {}
   }
 
@@ -437,6 +541,7 @@ class _ChatViewState extends State<ChatView> {
         return KeyEventResult.handled;
       }
     }
+    if (_mentionKey(e) == KeyEventResult.handled) return KeyEventResult.handled;
     if (e is! KeyDownEvent) return KeyEventResult.ignored;
     final composing = _composer.value.composing.isValid;
     if (e.logicalKey == LogicalKeyboardKey.enter && !HardwareKeyboard.instance.isShiftPressed && !composing) {
@@ -662,56 +767,75 @@ class _ChatViewState extends State<ChatView> {
           Expanded(
             child: !_loaded
                 ? const Center(child: PSpinner())
-                : Stack(
-                    children: [
-                      // A message's hover toolbar floats in this overlay:
-                      // above every row (the list paints older rows over
-                      // newer ones, so it would sit under the row above),
-                      // unclipped by its own row, but kept inside the list.
-                      Overlay.wrap(
-                        child: NotificationListener<ScrollNotification>(
-                          onNotification: _onScroll,
-                          // Text can be selected and copied with Ctrl+C; a
-                          // right-click opens the message's own menu instead
-                          // of the selection's. The selection still asks for
-                          // its menu on a right-click and requires a builder
-                          // (null crashes it), so it gets one that draws
-                          // nothing.
-                          child: SelectionArea(
-                            contextMenuBuilder: (context, selection) => const SizedBox.shrink(),
-                            child: ListView.builder(
-                              controller: _scroll,
-                              reverse: true,
-                              padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-                              itemCount: items.length + 1,
-                              // Find each row by its key, not its position: a new
-                              // message enters at position 0 (the list runs
-                              // newest first) and moves every other row along.
-                              findChildIndexCallback: (key) => positions[key],
-                              itemBuilder: (context, i) {
-                                if (i == items.length) {
-                                  return _hasMore
-                                      ? const Padding(
-                                          key: ValueKey('more'),
-                                          padding: EdgeInsets.all(16),
-                                          child: Center(child: PSpinner()),
-                                        )
-                                      : _Beginning(key: const ValueKey('beginning'), conversation: c);
-                                }
-                                final item = items[items.length - 1 - i];
-                                return KeyedSubtree(key: item.key, child: _itemView(item));
-                              },
+                : Mentions(
+                    nameOf: _shownName,
+                    you: _state.me.username,
+                    onTap: (u, at) => unawaited(showProfileCard(context, _state, u, at: at)),
+                    child: Stack(
+                      children: [
+                        // A message's hover toolbar floats in this overlay:
+                        // above every row (the list paints older rows over
+                        // newer ones, so it would sit under the row above),
+                        // unclipped by its own row, but kept inside the list.
+                        Overlay.wrap(
+                          child: NotificationListener<ScrollNotification>(
+                            onNotification: _onScroll,
+                            // Text can be selected and copied with Ctrl+C; a
+                            // right-click opens the message's own menu instead
+                            // of the selection's. The selection still asks for
+                            // its menu on a right-click and requires a builder
+                            // (null crashes it), so it gets one that draws
+                            // nothing.
+                            child: SelectionArea(
+                              contextMenuBuilder: (context, selection) => const SizedBox.shrink(),
+                              child: ListView.builder(
+                                controller: _scroll,
+                                reverse: true,
+                                padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+                                itemCount: items.length + 1,
+                                // Find each row by its key, not its position: a new
+                                // message enters at position 0 (the list runs
+                                // newest first) and moves every other row along.
+                                findChildIndexCallback: (key) => positions[key],
+                                itemBuilder: (context, i) {
+                                  if (i == items.length) {
+                                    return _hasMore
+                                        ? const Padding(
+                                            key: ValueKey('more'),
+                                            padding: EdgeInsets.all(16),
+                                            child: Center(child: PSpinner()),
+                                          )
+                                        : _Beginning(key: const ValueKey('beginning'), conversation: c);
+                                  }
+                                  final item = items[items.length - 1 - i];
+                                  return KeyedSubtree(key: item.key, child: _itemView(item));
+                                },
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 10,
-                        child: _JumpToNewest(scroll: _scroll, onTap: _jumpToNewest),
-                      ),
-                    ],
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 10,
+                          child: _JumpToNewest(scroll: _scroll, onTap: _jumpToNewest),
+                        ),
+                        // Members to mention, just above the composer.
+                        Positioned(
+                          left: 14,
+                          right: 14,
+                          bottom: 4,
+                          child: _MentionList(
+                            choices: _mentionChoices,
+                            picked: _mentionPick,
+                            query: _mention?.query ?? '',
+                            presenceOf: _state.presenceOf,
+                            onHover: (i) => setState(() => _mentionPick = i),
+                            onPick: _pickMention,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
           ),
           if (c.following)
@@ -757,6 +881,7 @@ class _ChatViewState extends State<ChatView> {
       // fade cut short) when it goes out.
       key: m.id == _jumpTarget ? _highlightKey : null,
       highlighted: m.id == _highlight,
+      mentionsYou: _mentionsYou(m),
       flight: _flightFor(m),
       arrival: _arrivalFor(m),
       arrived: !(_initial?.contains(m.id) ?? true),
@@ -1201,6 +1326,132 @@ class _Beginning extends StatelessWidget {
   }
 }
 
+/// While a mention is being typed: the members it could be, the chosen one
+/// lit. Arrows (in the composer) or the pointer choose; Tab, Enter or a
+/// click picks. It never takes the keyboard from the composer.
+class _MentionList extends StatelessWidget {
+  const _MentionList({required this.choices, required this.picked, required this.query, required this.presenceOf, required this.onHover, required this.onPick});
+
+  final List<MemberInfo> choices;
+  final int picked;
+
+  /// What has been typed after the `@`, picked out in each username.
+  final String query;
+  final String Function(String username) presenceOf;
+  final ValueChanged<int> onHover;
+  final ValueChanged<MemberInfo> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: pMenuAnimation.duration!,
+      reverseDuration: pMenuAnimation.reverseDuration!,
+      switchInCurve: Curves.easeOutQuart,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, a) => FadeTransition(
+        opacity: a,
+        child: SlideTransition(
+          position: Tween(begin: const Offset(0, 0.06), end: Offset.zero).animate(a),
+          child: child,
+        ),
+      ),
+      layoutBuilder: (current, previous) => Stack(alignment: Alignment.bottomCenter, children: [...previous, ?current]),
+      child: choices.isEmpty ? const SizedBox(key: ValueKey('none'), width: double.infinity) : _panel(),
+    );
+  }
+
+  Widget _panel() {
+    return TextFieldTapRegion(
+      key: const ValueKey('list'),
+      child: Material(
+        color: PColors.panelRaised,
+        elevation: 12,
+        shadowColor: Colors.black,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: PColors.borderStrong),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(8, 4, 8, 6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'MEMBERS',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.6, color: PColors.textFaint),
+                      ),
+                    ),
+                    Text('Tab or Enter to mention · Esc to close', style: TextStyle(fontSize: 11, color: PColors.textFaint)),
+                  ],
+                ),
+              ),
+              for (final (i, m) in choices.indexed) _row(i, m),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _row(int i, MemberInfo m) {
+    final lit = i == picked;
+    final matched = m.username.startsWith(query) ? query.length : 0;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => onHover(i),
+      child: GestureDetector(
+        onTap: () => onPick(m),
+        child: AnimatedContainer(
+          duration: PMotion.fast,
+          height: 38,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(color: lit ? PColors.active : Colors.transparent, borderRadius: BorderRadius.circular(10)),
+          child: Row(
+            children: [
+              PAvatar(
+                name: m.shownName,
+                colorKey: m.username,
+                size: 26,
+                presence: presenceOf(m.username),
+                ringColor: lit ? PColors.active : PColors.panelRaised,
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  m.shownName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: lit ? PColors.textStrong : PColors.text),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '@${m.username.substring(0, matched)}',
+                      style: const TextStyle(color: PColors.accentText, fontWeight: FontWeight.w600),
+                    ),
+                    TextSpan(text: m.username.substring(matched)),
+                  ],
+                ),
+                style: const TextStyle(fontSize: 12.5, color: PColors.textFaint),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Once you have scrolled back a way, a pill to bring you to the newest
 /// message.
 class _JumpToNewest extends StatelessWidget {
@@ -1357,6 +1608,7 @@ class _MessageTile extends StatefulWidget {
   const _MessageTile({
     super.key,
     this.highlighted = false,
+    this.mentionsYou = false,
     required this.arrived,
     required this.m,
     required this.startsGroup,
@@ -1388,6 +1640,9 @@ class _MessageTile extends StatefulWidget {
 
   /// Opened from a search: lit for a moment.
   final bool highlighted;
+
+  /// Someone else's message that mentions the viewer: warmed, with a bar.
+  final bool mentionsYou;
 
   /// Where its text flies in from, if it is new and came from the composer
   /// or a typing line.
@@ -1637,25 +1892,32 @@ class _MessageTileState extends State<_MessageTile> with TickerProviderStateMixi
                 curve: PMotion.curve,
                 padding: const EdgeInsets.fromLTRB(10, 3, 10, 3),
                 decoration: BoxDecoration(
-                  color: widget.highlighted ? const Color(0xFF1A2142) : (_hover || widget.editing ? PColors.messageHover : PColors.panel),
+                  color: switch ((widget.highlighted, widget.mentionsYou, _hover || widget.editing)) {
+                    (true, _, _) => const Color(0xFF1A2142),
+                    (_, true, final hover) => hover ? PColors.mentionRowHover : PColors.mentionRow,
+                    (_, _, true) => PColors.messageHover,
+                    _ => PColors.panel,
+                  },
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Stack(
                   clipBehavior: Clip.none,
                   children: [
-                    // Opened from a search: an accent bar down its left edge.
+                    // Opened from a search: an accent bar down its left
+                    // edge; mentioning you: an amber one, which stays.
                     Positioned(
                       left: -10,
                       top: -3,
                       bottom: -3,
                       child: AnimatedOpacity(
-                        opacity: widget.highlighted ? 1 : 0,
+                        opacity: widget.highlighted || widget.mentionsYou ? 1 : 0,
                         duration: widget.highlighted ? PMotion.fast : const Duration(milliseconds: 900),
-                        child: Container(
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 900),
                           width: 3,
-                          decoration: const BoxDecoration(
-                            color: PColors.accent,
-                            borderRadius: BorderRadius.horizontal(left: Radius.circular(12)),
+                          decoration: BoxDecoration(
+                            color: widget.highlighted ? PColors.accent : PColors.mentionBar,
+                            borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
                           ),
                         ),
                       ),

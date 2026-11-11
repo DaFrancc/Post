@@ -318,6 +318,11 @@ class AppState extends ChangeNotifier {
   /// The name this user shows as.
   String get myName => _people[me.username]?.shownName ?? me.username;
 
+  /// The name someone shows as if their profile has loaded, else their
+  /// username. Never loads anything: for usernames read out of message
+  /// text, which must not send lookups to the server.
+  String knownName(String username) => _people[username]?.shownName ?? username;
+
   /// Forget what is known of someone and load it again, after it changed
   /// here (your own profile, saved).
   Future<void> reloadPerson(String username) async {

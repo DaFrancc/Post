@@ -155,11 +155,11 @@ class _SearchBoxState extends State<SearchBox> {
     if (kind != null) {
       final value = tail.substring(colon + 1).replaceFirst('@', '');
       switch (kind) {
-        case FilterKind.from:
+        case FilterKind.from || FilterKind.mentions:
           final people = _people(value);
           return [
-            const _Row.heading('From user'),
-            for (final u in people) _Row(_Person(state: _state, username: u), () => _addFilter(SearchFilter(FilterKind.from, u))),
+            _Row.heading(kind == FilterKind.from ? 'From user' : 'Mentions user'),
+            for (final u in people) _Row(_Person(state: _state, username: u), () => _addFilter(SearchFilter(kind, u))),
             if (people.isEmpty) const _Row.heading('No one by that name'),
           ];
         case FilterKind.has:
@@ -216,6 +216,7 @@ class _SearchBoxState extends State<SearchBox> {
 
   static const _icons = {
     FilterKind.from: Icons.person_outline_rounded,
+    FilterKind.mentions: Icons.alternate_email_rounded,
     FilterKind.has: Icons.link_rounded,
     FilterKind.before: Icons.event_outlined,
     FilterKind.after: Icons.event_outlined,
@@ -674,103 +675,109 @@ class _SearchPanelState extends State<SearchPanel> {
   Widget build(BuildContext context) {
     final found = _found;
     final pages = found == null ? 0 : (found.total / _pageSize).ceil();
-    return Panel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            constraints: const BoxConstraints(minHeight: PShape.header),
-            padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: PColors.border)),
-            ),
-            // The count on its own line, so it never wraps; where and in what
-            // order underneath.
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        found == null ? 'Searching…' : '${_count(found.total)} ${found.total == 1 ? 'result' : 'results'}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: PType.heading,
-                      ),
-                    ),
-                    PIconButton(icon: Icons.close_rounded, tooltip: 'Close search (Esc)', onPressed: _state.closeSearch),
-                  ],
-                ),
-                Row(
-                  children: [
-                    Builder(
-                      builder: (anchor) => _HeaderButton(
-                        icon: Icons.filter_alt_outlined,
-                        label: _state.searchAll ? 'Everywhere' : 'Here',
-                        tooltip: 'Where to search',
-                        onTap: () => _menu(anchor, [
-                          ('This conversation', !_state.searchAll, () => _state.setSearchView(all: false)),
-                          ('Every conversation', _state.searchAll, () => _state.setSearchView(all: true)),
-                        ]),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Builder(
-                      builder: (anchor) => _HeaderButton(
-                        icon: Icons.swap_vert_rounded,
-                        label: _state.searchOldest ? 'Oldest' : 'Newest',
-                        tooltip: 'Sort',
-                        onTap: () => _menu(anchor, [
-                          ('Newest first', !_state.searchOldest, () => _state.setSearchView(oldest: false)),
-                          ('Oldest first', _state.searchOldest, () => _state.setSearchView(oldest: true)),
-                        ]),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: _error != null
-                ? Padding(padding: const EdgeInsets.all(16), child: PErrorBox(_error!))
-                : found == null
-                ? const Center(child: PSpinner())
-                : found.messages.isEmpty
-                ? const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Text(
-                      'Nothing found.\nTry fewer words, another filter, or every conversation.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 13, height: 1.5, color: PColors.textFaint),
-                    ),
-                  )
-                : ListView(
-                    controller: _scroll,
-                    padding: const EdgeInsets.fromLTRB(10, 4, 10, 12),
+    // Mentions show by name; a click anywhere on a result opens it, so they
+    // take no clicks of their own.
+    return Mentions(
+      nameOf: widget.state.knownName,
+      you: widget.state.me.username,
+      child: Panel(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              constraints: const BoxConstraints(minHeight: PShape.header),
+              padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: PColors.border)),
+              ),
+              // The count on its own line, so it never wraps; where and in what
+              // order underneath.
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
                     children: [
-                      for (final (i, m) in found.messages.indexed) ...[
-                        // A heading where the conversation changes.
-                        if (i == 0 || found.messages[i - 1].conversation != m.conversation) _Where(state: _state, conversation: m.conversation),
-                        _Card(m: m, onTap: () => _state.jumpTo(m.conversation, m.id)),
-                      ],
+                      Expanded(
+                        child: Text(
+                          found == null ? 'Searching…' : '${_count(found.total)} ${found.total == 1 ? 'result' : 'results'}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: PType.heading,
+                        ),
+                      ),
+                      PIconButton(icon: Icons.close_rounded, tooltip: 'Close search (Esc)', onPressed: _state.closeSearch),
                     ],
                   ),
-          ),
-          if (pages > 1)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-              decoration: const BoxDecoration(
-                border: Border(top: BorderSide(color: PColors.border)),
-              ),
-              child: _Pages(
-                page: _state.searchPage,
-                pages: pages,
-                onPage: (p) => _state.setSearchView(page: p),
+                  Row(
+                    children: [
+                      Builder(
+                        builder: (anchor) => _HeaderButton(
+                          icon: Icons.filter_alt_outlined,
+                          label: _state.searchAll ? 'Everywhere' : 'Here',
+                          tooltip: 'Where to search',
+                          onTap: () => _menu(anchor, [
+                            ('This conversation', !_state.searchAll, () => _state.setSearchView(all: false)),
+                            ('Every conversation', _state.searchAll, () => _state.setSearchView(all: true)),
+                          ]),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Builder(
+                        builder: (anchor) => _HeaderButton(
+                          icon: Icons.swap_vert_rounded,
+                          label: _state.searchOldest ? 'Oldest' : 'Newest',
+                          tooltip: 'Sort',
+                          onTap: () => _menu(anchor, [
+                            ('Newest first', !_state.searchOldest, () => _state.setSearchView(oldest: false)),
+                            ('Oldest first', _state.searchOldest, () => _state.setSearchView(oldest: true)),
+                          ]),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
-        ],
+            Expanded(
+              child: _error != null
+                  ? Padding(padding: const EdgeInsets.all(16), child: PErrorBox(_error!))
+                  : found == null
+                  ? const Center(child: PSpinner())
+                  : found.messages.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                        'Nothing found.\nTry fewer words, another filter, or every conversation.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 13, height: 1.5, color: PColors.textFaint),
+                      ),
+                    )
+                  : ListView(
+                      controller: _scroll,
+                      padding: const EdgeInsets.fromLTRB(10, 4, 10, 12),
+                      children: [
+                        for (final (i, m) in found.messages.indexed) ...[
+                          // A heading where the conversation changes.
+                          if (i == 0 || found.messages[i - 1].conversation != m.conversation) _Where(state: _state, conversation: m.conversation),
+                          _Card(m: m, onTap: () => _state.jumpTo(m.conversation, m.id)),
+                        ],
+                      ],
+                    ),
+            ),
+            if (pages > 1)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                decoration: const BoxDecoration(
+                  border: Border(top: BorderSide(color: PColors.border)),
+                ),
+                child: _Pages(
+                  page: _state.searchPage,
+                  pages: pages,
+                  onPage: (p) => _state.setSearchView(page: p),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

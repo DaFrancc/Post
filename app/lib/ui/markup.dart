@@ -5,6 +5,7 @@
 //
 //   **bold**  *italic* or _italic_  __underline__  ~~strike~~
 //   `code`  ```code block```  ||spoiler||  > quote  \* (a literal *)
+//   @username (a mention)
 //
 // The parser keeps every node's place in the source, so the composer can
 // style the text in place (markers dimmed, never hidden) and the message
@@ -55,6 +56,33 @@ class Code extends Inline {
   int get contentEnd => end - ticks;
 }
 
+/// `@username`: a mention (design section 7, "Mentions").
+class Mention extends Inline {
+  const Mention(super.start, super.end);
+
+  /// Who it mentions, read from the source.
+  String username(String s) => s.substring(start + 1, end);
+}
+
+/// Where the mention starting with the `@` at `i` ends, or -1 if there is
+/// none. The same rule as the core's (`content::mentions`): a username (3
+/// to 32 of a-z, 0-9 and `_`, starting with a letter) with no letter, digit
+/// or `_` touching it on either side.
+int _mentionEnd(String s, int i) {
+  if (s[i] != '@' || _isNameChar(s, i - 1)) return -1;
+  var k = i + 1;
+  while (k < s.length && _isUsernameChar(s.codeUnitAt(k))) {
+    k++;
+  }
+  final len = k - i - 1;
+  if (len < 3 || len > 32 || !_isLower(s.codeUnitAt(i + 1)) || _isNameChar(s, k)) return -1;
+  return k;
+}
+
+bool _isLower(int c) => c >= 0x61 && c <= 0x7a;
+bool _isUsernameChar(int c) => _isLower(c) || (c >= 0x30 && c <= 0x39) || c == 0x5f;
+bool _isNameChar(String s, int i) => _isWordChar(s, i) || (i >= 0 && i < s.length && s[i] == '_');
+
 /// Markers, longest first so `**` is tried before `*`.
 const _markers = <(String, Mark)>[('||', Mark.spoiler), ('**', Mark.bold), ('__', Mark.underline), ('~~', Mark.strike), ('*', Mark.italic), ('_', Mark.italic)];
 
@@ -102,6 +130,14 @@ int _findClose(String s, String marker, int from, int to) {
     if (ch == '`') {
       final e = _codeEnd(s, k, to);
       if (e > 0) {
+        k = e;
+        continue;
+      }
+    }
+    // A mention is whole: a `_` in a username closes nothing.
+    if (ch == '@') {
+      final e = _mentionEnd(s, k);
+      if (e > 0 && e <= to) {
         k = e;
         continue;
       }
@@ -162,6 +198,16 @@ List<Inline> parseInline(String s, [int from = 0, int? to]) {
         i += n;
       }
       continue;
+    }
+    if (ch == '@') {
+      final e = _mentionEnd(s, i);
+      if (e > 0 && e <= end) {
+        flush(i);
+        out.add(Mention(i, e));
+        i = e;
+        text = i;
+        continue;
+      }
     }
     for (final (marker, mark) in _markers) {
       if (!s.startsWith(marker, i) || i + marker.length > end) continue;
@@ -385,6 +431,81 @@ Set<Mark> marksAt(String s, int start, int end) {
   return out;
 }
 
+// ---------------------------------------------------------------- mentions
+
+/// The usernames a message mentions, each once, in order: the same as the
+/// core finds.
+List<String> mentionsIn(String s) {
+  final out = <String>[];
+  void walk(List<Inline> nodes) {
+    for (final n in nodes) {
+      switch (n) {
+        case Mention():
+          final u = n.username(s);
+          if (!out.contains(u)) out.add(u);
+        case Styled():
+          walk(n.children);
+        case Plain() || Escape() || Code():
+          break;
+      }
+    }
+  }
+
+  for (final b in parseBlocks(s)) {
+    switch (b) {
+      case Paragraph():
+        walk(b.inline);
+      case Quote():
+        for (final l in b.lines) {
+          walk(l.inline);
+        }
+      case CodeBlock():
+        break;
+    }
+  }
+  return out;
+}
+
+/// The `@` and partial username the cursor is at the end of, while typing
+/// a mention: where the `@` is and what follows it so far (perhaps
+/// nothing). Null when the cursor is not in one.
+({int at, String query})? mentionTyped(String s, int cursor) {
+  if (cursor < 1 || cursor > s.length) return null;
+  var k = cursor;
+  while (k > 0 && _isUsernameChar(s.codeUnitAt(k - 1))) {
+    k--;
+  }
+  final at = k - 1;
+  if (at < 0 || s[at] != '@' || _isNameChar(s, at - 1)) return null;
+  final query = s.substring(k, cursor);
+  if (query.length > 32 || (query.isNotEmpty && !_isLower(query.codeUnitAt(0)))) return null;
+  // Not inside code, where it would not be a mention.
+  if (_inCode(s, at)) return null;
+  return (at: at, query: query);
+}
+
+bool _inCode(String s, int i) {
+  bool inInline(List<Inline> nodes) => nodes.any(
+    (n) => switch (n) {
+      Code() => n.start <= i && i < n.end,
+      Styled() => n.start <= i && i < n.end && inInline(n.children),
+      _ => false,
+    },
+  );
+  for (final b in parseBlocks(s)) {
+    if (i < b.start || i > b.end) continue;
+    switch (b) {
+      case CodeBlock():
+        return true;
+      case Paragraph():
+        return inInline(b.inline);
+      case Quote():
+        return b.lines.any((l) => inInline(l.inline));
+    }
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------- plain
 
 /// The text as read, without formatting markers: for previews and copying.
@@ -394,7 +515,7 @@ String plainText(String s, {bool revealSpoilers = false}) {
   void inline(List<Inline> nodes) {
     for (final n in nodes) {
       switch (n) {
-        case Plain():
+        case Plain() || Mention():
           b.write(s.substring(n.start, n.end));
         case Escape():
           b.write(s[n.end - 1]);

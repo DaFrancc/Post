@@ -14,10 +14,12 @@ import '../ui/format.dart';
 import 'dialogs.dart';
 import 'settings.dart' show showSettings;
 
-/// Show [username]'s card beside [anchor] (the avatar or name clicked).
-Future<void> showProfileCard(BuildContext anchor, AppState state, String username) => showBeside<void>(
+/// Show [username]'s card beside [anchor] (the avatar or name clicked), or
+/// beside the point [at] in it (a mention clicked in a message).
+Future<void> showProfileCard(BuildContext anchor, AppState state, String username, {Offset? at}) => showBeside<void>(
   anchor,
   width: 300,
+  at: at,
   child: _ProfileCard(state: state, username: username),
 );
 

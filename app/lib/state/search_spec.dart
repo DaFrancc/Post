@@ -7,6 +7,7 @@ import 'package:post/src/rust/api/client.dart';
 
 enum FilterKind {
   from('From a specific user', 'user'),
+  mentions('Mentions a specific user', 'user'),
   has('Includes a link', 'link'),
   before('Before a date', 'date'),
   after('After a date', 'date'),
@@ -52,7 +53,7 @@ class SearchFilter {
 
   /// Whether this filter can be searched with.
   bool get valid => switch (kind) {
-    FilterKind.from => value.isNotEmpty,
+    FilterKind.from || FilterKind.mentions => value.isNotEmpty,
     FilterKind.has => value == 'link',
     _ => day != null,
   };
@@ -100,6 +101,7 @@ class SearchSpec {
   /// What to ask the core for: one page, in one conversation or all.
   SearchOptions options({String? conversation, required bool oldestFirst, required int page, required int pageSize}) {
     String? from;
+    String? mentions;
     var hasLink = false;
     int? after;
     int? before;
@@ -113,6 +115,8 @@ class SearchSpec {
       switch (f.kind) {
         case FilterKind.from:
           from = f.value;
+        case FilterKind.mentions:
+          mentions = f.value;
         case FilterKind.has:
           hasLink = true;
         case FilterKind.before when d != null:
@@ -130,6 +134,7 @@ class SearchSpec {
       text: words,
       conversation: conversation,
       from: from,
+      mentions: mentions,
       hasLink: hasLink,
       afterMs: after == null ? null : BigInt.from(after),
       beforeMs: before == null ? null : BigInt.from(before),

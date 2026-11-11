@@ -10,6 +10,13 @@ void main() {
     expect(SearchSpec.parse('$s'), s);
   });
 
+  test('mentions: names who a message mentions', () {
+    final s = SearchSpec.parse('mentions:@Sam rope');
+    expect(s.filters, const [SearchFilter(FilterKind.mentions, 'sam')]);
+    expect(s.options(oldestFirst: false, page: 0, pageSize: 25).mentions, 'sam');
+    expect(SearchSpec.parse('mentions:').words, 'mentions:');
+  });
+
   test('what is not a usable filter is a word', () {
     expect(SearchSpec.parse('from: has:video before:2026-02-30 to:x').words, 'from: has:video before:2026-02-30 to:x');
     expect(SearchSpec.parse('   ').isEmpty, isTrue);

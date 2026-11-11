@@ -278,9 +278,41 @@ void main() {
 
     // The menu has gone, barrier and all.
     await _noRouteOpen(t);
+
+    // Mentions show by name, yours in amber with the row warmed.
+    await h.cli('alice', ['send', '--conversation', group, '@sam can you bring the guidebook? @carol has the rope']);
+    await waitFor(t, find.textContaining('can you bring the guidebook'));
+    await settle(t);
+    expect(find.textContaining('@Sam can you bring'), findsOneWidget, reason: 'a mention shows the name, not the username');
+    expect(find.textContaining('@Carol C has the rope'), findsOneWidget);
+    await _shot(t, '04c-mention');
+
     // Into the composer: the field itself (its placeholder takes no taps,
     // and a tap on it sometimes missed the field).
     await tap(t, find.byWidgetPredicate((w) => w is EditableText && !w.readOnly).last);
+
+    // Typing @ offers members; Tab picks the lit one.
+    final drafting = t.widget<EditableText>(find.byWidgetPredicate((w) => w is EditableText && !w.readOnly).last).controller;
+    drafting.value = const TextEditingValue(text: 'thanks @ca', selection: TextSelection.collapsed(offset: 10));
+    await settle(t, 500);
+    expect(find.text('Tab or Enter to mention · Esc to close'), findsOneWidget, reason: 'the list shows for @ca');
+    expect(find.text('Carol C'), findsWidgets);
+    await _shot(t, '04d-mention-list');
+    await t.sendKeyEvent(LogicalKeyboardKey.tab);
+    await settle(t, 500);
+    expect(drafting.text, 'thanks @carol ');
+    expect(drafting.selection.baseOffset, drafting.text.length);
+    expect(find.text('Tab or Enter to mention · Esc to close'), findsNothing, reason: 'picking closes the list');
+    // Escape closes it, and it stays closed while typing on in that mention.
+    drafting.value = const TextEditingValue(text: 'and @', selection: TextSelection.collapsed(offset: 5));
+    await settle(t, 500);
+    expect(find.text('Tab or Enter to mention · Esc to close'), findsOneWidget, reason: 'a bare @ offers everyone');
+    await t.sendKeyEvent(LogicalKeyboardKey.escape);
+    drafting.value = const TextEditingValue(text: 'and @b', selection: TextSelection.collapsed(offset: 6));
+    await settle(t, 500);
+    expect(find.text('Tab or Enter to mention · Esc to close'), findsNothing, reason: 'closed until that mention is left');
+    drafting.clear();
+    await settle(t, 300);
     expect(
       t.widget<EditableText>(find.byWidgetPredicate((w) => w is EditableText && !w.readOnly).last).focusNode.hasFocus,
       isTrue,

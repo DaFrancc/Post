@@ -17,6 +17,8 @@ List<String> runs(String s) {
           add(s[n.end - 1], marks);
         case Code():
           add('`${s.substring(n.contentStart, n.contentEnd)}`', marks);
+        case Mention():
+          add('<${n.username(s)}>', marks);
         case Styled():
           walk(n.children, {...marks, n.mark});
       }
@@ -133,5 +135,45 @@ void main() {
       expect(marksAt('**bold *both***', 8, 12), {Mark.bold, Mark.italic});
       expect(marksAt('plain', 0, 5), <Mark>{});
     });
+  });
+
+  // The same cases as the core's `mentions_in_text`: both must agree on who
+  // a message mentions.
+  test('mentions, as the core finds them', () {
+    expect(mentionsIn('hi @alice and @bob_2, @alice again'), ['alice', 'bob_2']);
+    expect(mentionsIn('@carol: start of text'), ['carol']);
+    expect(mentionsIn('**@dave** *@erin* (@frank) ||@gina||'), ['dave', 'erin', 'frank', 'gina']);
+    expect(mentionsIn('_@erin_'), isEmpty);
+    expect(mentionsIn('> quoted @hank\nand @ivan'), ['hank', 'ivan']);
+    expect(mentionsIn('mail sam@example.com'), isEmpty);
+    expect(mentionsIn('@ab @Alice @alice2X é@alice @alice_é'), isEmpty);
+    expect(mentionsIn('@${'a' * 33}'), isEmpty);
+    expect(mentionsIn(r'\@alice'), isEmpty);
+    expect(mentionsIn('`@alice` and ``x @bob ` y``'), isEmpty);
+    expect(mentionsIn('```\n@alice\n```\n'), isEmpty);
+    expect(mentionsIn('```\n@alice'), ['alice']);
+    expect(mentionsIn('a ` b @alice'), ['alice']);
+    expect(mentionsIn('a `x\n@alice` b'), isEmpty);
+    expect(mentionsIn('> a `x\n@alice` b'), ['alice']);
+    expect(mentionsIn('thanks @alice! and @bob.'), ['alice', 'bob']);
+  });
+
+  test('a mention sits among formatting', () {
+    expect(runs('**hey @sam_x**, ok'), ['hey :bold', '<sam_x>:bold', ', ok:']);
+    // A username's `_` does not close italics opened before it.
+    expect(runs('_a @sam_x'), ['_a :', '<sam_x>:']);
+    expect(plainText('**@sam** hi'), '@sam hi');
+  });
+
+  test('the mention being typed', () {
+    expect(mentionTyped('hi @sa', 6), (at: 3, query: 'sa'));
+    expect(mentionTyped('hi @', 4), (at: 3, query: ''));
+    expect(mentionTyped('@sam x', 4), (at: 0, query: 'sam'));
+    expect(mentionTyped('mail a@b', 8), isNull);
+    expect(mentionTyped('hi @Sa', 6), isNull);
+    expect(mentionTyped('`@sa`', 4), isNull);
+    // An unclosed backtick is not code yet.
+    expect(mentionTyped('`@sa', 4), (at: 1, query: 'sa'));
+    expect(mentionTyped('hi @sam x', 9), isNull);
   });
 }

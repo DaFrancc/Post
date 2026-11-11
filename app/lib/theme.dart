@@ -35,6 +35,16 @@ abstract final class PColors {
   static const spoilerShown = Color(0x1FFFFFFF);
   static const quoteBar = Color(0xFF3A3E5C);
   static const misspelled = Color(0xFFF25F7A);
+
+  /// Mentions: of someone, in the accent; of you, in amber, with the
+  /// message's row warmed too and a bar down its edge.
+  static const mention = Color(0x336E8BFF);
+  static const mentionText = Color(0xFFB4C8FF);
+  static const mentionYou = Color(0x40F2B33D);
+  static const mentionYouText = Color(0xFFFFD58C);
+  static const mentionRow = Color(0xFF1C1A1C);
+  static const mentionRowHover = Color(0xFF221F1F);
+  static const mentionBar = Color(0xFFF2B33D);
   static const border = Color(0xFF1A1C2B);
   static const borderStrong = Color(0xFF2A2D44);
 

@@ -226,8 +226,10 @@ class _Rail extends StatelessWidget {
                       child: _RailButton(
                         label: g.title,
                         selected: state.selected == g.id,
+                        // Groups count only what mentions you; the pill
+                        // says there is something new.
                         unread: g.unread > 0,
-                        badge: state.selected == g.id ? 0 : g.unread,
+                        badge: state.selected == g.id ? 0 : g.mentions,
                         color: PColors.avatarFor(g.id),
                         onTap: () => state.select(g.id),
                         child: Text(
@@ -693,11 +695,17 @@ class _ConversationRowState extends State<_ConversationRow> {
                       ],
                     ),
                   ),
+                  // A DM counts every unread message; a group only those
+                  // that mention you, with a dot for the rest.
                   AnimatedScale(
                     scale: unread ? 1 : 0,
                     duration: PMotion.normal,
                     curve: unread ? Curves.easeOutBack : Curves.easeIn,
-                    child: unread ? Padding(padding: const EdgeInsets.only(left: 8), child: _Badge(c.unread)) : const SizedBox(),
+                    child: switch ((unread, c.isGroup ? c.mentions : c.unread)) {
+                      (false, _) => const SizedBox(),
+                      (true, 0) => const Padding(padding: EdgeInsets.only(left: 8, right: 6), child: _UnreadDot()),
+                      (true, final n) => Padding(padding: const EdgeInsets.only(left: 8), child: _Badge(n)),
+                    },
                   ),
                 ],
               ),
@@ -705,6 +713,20 @@ class _ConversationRowState extends State<_ConversationRow> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Something unread, nothing of it for you in particular.
+class _UnreadDot extends StatelessWidget {
+  const _UnreadDot();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 8,
+      height: 8,
+      decoration: const BoxDecoration(color: PColors.textStrong, shape: BoxShape.circle),
     );
   }
 }

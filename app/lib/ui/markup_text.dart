@@ -19,6 +19,33 @@ TextStyle _apply(TextStyle s, Mark m) => switch (m) {
 TextStyle _code(TextStyle s) =>
     s.copyWith(fontFamily: PType.mono, fontSize: (s.fontSize ?? 14) * 0.92, color: PColors.codeText, backgroundColor: PColors.codeInline);
 
+TextStyle _mention(TextStyle s, {bool you = false}) => s.copyWith(
+  fontWeight: FontWeight.w600,
+  color: you ? PColors.mentionYouText : PColors.mentionText,
+  backgroundColor: you ? PColors.mentionYou : PColors.mention,
+);
+
+/// How mentions in the text below show: by the name each person shows as,
+/// yours picked out, and what a click on one does. Without one, a mention
+/// shows as its `@username`.
+class Mentions extends InheritedWidget {
+  const Mentions({super.key, required this.nameOf, required this.you, this.onTap, required super.child});
+
+  /// The name to show for a username.
+  final String Function(String username) nameOf;
+
+  /// The viewer's username.
+  final String you;
+
+  /// A mention clicked, and where (window coordinates).
+  final void Function(String username, Offset at)? onTap;
+
+  static Mentions? maybeOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<Mentions>();
+
+  @override
+  bool updateShouldNotify(Mentions old) => true;
+}
+
 // ---------------------------------------------------------------- messages
 
 /// One stretch of a message's text as drawn, for arrival effects: where it
@@ -92,21 +119,34 @@ class _MarkupTextState extends State<MarkupText> {
     var drawn = 0;
     final runs = widget.runs?..clear();
     final upTo = widget.shownUpTo;
-    InlineSpan run(String text, TextStyle st) {
+    final mentions = Mentions.maybeOf(context);
+    // A span's tap handler covers its own text, not its children's, so
+    // every span made for clickable text carries it.
+    InlineSpan run(String text, TextStyle st, {GestureRecognizer? tap}) {
       runs?.add(RevealRun(drawn, text, st));
       final cut = upTo == null ? text.length : (upTo - drawn).clamp(0, text.length);
       drawn += text.length;
-      if (cut == text.length) return TextSpan(text: text, style: st);
+      final cursor = tap == null ? MouseCursor.defer : SystemMouseCursors.click;
+      if (cut == text.length) return TextSpan(text: text, style: st, recognizer: tap, mouseCursor: cursor);
       // Transparent, decorations and backgrounds too: same glyphs, same
       // layout, nothing visible.
       final clear = st.copyWith(color: Colors.transparent, backgroundColor: Colors.transparent, decorationColor: Colors.transparent);
       if (cut == 0) return TextSpan(text: text, style: clear);
       return TextSpan(
         children: [
-          TextSpan(text: text.substring(0, cut), style: st),
+          TextSpan(text: text.substring(0, cut), style: st, recognizer: tap, mouseCursor: cursor),
           TextSpan(text: text.substring(cut), style: clear),
         ],
       );
+    }
+
+    InlineSpan mention(Mention n, TextStyle st) {
+      final u = n.username(s);
+      if (mentions == null) return run('@$u', _mention(st));
+      final onTap = mentions.onTap;
+      final tap = onTap == null ? null : (TapGestureRecognizer()..onTapUp = (d) => onTap(u, d.globalPosition));
+      if (tap != null) _recognizers.add(tap);
+      return run('@${mentions.nameOf(u)}', _mention(st, you: u == mentions.you), tap: tap);
     }
 
     List<InlineSpan> inline(List<Inline> nodes, TextStyle st) => [
@@ -115,6 +155,7 @@ class _MarkupTextState extends State<MarkupText> {
           Plain() => run(s.substring(n.start, n.end), st),
           Escape() => run(s[n.end - 1], st),
           Code() => run(s.substring(n.contentStart, n.contentEnd), _code(st)),
+          Mention() => mention(n, st),
           Styled(mark: Mark.spoiler) => _spoiler(spoiler++, n, st, inline, (text, style) {
             runs?.add(RevealRun(drawn, text, style, hidden: true));
             drawn += text.length;
@@ -272,6 +313,8 @@ List<Segment> editingSegments(String t, TextStyle base) {
       switch (n) {
         case Plain():
           add(n.start, n.end, st);
+        case Mention():
+          add(n.start, n.end, _mention(st));
         case Escape():
           add(n.start, n.start + 1, marker(st));
           add(n.start + 1, n.end, st);
