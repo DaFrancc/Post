@@ -16,6 +16,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:post/main.dart';
 import 'package:post/src/rust/frb_generated.dart';
 import 'package:post/ui/controls.dart';
+import 'package:post/ui/markup_text.dart';
 
 import 'harness.dart';
 
@@ -80,6 +81,20 @@ Future<void> _capture(WidgetTester t, String name) async {
   await file.writeAsBytes(png!.buffer.asUint8List());
   // ignore: avoid_print
   print('screenshot: ${file.absolute.path}');
+}
+
+/// Wait until no menu or dialog is open over the main screen: a closing
+/// one's barrier still takes taps.
+Future<void> _noRouteOpen(WidgetTester t) async {
+  final end = DateTime.now().add(const Duration(seconds: 3));
+  while (DateTime.now().isBefore(end)) {
+    if (!t.state<NavigatorState>(find.byType(Navigator).first).canPop()) return;
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await t.pump();
+  }
+  await _capture(t, 'zz-route-open');
+  final texts = find.byType(Text).evaluate().map((e) => (e.widget as Text).data).whereType<String>().join(' | ');
+  fail('a menu or dialog stayed open; on screen: $texts');
 }
 
 void main() {
@@ -215,6 +230,8 @@ void main() {
     await t.sendKeyEvent(LogicalKeyboardKey.escape);
     await settle(t);
 
+    // The menu has gone, barrier and all.
+    await _noRouteOpen(t);
     // Into the composer: the field itself (its placeholder takes no taps,
     // and a tap on it sometimes missed the field).
     await tap(t, find.byWidgetPredicate((w) => w is EditableText && !w.readOnly).last);
@@ -256,6 +273,15 @@ void main() {
     await t.pump();
     expect(typing.text, 'make this ***bold***, `this` code');
     expect(typing.selection.textInside(typing.text), 'bold', reason: 'the selection stays on the text');
+
+    // Spelling: a misspelled word gets its red underline once you move on
+    // from it (the dictionary for the system's language downloads first).
+    typing.value = const TextEditingValue(text: 'this sentense has a typo ', selection: TextSelection.collapsed(offset: 25));
+    final spelled = typing as MarkupEditingController;
+    await waitFor(t, find.byWidgetPredicate((w) => w is EditableText && spelled.misspelled.isNotEmpty), timeout: const Duration(seconds: 60));
+    final marked = spelled.misspelled;
+    expect([for (final r in marked) r.textInside(typing.text)], ['sentense']);
+    await _shot(t, '05d-spelling');
     expect(t.getRect(find.byWidgetPredicate((w) => w is TextField).last).height, oneLine, reason: 'formatting keeps the composer one line tall');
     typing.clear();
 
@@ -300,6 +326,8 @@ void main() {
     await _capture(t, '09b-arrival-picker');
     await Future<void>.delayed(const Duration(milliseconds: 500));
     await _capture(t, '09c-arrival-picker');
+    await tap(t, find.text('Spelling'));
+    await _shot(t, '09d-settings-spelling');
     await tap(t, find.text('Devices'));
     await _shot(t, '10-settings-devices');
     await t.sendKeyEvent(LogicalKeyboardKey.escape);

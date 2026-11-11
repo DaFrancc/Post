@@ -45,8 +45,8 @@ class PField extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label.toUpperCase(), style: PType.label),
-        const SizedBox(height: 8),
+        // No label: a field that explains itself (a search box).
+        if (label.isNotEmpty) ...[Text(label.toUpperCase(), style: PType.label), const SizedBox(height: 8)],
         TextField(
           controller: controller,
           enabled: enabled,
@@ -461,15 +461,34 @@ const pMenuAnimation = AnimationStyle(
 );
 
 /// Open a context menu with its corner at the pointer.
-Future<T?> showContextMenu<T>(BuildContext context, Offset globalPosition, List<PopupMenuEntry<T>> items) {
-  return showMenu<T>(
-    context: context,
-    position: menuAt(context, globalPosition),
-    constraints: const BoxConstraints(minWidth: 200, maxWidth: 280),
-    menuPadding: const EdgeInsets.all(6),
-    popUpAnimationStyle: pMenuAnimation,
-    items: items,
-  );
+Future<T?> showContextMenu<T>(BuildContext context, Offset globalPosition, List<PopupMenuEntry<T>> items) async {
+  final navigator = Navigator.of(context);
+  // Escape closes it wherever the keyboard focus is. A right-click on
+  // selected text opens the menu on the button going down, and the text's
+  // selection then takes the focus back as the button comes up, so the
+  // menu itself would never hear the key.
+  var open = true;
+  bool escape(KeyEvent e) {
+    if (!open || e is! KeyDownEvent || e.logicalKey != LogicalKeyboardKey.escape) return false;
+    open = false;
+    navigator.pop();
+    return true;
+  }
+
+  HardwareKeyboard.instance.addHandler(escape);
+  try {
+    return await showMenu<T>(
+      context: context,
+      position: menuAt(context, globalPosition),
+      constraints: const BoxConstraints(minWidth: 200, maxWidth: 280),
+      menuPadding: const EdgeInsets.all(6),
+      popUpAnimationStyle: pMenuAnimation,
+      items: items,
+    );
+  } finally {
+    open = false;
+    HardwareKeyboard.instance.removeHandler(escape);
+  }
 }
 
 /// A menu that grows up out of [anchor], for a button near the bottom of the
