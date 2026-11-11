@@ -364,6 +364,13 @@ mod tests {
     }
 
     #[test]
+    fn the_built_in_release_key_reads() {
+        // A damaged key file would leave every app unable to update.
+        let key = release_key().expect("the built-in release key");
+        assert_eq!(public_key_to_bytes(&key).len(), ED25519_PUBLIC_LEN + MLDSA65_PUBLIC_LEN);
+    }
+
+    #[test]
     fn versions_compare_as_numbers() {
         let v = |s: &str| s.parse::<Version>();
         assert!(v("1.10.0").expect("v") > v("1.9.9").expect("v"));
