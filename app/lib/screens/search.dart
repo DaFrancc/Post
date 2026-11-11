@@ -263,60 +263,103 @@ class _SearchBoxState extends State<SearchBox> {
       builder: (context, _) {
         final filters = _state.searchFilters;
         final active = _focus.hasFocus || _text.text.isNotEmpty || filters.isNotEmpty;
-        return CompositedTransformTarget(
-          link: _link,
-          child: OverlayPortal(
-            controller: _portal,
-            overlayChildBuilder: _dropdown,
-            child: AnimatedContainer(
-              duration: PMotion.normal,
-              curve: PMotion.curve,
-              width: active ? 340 : 200,
-              height: 36,
-              decoration: BoxDecoration(
-                color: PColors.sunken,
-                border: Border.all(color: _focus.hasFocus ? PColors.focusEdge : PColors.border),
-                borderRadius: BorderRadius.circular(11),
+        // The suggestions hang from a point at the box's bottom-right corner,
+        // not from the box: the box widens as it opens, and a follower
+        // anchored to the box's size kept the size it first saw.
+        return OverlayPortal(
+          controller: _portal,
+          overlayChildBuilder: _dropdown,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              _boxBody(filters, active),
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: CompositedTransformTarget(link: _link, child: const SizedBox.shrink()),
               ),
-              child: Focus(
-                onKeyEvent: _key,
-                child: Row(
-                  children: [
-                    const SizedBox(width: 6),
-                    for (final f in filters) ...[Flexible(flex: 0, child: _Chip(filter: f)), const SizedBox(width: 4)],
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: TextField(
-                        controller: _text,
-                        focusNode: _focus,
-                        style: const TextStyle(fontSize: 13.5, color: PColors.text),
-                        decoration: InputDecoration(
-                          hintText: filters.isEmpty ? 'Search (Ctrl+F)' : null,
-                          hintStyle: const TextStyle(fontSize: 13.5, color: PColors.textFaint),
-                          isDense: true,
-                          filled: false,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 9),
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                        ),
-                      ),
-                    ),
-                    if (_text.text.isNotEmpty || filters.isNotEmpty || _state.searchShown != null)
-                      PIconButton(icon: Icons.close_rounded, tooltip: 'Clear (Esc)', size: 28, iconSize: 15, onPressed: _clear)
-                    else
-                      const Padding(
-                        padding: EdgeInsets.only(right: 4),
-                        child: Icon(Icons.search_rounded, size: 17, color: PColors.textFaint),
-                      ),
-                    const SizedBox(width: 4),
-                  ],
-                ),
-              ),
-            ),
+            ],
           ),
         );
       },
+    );
+  }
+
+  /// The box grows downward rather than clipping: chips wrap onto new
+  /// lines, and the words follow the last chip while they fit, then take a
+  /// line of their own and wrap within it (up to four lines; Enter still
+  /// searches, as in the composer).
+  Widget _boxBody(List<SearchFilter> filters, bool active) {
+    return AnimatedContainer(
+      duration: PMotion.normal,
+      curve: PMotion.curve,
+      width: active ? 280 : 200,
+      constraints: const BoxConstraints(minHeight: 36),
+      decoration: BoxDecoration(
+        color: PColors.sunken,
+        border: Border.all(color: _focus.hasFocus ? PColors.focusEdge : PColors.border),
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: Focus(
+        onKeyEvent: _key,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(width: 6),
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: filters.isEmpty ? 0 : 6),
+                child: LayoutBuilder(
+                  builder: (context, box) => Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      for (final f in filters) _Chip(filter: f),
+                      // As wide as its words (at least a few letters), up to
+                      // the whole line; with no chips, the whole line.
+                      ConstrainedBox(
+                        constraints: BoxConstraints(minWidth: filters.isEmpty ? box.maxWidth : 60, maxWidth: box.maxWidth),
+                        child: IntrinsicWidth(child: _field(filters)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: _text.text.isNotEmpty || filters.isNotEmpty || _state.searchShown != null
+                  ? PIconButton(icon: Icons.close_rounded, tooltip: 'Clear (Esc)', size: 28, iconSize: 15, onPressed: _clear)
+                  : const SizedBox(width: 28, height: 28, child: Icon(Icons.search_rounded, size: 17, color: PColors.textFaint)),
+            ),
+            const SizedBox(width: 4),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _field(List<SearchFilter> filters) {
+    return TextField(
+      controller: _text,
+      focusNode: _focus,
+      minLines: 1,
+      maxLines: 4,
+      // One line of words, wrapped to fit: a pasted line break is a space.
+      inputFormatters: [FilteringTextInputFormatter.deny(RegExp(r'[\r\n]+'), replacementString: ' ')],
+      style: const TextStyle(fontSize: 13.5, height: 18 / 13.5, color: PColors.text),
+      decoration: InputDecoration(
+        hintText: filters.isEmpty ? 'Search (Ctrl+F)' : null,
+        hintStyle: const TextStyle(fontSize: 13.5, height: 18 / 13.5, color: PColors.textFaint),
+        isDense: true,
+        filled: false,
+        // One line is 18 + 2×8: with the 1px border, the box's 36.
+        contentPadding: EdgeInsets.symmetric(vertical: filters.isEmpty ? 8 : 3),
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+      ),
     );
   }
 
@@ -330,7 +373,7 @@ class _SearchBoxState extends State<SearchBox> {
     final picked = choosable.isEmpty ? -1 : choosable[_picked.clamp(0, choosable.length - 1)];
     return CompositedTransformFollower(
       link: _link,
-      targetAnchor: Alignment.bottomRight,
+      targetAnchor: Alignment.topLeft,
       followerAnchor: Alignment.topRight,
       offset: const Offset(0, 6),
       child: Align(
@@ -632,33 +675,51 @@ class _SearchPanelState extends State<SearchPanel> {
             decoration: const BoxDecoration(
               border: Border(bottom: BorderSide(color: PColors.border)),
             ),
-            child: Row(
+            // The count on its own line, so it never wraps; where and in what
+            // order underneath.
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(child: Text(found == null ? 'Searching…' : '${_count(found.total)} ${found.total == 1 ? 'result' : 'results'}', style: PType.heading)),
-                Builder(
-                  builder: (anchor) => _HeaderButton(
-                    icon: Icons.filter_alt_outlined,
-                    label: _state.searchAll ? 'Everywhere' : 'Here',
-                    tooltip: 'Where to search',
-                    onTap: () => _menu(anchor, [
-                      ('This conversation', !_state.searchAll, () => _state.setSearchView(all: false)),
-                      ('Every conversation', _state.searchAll, () => _state.setSearchView(all: true)),
-                    ]),
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        found == null ? 'Searching…' : '${_count(found.total)} ${found.total == 1 ? 'result' : 'results'}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: PType.heading,
+                      ),
+                    ),
+                    PIconButton(icon: Icons.close_rounded, tooltip: 'Close search (Esc)', onPressed: _state.closeSearch),
+                  ],
                 ),
-                const SizedBox(width: 4),
-                Builder(
-                  builder: (anchor) => _HeaderButton(
-                    icon: Icons.swap_vert_rounded,
-                    label: _state.searchOldest ? 'Oldest' : 'Newest',
-                    tooltip: 'Sort',
-                    onTap: () => _menu(anchor, [
-                      ('Newest first', !_state.searchOldest, () => _state.setSearchView(oldest: false)),
-                      ('Oldest first', _state.searchOldest, () => _state.setSearchView(oldest: true)),
-                    ]),
-                  ),
+                Row(
+                  children: [
+                    Builder(
+                      builder: (anchor) => _HeaderButton(
+                        icon: Icons.filter_alt_outlined,
+                        label: _state.searchAll ? 'Everywhere' : 'Here',
+                        tooltip: 'Where to search',
+                        onTap: () => _menu(anchor, [
+                          ('This conversation', !_state.searchAll, () => _state.setSearchView(all: false)),
+                          ('Every conversation', _state.searchAll, () => _state.setSearchView(all: true)),
+                        ]),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Builder(
+                      builder: (anchor) => _HeaderButton(
+                        icon: Icons.swap_vert_rounded,
+                        label: _state.searchOldest ? 'Oldest' : 'Newest',
+                        tooltip: 'Sort',
+                        onTap: () => _menu(anchor, [
+                          ('Newest first', !_state.searchOldest, () => _state.setSearchView(oldest: false)),
+                          ('Oldest first', _state.searchOldest, () => _state.setSearchView(oldest: true)),
+                        ]),
+                      ),
+                    ),
+                  ],
                 ),
-                PIconButton(icon: Icons.close_rounded, tooltip: 'Close search (Esc)', onPressed: _state.closeSearch),
               ],
             ),
           ),

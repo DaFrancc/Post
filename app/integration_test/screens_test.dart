@@ -322,6 +322,52 @@ void main() {
     expect(t.getRect(find.byWidgetPredicate((w) => w is TextField).last).height, oneLine, reason: 'formatting keeps the composer one line tall');
     typing.clear();
 
+    // Search: the box's suggestions open under it, lined up with it from the
+    // first frame; from: offers people; results, and opening one.
+    typing.clear();
+    await settle(t, 300);
+    final searchField = find.byWidgetPredicate((w) => w is TextField && w.focusNode?.debugLabel == 'search');
+    await t.tap(searchField);
+    for (var frame = 0; frame < 4; frame++) {
+      await t.pump();
+      await _capture(t, '11a-search-open-$frame');
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+    }
+    await _shot(t, '11b-search-filters');
+    final searchBox = t.getRect(find.ancestor(of: searchField, matching: find.byType(AnimatedContainer)).first);
+    final suggestions = t.getRect(
+      find.ancestor(of: find.text('Filters'), matching: find.byWidgetPredicate((w) => w is Container && w.constraints?.maxWidth == 340)),
+    );
+    expect(suggestions.right, closeTo(searchBox.right, 1), reason: 'the suggestions line up with the box');
+    // Set directly: simulated keys never reach a text field as text.
+    final searchText = t.widget<EditableText>(find.descendant(of: searchField, matching: find.byType(EditableText))).controller;
+    searchText.value = const TextEditingValue(text: 'from:', selection: TextSelection.collapsed(offset: 5));
+    await _shot(t, '11c-search-from');
+    searchText.value = const TextEditingValue(text: 'rope', selection: TextSelection.collapsed(offset: 4));
+    await t.pump();
+    await t.sendKeyEvent(LogicalKeyboardKey.enter);
+    await waitFor(t, find.textContaining('result'));
+    await _shot(t, '11d-search-results');
+    await t.tap(find.textContaining('bringing the new 70 m rope').last);
+    await _shot(t, '11e-search-jump');
+
+    // A chip and a long search wrap: the box grows down, never wider.
+    await t.tap(searchField);
+    searchText.value = const TextEditingValue(text: 'from:', selection: TextSelection.collapsed(offset: 5));
+    await settle(t, 300);
+    await t.sendKeyEvent(LogicalKeyboardKey.enter);
+    const long = 'the long rope for the north face and two spare belay devices please';
+    searchText.value = const TextEditingValue(
+      text: long,
+      selection: TextSelection.collapsed(offset: long.length),
+    );
+    await _shot(t, '11f-search-wrap');
+    final wrapped = t.getRect(find.ancestor(of: searchField, matching: find.byType(AnimatedContainer)).first);
+    expect(wrapped.width, lessThanOrEqualTo(281), reason: 'the box keeps its width');
+    expect(wrapped.height, greaterThan(40), reason: 'the box grows to fit its lines');
+    await t.sendKeyEvent(LogicalKeyboardKey.escape);
+    await settle(t);
+
     await tap(t, find.text('Bob B'));
     await _shot(t, '06-dm-unread-read');
 
