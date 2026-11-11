@@ -238,6 +238,20 @@ void main() {
     await waitFor(t, find.byWidgetPredicate((w) => w is EditableText && w.controller.text == 'h'));
     await _shot(t, '05b-typed');
 
+    // Ctrl+B bolds the selection; the composer shows formatting as typed,
+    // without changing its height.
+    final typing = t.widget<EditableText>(find.byWidgetPredicate((w) => w is EditableText && !w.readOnly).last).controller;
+    final oneLine = t.getRect(find.byWidgetPredicate((w) => w is TextField).last).height;
+    typing.value = const TextEditingValue(text: 'make this bold, `this` code', selection: TextSelection(baseOffset: 10, extentOffset: 14));
+    await t.pump();
+    await t.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await t.sendKeyEvent(LogicalKeyboardKey.keyB);
+    await t.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    expect(typing.text, 'make this **bold**, `this` code');
+    await _shot(t, '05c-formatting');
+    expect(t.getRect(find.byWidgetPredicate((w) => w is TextField).last).height, oneLine, reason: 'formatting keeps the composer one line tall');
+    typing.clear();
+
     await tap(t, find.text('Bob B'));
     await _shot(t, '06-dm-unread-read');
 

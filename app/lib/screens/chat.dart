@@ -14,6 +14,7 @@ import '../theme.dart';
 import '../ui/arrival.dart';
 import '../ui/controls.dart';
 import '../ui/format.dart';
+import '../ui/markup.dart';
 import '../ui/markup_text.dart';
 import 'dialogs.dart';
 import 'home.dart' show Panel;
@@ -47,7 +48,8 @@ class ChatView extends StatefulWidget {
 }
 
 class _ChatViewState extends State<ChatView> {
-  final _composer = TextEditingController();
+  /// Shows formatting as you type, markers dimmed in place.
+  final _composer = MarkupEditingController();
   final _composerFocus = FocusNode();
   final _editor = TextEditingController();
   final _editorFocus = FocusNode();
@@ -343,6 +345,23 @@ class _ChatViewState extends State<ChatView> {
   }
 
   KeyEventResult _composerKey(FocusNode _, KeyEvent e) {
+    if (e is! KeyDownEvent && e is! KeyRepeatEvent) return KeyEventResult.ignored;
+    final keys = HardwareKeyboard.instance;
+    if (keys.isControlPressed && !keys.isAltPressed && !keys.isMetaPressed) {
+      final shift = keys.isShiftPressed;
+      final Edit Function(Edit)? op = switch (e.logicalKey) {
+        LogicalKeyboardKey.keyB when !shift => (e) => toggleWrap(e, markerFor[Mark.bold]!),
+        LogicalKeyboardKey.keyI when !shift => (e) => toggleWrap(e, markerFor[Mark.italic]!),
+        LogicalKeyboardKey.keyU when !shift => (e) => toggleWrap(e, markerFor[Mark.underline]!),
+        LogicalKeyboardKey.keyX when shift => (e) => toggleWrap(e, markerFor[Mark.strike]!),
+        LogicalKeyboardKey.keyE when !shift => toggleCode,
+        _ => null,
+      };
+      if (op != null) {
+        if (e is KeyDownEvent) _format(op);
+        return KeyEventResult.handled;
+      }
+    }
     if (e is! KeyDownEvent) return KeyEventResult.ignored;
     final composing = _composer.value.composing.isValid;
     if (e.logicalKey == LogicalKeyboardKey.enter && !HardwareKeyboard.instance.isShiftPressed && !composing) {
@@ -358,6 +377,20 @@ class _ChatViewState extends State<ChatView> {
       }
     }
     return KeyEventResult.ignored;
+  }
+
+  /// Apply a formatting command to the composer's selection (or, with no
+  /// selection yet, at its end), keeping what it selects afterwards.
+  void _format(Edit Function(Edit) op) {
+    final v = _composer.value;
+    final sel = v.selection.isValid ? v.selection : TextSelection.collapsed(offset: v.text.length);
+    final r = op((text: v.text, start: sel.start, end: sel.end));
+    _composer.value = TextEditingValue(
+      text: r.text,
+      selection: TextSelection(baseOffset: r.start, extentOffset: r.end),
+    );
+    _composerFocus.requestFocus();
+    _typed(r.text);
   }
 
   // ---------------------------------------------------------------- editing
@@ -1757,6 +1790,10 @@ class _Composer extends StatelessWidget {
                             textAlignVertical: TextAlignVertical.center,
                             // The hint takes the text's metrics, or it sits apart.
                             style: _composerText,
+                            // Every line exactly 20px, whatever formatting
+                            // it holds (inline code is smaller), so the box
+                            // never changes height for a style.
+                            strutStyle: StrutStyle.fromTextStyle(_composerText, forceStrutHeight: true),
                             decoration: InputDecoration(
                               hintText: placeholder,
                               hintStyle: _composerText.copyWith(color: PColors.textFaint),
