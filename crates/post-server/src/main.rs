@@ -166,7 +166,25 @@ async fn main() -> anyhow::Result<()> {
             let config = post_server::Config { server_domain: domain.clone(), db_path: db.db, db_key, releases };
             let running = post_server::spawn(listener, config)?;
             tracing::info!(addr = %running.addr, %domain, "postd listening");
+            // SIGHUP (`systemctl reload`, `podman kill --signal HUP`): look
+            // for new app releases now.
+            let running = std::sync::Arc::new(running);
+            #[cfg(unix)]
+            let reload = {
+                let running = running.clone();
+                let mut hup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
+                tokio::spawn(async move {
+                    while hup.recv().await.is_some() {
+                        running.refresh_releases();
+                    }
+                })
+            };
             shutdown_signal().await?;
+            #[cfg(unix)]
+            {
+                reload.abort();
+                let _ = reload.await;
+            }
             tracing::info!("shutting down");
             drop(running);
         }

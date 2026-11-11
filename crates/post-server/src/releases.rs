@@ -64,11 +64,19 @@ pub(crate) struct Published {
 pub(crate) struct Releases {
     config: ReleaseConfig,
     current: RwLock<HashMap<String, Published>>,
+    /// Look again now rather than at the next hour.
+    now: tokio::sync::Notify,
 }
 
 impl Releases {
     pub fn new(config: ReleaseConfig) -> Self {
-        Self { config, current: RwLock::default() }
+        Self { config, current: RwLock::default(), now: tokio::sync::Notify::new() }
+    }
+
+    /// Re-read the releases directory (for releases copied in by hand) and
+    /// ask GitHub, now.
+    pub fn refresh(&self) {
+        self.now.notify_one();
     }
 
     /// The newest release for `platform`.
@@ -175,9 +183,10 @@ impl Releases {
         }
     }
 
-    /// Look for new releases now and then, for as long as the server runs.
+    /// Look for new releases now and then, for as long as the server runs,
+    /// and at once when [`Self::refresh`] asks.
     pub async fn keep_fetching(self: std::sync::Arc<Self>) {
-        if self.config.github_repo.is_none() || self.config.key.is_none() {
+        if self.config.key.is_none() {
             return;
         }
         let http = match reqwest::Client::builder().user_agent("postd").timeout(Duration::from_secs(600)).build() {
@@ -186,8 +195,20 @@ impl Releases {
         };
         let mut every = tokio::time::interval(self.config.every);
         loop {
-            every.tick().await;
-            if let Err(e) = self.fetch(&http).await {
+            tokio::select! {
+                _ = every.tick() => {}
+                () = self.now.notified() => {
+                    tracing::info!("looking for releases now, as asked");
+                    // Releases copied in by hand; hashing them is file work.
+                    let me = self.clone();
+                    if tokio::task::spawn_blocking(move || me.load()).await.is_err() {
+                        tracing::error!("re-reading the releases directory failed");
+                    }
+                }
+            }
+            if self.config.github_repo.is_some()
+                && let Err(e) = self.fetch(&http).await
+            {
                 tracing::warn!(error = %e, "fetching the latest release failed");
             }
         }

@@ -95,6 +95,11 @@ release. It downloads the release into `/var/lib/post/releases` and serves it
 only once its signature and files check out. Apps check everything again
 themselves before installing.
 
+- To look for a release now instead of within the hour, run
+  `systemctl --user reload post-server`. Without systemd, send `postd` the HUP
+  signal (`podman kill --signal HUP post-server`, or `kill -HUP <pid>`). It
+  re-reads the releases directory and asks GitHub, without dropping anyone's
+  connection.
 - `POST_RELEASES_FROM=owner/repo` fetches from another repository. Leave it
   empty to fetch nothing.
 - With fetching off, copy a release in by hand instead: a folder named after

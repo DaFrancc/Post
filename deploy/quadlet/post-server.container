@@ -17,6 +17,8 @@ DropCapability=ALL
 
 [Service]
 Restart=always
+# `systemctl --user reload post-server`: look for new app releases now.
+ExecReload=/usr/bin/podman kill --signal HUP post-server
 
 [Install]
 WantedBy=default.target

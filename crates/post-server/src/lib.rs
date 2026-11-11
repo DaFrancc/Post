@@ -212,6 +212,7 @@ pub struct Running {
     /// The address it listens on.
     pub addr: SocketAddr,
     task: tokio::task::JoinHandle<()>,
+    releases: Arc<releases::Releases>,
 }
 
 impl Running {
@@ -223,6 +224,12 @@ impl Running {
     /// The plain HTTP address, for releases.
     pub fn http_url(&self) -> String {
         format!("http://{}", self.addr)
+    }
+
+    /// Look for new app releases now: re-read the releases directory and
+    /// ask GitHub, rather than waiting for the hourly check.
+    pub fn refresh_releases(&self) {
+        self.releases.refresh();
     }
 }
 
@@ -299,8 +306,9 @@ pub fn spawn(listener: TcpListener, config: Config) -> Result<Running, StartErro
         .route("/v1/releases/{platform}", get(latest_release))
         .route("/v1/releases/{platform}/{version}/{name}", get(release_file))
         .with_state(state);
+    let fetching = releases.clone();
     let task = tokio::spawn(async move {
-        let fetcher = tokio::spawn(releases.keep_fetching());
+        let fetcher = tokio::spawn(fetching.keep_fetching());
         let gc = tokio::spawn(async move {
             let mut every = tokio::time::interval(Duration::from_secs(3600));
             loop {
@@ -323,5 +331,5 @@ pub fn spawn(listener: TcpListener, config: Config) -> Result<Running, StartErro
         gc.abort();
         fetcher.abort();
     });
-    Ok(Running { addr, task })
+    Ok(Running { addr, task, releases })
 }

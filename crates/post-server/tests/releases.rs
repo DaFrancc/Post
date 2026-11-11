@@ -126,6 +126,40 @@ async fn releases_are_fetched_checked_and_handed_out() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_refresh_picks_up_a_release_copied_in_while_running() {
+    let key = HybridSigningKey::generate().expect("key");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let releases = dir.path().join("releases");
+    let config = post_server::ReleaseConfig {
+        dir: releases.clone(),
+        github_repo: None,
+        github_api: String::new(),
+        key: Some(key.verifying_key()),
+        every: Duration::from_secs(3600),
+    };
+    let server = postd(dir.path(), config).await;
+    let http = reqwest::Client::new();
+    assert!(latest(&http, &server).await.is_none());
+
+    let (manifest, sig) = release(&key);
+    let v = releases.join("1.2.0");
+    std::fs::create_dir_all(&v).expect("dir");
+    std::fs::write(v.join("post-1.2.0-linux-x86_64.tar.gz"), TARBALL).expect("tarball");
+    std::fs::write(v.join("manifest-linux-x86_64.json.sig"), sig).expect("sig");
+    std::fs::write(v.join("manifest-linux-x86_64.json"), manifest).expect("manifest");
+    server.refresh_releases();
+    let mut found = false;
+    for _ in 0..100 {
+        if latest(&http, &server).await.is_some() {
+            found = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+    assert!(found, "handed out after the refresh, not at the next hour");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_release_not_signed_by_the_release_key_is_refused() {
     let key = HybridSigningKey::generate().expect("key");
     let impostor = HybridSigningKey::generate().expect("key");
