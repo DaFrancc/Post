@@ -234,13 +234,8 @@ fn members_may_propose_removing_only_themselves() {
     assert!(judge_proposal(bob_leaf).is_ok(), "bob may leave");
 }
 
-#[test]
-fn a_forged_welcome_cannot_replace_a_group_in_use() {
-    let mut chains = HashMap::new();
-    let alice = Dev::new(&mut chains, "alice");
-    let mallory = Dev::new(&mut chains, "mallory");
-
-    // Carol's device keeps its state in a real profile database.
+/// Carol's device, keeping its state in a real (in-memory) profile database.
+fn carol_with_database(chains: &mut HashMap<AccountId, Chain>) -> (Me, Connection) {
     let carol_keys = DeviceKeys::generate().expect("keys");
     let (carol_chain, _) = Chain::create(&carol_keys, DOMAIN, "carol", false, 1).expect("chain");
     let carol_account = carol_chain.account_id();
@@ -257,15 +252,42 @@ fn a_forged_welcome_cannot_replace_a_group_in_use() {
     };
     let mut conn = Connection::open_in_memory().expect("db");
     store::migrate(&mut conn).expect("migrate");
-    let carol_kp = |conn: &mut Connection| -> KeyPackage {
-        let tx = conn.transaction().expect("tx");
-        let kp = {
-            let provider = Provider::on(&tx);
-            KeyPackage::builder().leaf_node_capabilities(postern_mls::capabilities()).build(SUITE, &provider, &me.signer, me.credential()).expect("kp").key_package().clone()
-        };
-        tx.commit().expect("commit");
-        kp
+    (me, conn)
+}
+
+fn database_key_package(me: &Me, conn: &mut Connection) -> KeyPackage {
+    let tx = conn.transaction().expect("tx");
+    let kp = {
+        let provider = Provider::on(&tx);
+        KeyPackage::builder().leaf_node_capabilities(postern_mls::capabilities()).build(SUITE, &provider, &me.signer, me.credential()).expect("kp").key_package().clone()
     };
+    tx.commit().expect("commit");
+    kp
+}
+
+#[test]
+fn a_welcome_listing_an_unlisted_device_is_refused() {
+    let mut chains = HashMap::new();
+    let alice = Dev::new(&mut chains, "alice");
+    let (me, mut conn) = carol_with_database(&mut chains);
+    // Alice's group includes a "device" of hers that her chain does not list,
+    // as a server or a member slipping in an eavesdropper would.
+    let rogue = Dev::with_keys(DeviceKeys::generate().expect("keys"), alice.account);
+    let meta = GroupMeta::group("bugged", &alice.account, HistoryVisibility::Shared, 0);
+    let mut g = postern_mls::group_builder(&meta).expect("b").build(&alice.provider, &alice.signer, alice.credential()).expect("g");
+    let kp = database_key_package(&me, &mut conn);
+    let (_, welcome, _) = g.add_members(&alice.provider, &alice.signer, &[kp, rogue.key_package()]).expect("add");
+    let tx = conn.transaction().expect("tx");
+    assert!(matches!(join_from_welcome(&tx, &me, &chains, &wire(&welcome)), Err(Fail::NeedDirectory)));
+}
+
+#[test]
+fn a_forged_welcome_cannot_replace_a_group_in_use() {
+    let mut chains = HashMap::new();
+    let alice = Dev::new(&mut chains, "alice");
+    let mallory = Dev::new(&mut chains, "mallory");
+    let (me, mut conn) = carol_with_database(&mut chains);
+    let carol_kp = |conn: &mut Connection| database_key_package(&me, conn);
 
     // Alice adds Carol to a real group, and Carol joins it.
     let gid = [42u8; 16];
