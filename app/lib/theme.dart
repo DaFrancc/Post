@@ -34,7 +34,7 @@ abstract final class PColors {
   static const textFaint = Color(0xFF8C92AA);
 
   /// The icon's cyan, blue and violet, for the few places that carry the
-  /// brand: the send button, unread counts, the selected rail item.
+  /// brand: the send button and the selected rail item.
   static const brand = LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF52C8F5), Color(0xFF6E8BFF), Color(0xFF9B7BFF)]);
 
   static const groundGlow = RadialGradient(
@@ -53,6 +53,10 @@ abstract final class PColors {
   static const away = Color(0xFFF2B33D);
   static const dnd = Color(0xFFF25F7A);
   static const offline = Color(0xFF6B7088);
+  /// Unread counts.
+  static const unread = Color(0xFFEB1A40);
+  static const onUnread = Color(0xFFFFFFFF);
+
   static const danger = Color(0xFFF25F7A);
   static const dangerSoft = Color(0xFF2A1520);
   static const dangerText = Color(0xFFFFB3C1);
@@ -126,6 +130,32 @@ abstract final class PType {
   static const small = TextStyle(fontFamily: body, fontSize: 12.5, color: PColors.textFaint);
 }
 
+/// Extra line height split evenly above and below the text, as CSS does.
+/// Flutter's default splits it by the font's ascent and descent, and Inter's
+/// tall ascent then pushes text low in its line: visibly off-centre in
+/// fields and buttons. Every text style inherits this from the theme's
+/// default text style unless it sets its own.
+TextTheme _evenLeading(TextTheme t) {
+  TextStyle? even(TextStyle? s) => s?.copyWith(leadingDistribution: TextLeadingDistribution.even);
+  return t.copyWith(
+    displayLarge: even(t.displayLarge),
+    displayMedium: even(t.displayMedium),
+    displaySmall: even(t.displaySmall),
+    headlineLarge: even(t.headlineLarge),
+    headlineMedium: even(t.headlineMedium),
+    headlineSmall: even(t.headlineSmall),
+    titleLarge: even(t.titleLarge),
+    titleMedium: even(t.titleMedium),
+    titleSmall: even(t.titleSmall),
+    bodyLarge: even(t.bodyLarge),
+    bodyMedium: even(t.bodyMedium),
+    bodySmall: even(t.bodySmall),
+    labelLarge: even(t.labelLarge),
+    labelMedium: even(t.labelMedium),
+    labelSmall: even(t.labelSmall),
+  );
+}
+
 ThemeData posternTheme() {
   final scheme = ColorScheme.fromSeed(
     seedColor: PColors.accent,
@@ -139,7 +169,7 @@ ThemeData posternTheme() {
   final base = ThemeData(brightness: Brightness.dark, colorScheme: scheme, fontFamily: PType.body, useMaterial3: true);
   return base.copyWith(
     scaffoldBackgroundColor: PColors.ground,
-    textTheme: base.textTheme.apply(bodyColor: PColors.text, displayColor: PColors.text, fontFamily: PType.body),
+    textTheme: _evenLeading(base.textTheme.apply(bodyColor: PColors.text, displayColor: PColors.text, fontFamily: PType.body)),
     dividerColor: PColors.border,
     splashFactory: InkSparkle.splashFactory,
     popupMenuTheme: PopupMenuThemeData(

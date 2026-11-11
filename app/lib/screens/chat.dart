@@ -981,7 +981,13 @@ class _Link extends StatelessWidget {
 
 // ---------------------------------------------------------------- composer
 
-const _composerText = TextStyle(fontFamily: PType.body, fontSize: 14.5, height: 20 / 14.5, color: PColors.text);
+const _composerText = TextStyle(
+  fontFamily: PType.body,
+  fontSize: 14.5,
+  height: 20 / 14.5,
+  leadingDistribution: TextLeadingDistribution.even,
+  color: PColors.text,
+);
 
 class _Composer extends StatelessWidget {
   const _Composer({
@@ -1063,27 +1069,32 @@ class _Composer extends StatelessWidget {
                 Expanded(
                   child: Focus(
                     onKeyEvent: onKey,
-                    child: TextField(
-                      controller: controller,
-                      focusNode: focus,
-                      minLines: 1,
-                      maxLines: 8,
-                      onChanged: onChanged,
-                      textCapitalization: TextCapitalization.sentences,
-                      textAlignVertical: TextAlignVertical.center,
-                      // One line is 20px of text in 10px of padding: as tall
-                      // as the send button, so both centre in the box. The
-                      // hint takes the same metrics, or it sits high.
-                      style: _composerText,
-                      decoration: InputDecoration(
-                        hintText: placeholder,
-                        hintStyle: _composerText.copyWith(color: PColors.textFaint),
-                        isDense: true,
-                        filled: false,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
+                    // One line is 20px of text in 10px of padding: exactly as
+                    // tall as the send button, so the two centre together.
+                    // Desktop's compact density would quietly take 4px off
+                    // each side, so it is switched off for this field.
+                    child: Theme(
+                      data: Theme.of(context).copyWith(visualDensity: VisualDensity.standard),
+                      child: TextField(
+                        controller: controller,
+                        focusNode: focus,
+                        minLines: 1,
+                        maxLines: 8,
+                        onChanged: onChanged,
+                        textCapitalization: TextCapitalization.sentences,
+                        textAlignVertical: TextAlignVertical.center,
+                        // The hint takes the text's metrics, or it sits apart.
+                        style: _composerText,
+                        decoration: InputDecoration(
+                          hintText: placeholder,
+                          hintStyle: _composerText.copyWith(color: PColors.textFaint),
+                          isDense: true,
+                          filled: false,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                        ),
                       ),
                     ),
                   ),

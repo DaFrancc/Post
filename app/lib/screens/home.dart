@@ -640,10 +640,10 @@ class _Badge extends StatelessWidget {
       height: 20,
       padding: const EdgeInsets.symmetric(horizontal: 6),
       alignment: Alignment.center,
-      decoration: BoxDecoration(gradient: PColors.brand, borderRadius: BorderRadius.circular(10)),
+      decoration: BoxDecoration(color: PColors.unread, borderRadius: BorderRadius.circular(10)),
       child: Text(
         count > 99 ? '99+' : '$count',
-        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: PColors.onAccent),
+        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: PColors.onUnread),
       ),
     );
   }

@@ -12,8 +12,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -188,6 +188,13 @@ void main() {
 
     await _tap(t, find.text('Alice A'));
     await _shot(t, '02-dm');
+    // The composer's text centres beside the send button: same height, same
+    // middle, to the pixel (desktop density once moved it by four).
+    final field = t.getRect(find.byWidgetPredicate((w) => w is TextField).last);
+    final send = t.getRect(find.byTooltip('Send (Enter). Shift+Enter for a new line.'));
+    final hint = t.getRect(find.text('Message Alice A'));
+    expect(field.height, send.height);
+    expect(hint.center.dy, closeTo(send.center.dy, 0.5));
 
     await _tap(t, find.text('climbing'));
     await cli('carol', ['typing', group]);
