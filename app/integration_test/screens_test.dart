@@ -133,16 +133,19 @@ void main() {
     // The composer: the last field that takes typing (selectable text, like
     // the safety number, is read-only).
     final composer = t.widget<EditableText>(find.byWidgetPredicate((w) => w is EditableText && !w.readOnly).last);
-    composer.controller.text = 'flying in from the composer';
+    // Two lines: the composer shrinks back as it goes, and the text keeps
+    // its line breaks all the way (it once re-wrapped mid-flight).
+    const sent = 'flying in from the composer\non two lines';
+    composer.controller.text = sent;
     await t.pump();
     await t.tap(find.byTooltip('Send (Enter). Shift+Enter for a new line.'));
-    await waitFor(t, find.text('flying in from the composer'));
+    await waitFor(t, find.text(sent));
     for (final ms in [0, 80, 160, 240, 320, 400]) {
       await Future<void>.delayed(Duration(milliseconds: ms == 0 ? 0 : 80));
       await _capture(t, '02b-send-$ms');
     }
     await settle(t);
-    expect(find.text('flying in from the composer'), findsOneWidget, reason: 'the flying copy is gone once it lands');
+    expect(find.text(sent), findsOneWidget, reason: 'the flying copy is gone once it lands');
 
     await tap(t, find.text('climbing'));
     await h.cli('carol', ['typing', group]);

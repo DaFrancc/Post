@@ -750,17 +750,32 @@ class _FlyingState extends State<_Flying> with SingleTickerProviderStateMixin {
         // of the messages and comes back in to land. Everything eases in and
         // out: it gets going gently rather than jumping off.
         // The swing grows with the climb, within the room the row has.
+        final t = Curves.easeInOutCubic.transform(v);
+
+        // The text is laid out once, as it will sit in the history (its
+        // final style and width, so its final line breaks), and only scaled
+        // on the way: from the composer's slightly larger size for yours,
+        // growing a little into place for someone else's. Re-wrapping it as
+        // it shrank once moved words between lines mid-flight.
+        final grow = f.outgoing ? lerpDouble((f.fromStyle.fontSize ?? 14) / (widget.toStyle.fontSize ?? 14), 1, t)! : lerpDouble(0.9, 1, t)!;
+        final drawn = _text.currentContext?.findRenderObject();
+        final laid = drawn is RenderBox && drawn.hasSize ? drawn.size : from.size;
+        final size = laid * grow;
+
+        // A big message swings less: the more lines and the wider they run,
+        // the gentler its arc. A short line takes the full swing; a long
+        // paragraph barely bows.
+        final lines = laid.height / ((widget.toStyle.fontSize ?? 14) * (widget.toStyle.height ?? 1.5));
+        final span = (laid.width / math.max(dest.width, 1)).clamp(0.0, 1.0);
+        final calm = 1 / (1 + 0.7 * math.max(lines - 1, 0)) * (1 - 0.5 * span);
         final rise = (from.top - dest.top).abs();
-        final bulge = math.min((90 + rise * 0.5).clamp(110.0, 220.0), local(row).width * 0.4);
+        final bulge = math.min((90 + rise * 0.5).clamp(110.0, 220.0), local(row).width * 0.4) * calm;
         final at = _arc(from.topLeft, dest.topLeft, bulge, _travel.transform(v));
         final (x, y) = (at.dx, at.dy);
-        final t = Curves.easeInOutCubic.transform(v);
 
         // The bubble: closes from where it started around the text as it
         // sets off, rides with it, and once it is nearly in place swells a
         // little as it dissolves, leaving the text where it belongs.
-        final drawn = _text.currentContext?.findRenderObject();
-        final size = drawn is RenderBox && drawn.hasSize ? drawn.size : from.size;
         final hug = _pad.inflateRect(Offset(x, y) & size);
         final gather = Curves.easeInOutCubic.transform((v / 0.4).clamp(0, 1));
         final settle = Curves.easeInOutCubic.transform(((v - 0.72) / 0.28).clamp(0, 1));
@@ -807,26 +822,24 @@ class _FlyingState extends State<_Flying> with SingleTickerProviderStateMixin {
               left: x,
               top: y,
               child: IgnorePointer(
-                // Your text's room to wrap eases from the composer's width to
-                // where it lands, as its size does, so text that fits on one
-                // line stays on one line. Someone else's text is at its final
-                // size throughout, so it takes its final width throughout
-                // (not the narrow typing line's). Either way it ends wrapped
-                // exactly as the real text, so nothing jumps when they swap;
-                // the extra pixel keeps rounding from wrapping the last word.
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: (f.outgoing ? lerpDouble(from.width, dest.width, t)! : dest.width) + 1),
-                  // Someone else's message appears as it rises, growing a
-                  // little into its size; the typing line it leaves fades
-                  // out on its own.
-                  child: Opacity(
-                    opacity: f.outgoing ? 1 : Curves.easeInOut.transform((v / 0.5).clamp(0, 1)),
-                    child: Transform.scale(
-                      scale: f.outgoing ? 1 : lerpDouble(0.9, 1, gather)!,
-                      alignment: Alignment.centerLeft,
-                      child: KeyedSubtree(
-                        key: _text,
-                        child: MarkupText(f.body, style: TextStyle.lerp(f.outgoing ? f.fromStyle : widget.toStyle, widget.toStyle, t)!),
+                // Wrapped exactly as the real text, so nothing moves when they
+                // swap; the extra pixel keeps rounding from wrapping the last
+                // word.
+                child: Opacity(
+                  // Someone else's message appears as it rises; the typing
+                  // line it leaves fades out on its own.
+                  opacity: f.outgoing ? 1 : Curves.easeInOut.transform((v / 0.5).clamp(0, 1)),
+                  child: Transform.scale(
+                    scale: grow,
+                    alignment: Alignment.topLeft,
+                    child: KeyedSubtree(
+                      key: _text,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: dest.width + 1),
+                        child: MarkupText(
+                          f.body,
+                          style: widget.toStyle.copyWith(color: Color.lerp(f.outgoing ? f.fromStyle.color : widget.toStyle.color, widget.toStyle.color, t)),
+                        ),
                       ),
                     ),
                   ),
@@ -1650,28 +1663,37 @@ class _Composer extends StatelessWidget {
                     // tall as the send button, so the two centre together.
                     // Desktop's compact density would quietly take 4px off
                     // each side, so it is switched off for this field.
-                    child: Theme(
-                      data: Theme.of(context).copyWith(visualDensity: VisualDensity.standard),
-                      child: TextField(
-                        key: fieldKey,
-                        controller: controller,
-                        focusNode: focus,
-                        minLines: 1,
-                        maxLines: 8,
-                        onChanged: onChanged,
-                        textCapitalization: TextCapitalization.sentences,
-                        textAlignVertical: TextAlignVertical.center,
-                        // The hint takes the text's metrics, or it sits apart.
-                        style: _composerText,
-                        decoration: InputDecoration(
-                          hintText: placeholder,
-                          hintStyle: _composerText.copyWith(color: PColors.textFaint),
-                          isDense: true,
-                          filled: false,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
+                    //
+                    // Its height eases between line counts, so sending a few
+                    // lines lets the box (and the messages above it) settle
+                    // back down rather than snap.
+                    child: AnimatedSize(
+                      duration: const Duration(milliseconds: 260),
+                      curve: Curves.easeInOutCubic,
+                      alignment: Alignment.bottomLeft,
+                      child: Theme(
+                        data: Theme.of(context).copyWith(visualDensity: VisualDensity.standard),
+                        child: TextField(
+                          key: fieldKey,
+                          controller: controller,
+                          focusNode: focus,
+                          minLines: 1,
+                          maxLines: 8,
+                          onChanged: onChanged,
+                          textCapitalization: TextCapitalization.sentences,
+                          textAlignVertical: TextAlignVertical.center,
+                          // The hint takes the text's metrics, or it sits apart.
+                          style: _composerText,
+                          decoration: InputDecoration(
+                            hintText: placeholder,
+                            hintStyle: _composerText.copyWith(color: PColors.textFaint),
+                            isDense: true,
+                            filled: false,
+                            contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                          ),
                         ),
                       ),
                     ),
