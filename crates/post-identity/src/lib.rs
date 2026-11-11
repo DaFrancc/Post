@@ -33,4 +33,6 @@ pub mod labels {
     pub const SAFETY: &str = "post/safety/v1";
     /// A device answering the server's login challenge.
     pub const AUTH: &str = "post/auth/v1";
+    /// The release key signing a release manifest (design section 12).
+    pub const RELEASE: &str = "post/release/v1";
 }

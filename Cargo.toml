@@ -69,6 +69,10 @@ zbus-secret-service-keyring-store = { version = "1.0", features = ["rt-tokio-cry
 spellbook = "0.4"
 encoding_rs = "0.8"
 base64 = "0.22"
+# The offline release key's file, sealed with a passphrase (design section
+# 12, "App updates"): Argon2id stretches the passphrase.
+argon2 = "0.5"
+rpassword = "7.5"
 # Anonymous tokens, RFC 9474. Uses rsa 0.10, which fixed the Marvin timing
 # side channel (RUSTSEC-2023-0071) by moving to constant-time arithmetic.
 blind-rsa-signatures = "0.18"
