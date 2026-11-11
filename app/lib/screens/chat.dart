@@ -662,12 +662,12 @@ class _Flight {
   final DateTime made = DateTime.now();
 }
 
-/// The vertical motion of a flight: a spring, just under-damped, so the text
-/// rises quickly, carries a few percent past its row and settles back.
+/// How far along its arc a flight is: a spring, just under-damped, so it
+/// gathers speed from rest, carries a little past its row and settles back.
 class _Rise extends Curve {
   const _Rise();
 
-  static final _spring = SpringSimulation(SpringDescription.withDampingRatio(mass: 1, stiffness: 170, ratio: 0.75), 0, 1, 0);
+  static final _spring = SpringSimulation(SpringDescription.withDampingRatio(mass: 1, stiffness: 170, ratio: 0.78), 0, 1, 0);
 
   /// Long enough for the spring to settle within half a pixel of a typical
   /// trip; [Curve.transform] gives exactly 1 at the end.
@@ -677,11 +677,12 @@ class _Rise extends Curve {
   double transformInternal(double t) => _spring.x(t * _seconds);
 }
 
-/// The text in flight, drawn above everything, inside a shape that morphs
-/// along the way: it leaves as the composer (or a pill at the typing line),
-/// travels as a raised bubble hugging the text, and settles into the
-/// message's row, dissolving as it lands. Each frame it looks up where its
-/// message now sits, so it lands right even if the list moves meanwhile.
+/// The text in flight, drawn above everything, carried in a bubble for the
+/// journey: the bubble leaves as the composer (or a pill at the typing
+/// line), closes around the text, swings out to the right and back in to the
+/// message's place, leaning into the turn, and dissolves as it lands. Each
+/// frame it looks up where its message now sits, so it lands right even if
+/// the list moves meanwhile.
 class _Flying extends StatefulWidget {
   const _Flying({required this.flight, required this.target, required this.tile, required this.toStyle, required this.onDone});
 
@@ -701,14 +702,32 @@ class _FlyingState extends State<_Flying> with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
     // Rising from the typing line, the text also fades in: a little longer.
-    duration: Duration(milliseconds: widget.flight.outgoing ? 620 : 680),
+    duration: Duration(milliseconds: widget.flight.outgoing ? 720 : 780),
   );
 
   /// The text as drawn last frame: the bubble hugs its size.
   final _text = GlobalKey();
 
-  static const _pad = EdgeInsets.symmetric(horizontal: 12, vertical: 6);
+  /// Narrow enough at the sides that, in place, it stays clear of the avatar.
+  static const _pad = EdgeInsets.symmetric(horizontal: 11, vertical: 7);
   static const _rise = _Rise();
+
+  /// Your bubble carries a touch of the accent; someone else's is neutral.
+  static final _mine = Color.alphaBlend(PColors.accent.withValues(alpha: 0.16), PColors.panelRaised);
+  static final _mineEdge = PColors.accent.withValues(alpha: 0.45);
+
+  /// The point [u] of the way along a cubic Bézier from [s] to [e] that
+  /// bulges [bulge] to the right: it sets off up and to the right, swings
+  /// round and comes up into [e] from below and a little to the right. Past
+  /// 1, as the spring overshoots, it carries on the way it was heading:
+  /// mostly up, so it never drifts over the avatars.
+  static Offset _arc(Offset s, Offset e, double bulge, double u) {
+    final rise = s.dy - e.dy;
+    final p1 = Offset(s.dx + bulge, s.dy - rise * 0.1);
+    final p2 = Offset(e.dx + bulge * 0.25, e.dy + rise * 0.55);
+    final w = 1 - u;
+    return s * (w * w * w) + p1 * (3 * w * w * u) + p2 * (3 * w * u * u) + e * (u * u * u);
+  }
 
   @override
   void initState() {
@@ -739,88 +758,106 @@ class _FlyingState extends State<_Flying> with SingleTickerProviderStateMixin {
         final from = local(f.from);
         final dest = local(to);
 
-        // The path: across quickly, up on a spring, so it arcs rather than
-        // sliding along a straight line. Across goes first so the bubble is
-        // clear of the avatars by the time it reaches their height.
-        final x = lerpDouble(from.left, dest.left, Curves.easeOutQuart.transform(v))!;
-        final y = lerpDouble(from.top, dest.top, _rise.transform(v))!;
+        // The path: an arc that swings out into the open space to the right
+        // of the messages and comes back in to land, travelled on a spring.
+        // The swing grows with the climb, within the room the row has.
+        final rise = (from.top - dest.top).abs();
+        final bulge = math.min((90 + rise * 0.5).clamp(110.0, 220.0), local(row).width * 0.4);
+        final u = _rise.transform(v);
+        final at = _arc(from.topLeft, dest.topLeft, bulge, u);
+        final (x, y) = (at.dx, at.dy);
         final t = Curves.easeOutCubic.transform(v);
 
-        // The shape: gathers from where it started to hug the text, and in
-        // the last stretch opens out across the message's row and dissolves.
+        // The bubble: closes from where it started around the text, rides
+        // with it, and at the end swells a little as it dissolves, leaving
+        // the text in its place.
         final drawn = _text.currentContext?.findRenderObject();
         final size = drawn is RenderBox && drawn.hasSize ? drawn.size : from.size;
         final hug = _pad.inflateRect(Offset(x, y) & size);
-        final landing = Rect.fromLTRB(dest.left - 10, dest.top - 3, local(row).right, dest.bottom + 3);
         final gather = Curves.easeOutCubic.transform((v / 0.3).clamp(0, 1));
-        final settle = Curves.easeInOutCubic.transform(((v - 0.55) / 0.45).clamp(0, 1));
-        final shape = Rect.lerp(Rect.lerp(local(f.fromShape), hug, gather), landing, settle)!;
-        final radius = lerpDouble(lerpDouble(f.fromRadius, math.min(hug.height / 2, 18), gather), 10, settle)!;
+        final settle = Curves.easeInOutCubic.transform(((v - 0.6) / 0.4).clamp(0, 1));
+        final shape = Rect.lerp(local(f.fromShape), hug, gather)!.inflate(6 * settle);
+        final radius = lerpDouble(f.fromRadius, math.min(hug.height / 2, 18), gather)!;
+        final fill = f.outgoing ? Color.lerp(PColors.panelRaised, _mine, gather)! : PColors.selected;
+        final edge = f.outgoing ? Color.lerp(PColors.focusEdge, _mineEdge, gather)! : PColors.borderStrong;
         // Raised off the page in flight, flat at both ends.
         final lift = math.sin(math.pi * v);
 
-        return Stack(
-          children: [
-            Positioned.fromRect(
-              rect: shape,
-              child: IgnorePointer(
-                child: Opacity(
-                  // Yours starts as the composer itself, so it is there from
-                  // the first frame; someone else's grows out of nothing.
-                  opacity: (f.outgoing ? 1 : gather) * (1 - settle),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Color.lerp(PColors.panelRaised, PColors.messageHover, settle),
-                      borderRadius: BorderRadius.circular(radius),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.45 * lift),
-                          blurRadius: 24 * lift,
-                          offset: Offset(0, 8 * lift),
-                        ),
-                        if (f.outgoing)
-                          BoxShadow(
-                            color: PColors.accent.withValues(alpha: 0.18 * lift),
-                            blurRadius: 28 * lift,
-                            spreadRadius: lift,
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              left: x,
-              top: y,
-              child: IgnorePointer(
-                // Your text's room to wrap eases from the composer's width to
-                // where it lands, as its size does, so text that fits on one
-                // line stays on one line. Someone else's text is at its final
-                // size throughout, so it takes its final width throughout
-                // (not the narrow typing line's). Either way it ends wrapped
-                // exactly as the real text, so nothing jumps when they swap;
-                // the extra pixel keeps rounding from wrapping the last word.
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: (f.outgoing ? lerpDouble(from.width, dest.width, t)! : dest.width) + 1),
-                  // Someone else's message appears as it rises, growing a
-                  // little into its size; the typing line it leaves fades
-                  // out on its own.
+        // Leaning into the turn: tilted by how fast it moves sideways, only
+        // once it has left the composer and until it lands.
+        final ahead = _arc(from.topLeft, dest.topLeft, bulge, _rise.transform(math.min(v + 0.02, 1)));
+        final lean = ((ahead.dx - x) * 0.006).clamp(-0.06, 0.06) * gather * (1 - settle);
+        final pivot = Offset(x, y) + size.center(Offset.zero);
+
+        return Transform(
+          transform: Matrix4.identity()
+            ..translateByDouble(pivot.dx, pivot.dy, 0, 1)
+            ..rotateZ(lean)
+            ..translateByDouble(-pivot.dx, -pivot.dy, 0, 1),
+          child: Stack(
+            children: [
+              Positioned.fromRect(
+                rect: shape,
+                child: IgnorePointer(
                   child: Opacity(
-                    opacity: f.outgoing ? 1 : Curves.easeOut.transform((v / 0.5).clamp(0, 1)),
-                    child: Transform.scale(
-                      scale: f.outgoing ? 1 : lerpDouble(0.9, 1, gather)!,
-                      alignment: Alignment.centerLeft,
-                      child: KeyedSubtree(
-                        key: _text,
-                        child: MarkupText(f.body, style: TextStyle.lerp(f.outgoing ? f.fromStyle : widget.toStyle, widget.toStyle, t)!),
+                    // Yours starts as the composer itself, so it is there from
+                    // the first frame; someone else's grows out of nothing.
+                    opacity: (f.outgoing ? 1 : gather) * (1 - settle),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: fill,
+                        border: Border.all(color: edge),
+                        borderRadius: BorderRadius.circular(radius),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.5 * lift),
+                            blurRadius: 26 * lift,
+                            offset: Offset(0, 10 * lift),
+                          ),
+                          if (f.outgoing)
+                            BoxShadow(
+                              color: PColors.accent.withValues(alpha: 0.22 * lift),
+                              blurRadius: 30 * lift,
+                              spreadRadius: lift,
+                            ),
+                        ],
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
+              Positioned(
+                left: x,
+                top: y,
+                child: IgnorePointer(
+                  // Your text's room to wrap eases from the composer's width to
+                  // where it lands, as its size does, so text that fits on one
+                  // line stays on one line. Someone else's text is at its final
+                  // size throughout, so it takes its final width throughout
+                  // (not the narrow typing line's). Either way it ends wrapped
+                  // exactly as the real text, so nothing jumps when they swap;
+                  // the extra pixel keeps rounding from wrapping the last word.
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: (f.outgoing ? lerpDouble(from.width, dest.width, t)! : dest.width) + 1),
+                    // Someone else's message appears as it rises, growing a
+                    // little into its size; the typing line it leaves fades
+                    // out on its own.
+                    child: Opacity(
+                      opacity: f.outgoing ? 1 : Curves.easeOut.transform((v / 0.5).clamp(0, 1)),
+                      child: Transform.scale(
+                        scale: f.outgoing ? 1 : lerpDouble(0.9, 1, gather)!,
+                        alignment: Alignment.centerLeft,
+                        child: KeyedSubtree(
+                          key: _text,
+                          child: MarkupText(f.body, style: TextStyle.lerp(f.outgoing ? f.fromStyle : widget.toStyle, widget.toStyle, t)!),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         );
       },
     );
