@@ -452,6 +452,37 @@ pub(crate) fn message_from_row(conn: &Connection, m: &store::MessageRow) -> Resu
     })
 }
 
+/// Make a profile readable by its owner only: the directory, so the database
+/// and the journal files SQLite creates beside it are out of others' reach,
+/// and the database file if it exists. The database is encrypted as well;
+/// this keeps even the ciphertext private. Also fixes profiles made before.
+fn owner_only(dir: &Path, db: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let set = |p: &Path, mode: u32| {
+            std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode))
+                .map_err(|e| Error::Storage(format!("restricting {}: {e}", p.display())))
+        };
+        set(dir, 0o700)?;
+        if db.exists() {
+            set(db, 0o600)?;
+        } else {
+            // Create it owner-only, rather than with the default mode.
+            use std::os::unix::fs::OpenOptionsExt as _;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(db)
+                .map_err(|e| Error::Storage(format!("creating {}: {e}", db.display())))?;
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (dir, db);
+    Ok(())
+}
+
 /// A client: one account on one device.
 #[derive(Clone)]
 pub struct Core {
@@ -465,6 +496,7 @@ impl Core {
     pub fn open(dir: &Path, key: &DbKey) -> Result<Self> {
         std::fs::create_dir_all(dir).map_err(|e| Error::Storage(format!("creating {}: {e}", dir.display())))?;
         let path = dir.join("profile.db");
+        owner_only(dir, &path)?;
         let mut conn = store::open(&path, key)?;
         store::migrate(&mut conn)?;
         let reader = store::open(&path, key)?;

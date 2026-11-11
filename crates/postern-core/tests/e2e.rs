@@ -693,6 +693,25 @@ fn last_in(c: &Core, conv: postern_core::ConversationId) -> Option<String> {
     c.messages(conv, 10).expect("messages").last().and_then(|m| m.body.clone())
 }
 
+#[cfg(unix)]
+#[test]
+fn profiles_are_readable_by_their_owner_only() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mode = |p: &Path| std::fs::metadata(p).expect("metadata").permissions().mode() & 0o777;
+    let profile = dir.path().join("fresh");
+    drop(Core::open(&profile, &DbKey::from_bytes([1; 32])).expect("open"));
+    assert_eq!(mode(&profile), 0o700);
+    assert_eq!(mode(&profile.join("profile.db")), 0o600);
+
+    // A profile made before this rule is tightened when next opened.
+    std::fs::set_permissions(&profile, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    std::fs::set_permissions(profile.join("profile.db"), std::fs::Permissions::from_mode(0o644)).expect("chmod");
+    drop(Core::open(&profile, &DbKey::from_bytes([1; 32])).expect("reopen"));
+    assert_eq!(mode(&profile), 0o700);
+    assert_eq!(mode(&profile.join("profile.db")), 0o600);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn registration_rules() {
     let server = Server::start().await;
