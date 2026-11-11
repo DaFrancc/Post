@@ -154,6 +154,9 @@ pub enum ConversationKind {
     Dm = 1,
     /// A named group.
     Group = 2,
+    /// An account's own devices and nobody else (design section 6). Carries
+    /// what those devices keep in step: nicknames, device names, settings.
+    SelfGroup = 3,
 }
 
 /// Group metadata, agreed by all members as part of the MLS group context
@@ -210,6 +213,11 @@ impl GroupMeta {
         }
     }
 
+    /// Metadata for an account's self group. The account is its only admin.
+    pub fn self_group(account: &AccountId) -> Self {
+        Self { kind: ConversationKind::SelfGroup as i32, name: String::new(), admins: vec![account.0.to_vec()], history: 0, history_days: 0 }
+    }
+
     /// The history setting, if valid for this kind of conversation.
     pub fn history_visibility(&self) -> Option<HistoryVisibility> {
         HistoryVisibility::try_from(self.history).ok()
@@ -253,6 +261,15 @@ impl GroupMeta {
                 }
                 if history == HistoryVisibility::Hidden && meta.history_days != 0 {
                     return Err(Error::Malformed("group metadata"));
+                }
+            }
+            ConversationKind::SelfGroup => {
+                if meta.admins.len() != 1
+                    || !meta.name.is_empty()
+                    || history != HistoryVisibility::Unspecified
+                    || meta.history_days != 0
+                {
+                    return Err(Error::Malformed("self group metadata"));
                 }
             }
             ConversationKind::Unspecified => unreachable!("rejected above"),
@@ -426,6 +443,14 @@ mod tests {
 
         let group = GroupMeta::group("friends", &LinkHash([1; 32]), HistoryVisibility::Shared, 30);
         assert_eq!(GroupMeta::from_extensions(&ext(&group)).expect("valid"), group);
+
+        let own = GroupMeta::self_group(&LinkHash([1; 32]));
+        assert_eq!(GroupMeta::from_extensions(&ext(&own)).expect("valid"), own);
+        let two_owners = GroupMeta { admins: vec![vec![1; 32], vec![2; 32]], ..own.clone() };
+        let named_self = GroupMeta { name: "mine".into(), ..own.clone() };
+        for bad in [two_owners, named_self] {
+            assert!(GroupMeta::from_extensions(&ext(&bad)).is_err(), "{bad:?}");
+        }
 
         let named_dm = GroupMeta { name: "x".into(), ..good.clone() };
         let three_admin_dm = GroupMeta { admins: vec![vec![1; 32], vec![2; 32], vec![3; 32]], ..good.clone() };
