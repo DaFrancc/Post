@@ -52,6 +52,10 @@ class _ChatViewState extends State<ChatView> {
   /// Messages already here when the conversation opened. Others arrived
   /// while it was open, and animate in.
   Set<String>? _initial;
+
+  /// The first message that was unread when the conversation opened: the
+  /// "New" line goes above it, and stays while the conversation is open.
+  String? _firstUnread;
   bool _loadingMore = false;
   String? _editing;
   DateTime _lastTyping = DateTime.fromMillisecondsSinceEpoch(0);
@@ -112,7 +116,10 @@ class _ChatViewState extends State<ChatView> {
       setState(() {
         _messages = messages;
         _notices = notices;
-        _initial ??= {for (final m in messages) m.id};
+        if (_initial == null) {
+          _initial = {for (final m in messages) m.id};
+          _firstUnread = _findFirstUnread(messages, widget.conversation.unread);
+        }
         _loaded = true;
         _loadingMore = false;
       });
@@ -134,6 +141,19 @@ class _ChatViewState extends State<ChatView> {
   }
 
   bool get _hasMore => _messages.length >= _limit;
+
+  /// Unread counts messages from others that are not deleted, so count back
+  /// that many of them from the newest.
+  static String? _findFirstUnread(List<MessageInfo> messages, int unread) {
+    if (unread <= 0) return null;
+    var left = unread;
+    for (var i = messages.length - 1; i >= 0; i--) {
+      final m = messages[i];
+      if (m.outgoing || m.deleted) continue;
+      if (--left == 0) return m.id;
+    }
+    return null;
+  }
 
   bool _onScroll(ScrollNotification n) {
     // The list is reversed: its far end is the oldest message.
@@ -273,6 +293,45 @@ class _ChatViewState extends State<ChatView> {
     }
   }
 
+  /// Everything the hover toolbar does, plus more, on a right-click.
+  Future<void> _messageMenu(MessageInfo m, Offset at) async {
+    final mine = m.outgoing && !m.deleted && !m.unsupported;
+    final body = m.body;
+    final choice = await showContextMenu<String>(context, at, [
+      if (mine && body != null) const PMenuItem(value: 'edit', label: 'Edit', icon: Icons.edit_outlined),
+      if (body != null) const PMenuItem(value: 'copy', label: 'Copy text', icon: Icons.copy_rounded),
+      if (m.edited && !m.deleted)
+        PMenuItem(value: 'versions', label: _versions.containsKey(m.id) ? 'Hide versions' : 'Show every version', icon: Icons.history_rounded),
+      if (!m.outgoing) ...[
+        const PMenuDivider(),
+        const PMenuItem(value: 'dm', label: 'Message', caption: 'Open a DM with them'),
+        const PMenuItem(value: 'nickname', label: 'Set nickname', caption: 'Only you see it'),
+      ],
+      if (mine) ...[const PMenuDivider(), const PMenuItem(value: 'delete', label: 'Delete message', icon: Icons.delete_outline_rounded, danger: true)],
+    ]);
+    if (!mounted) return;
+    switch (choice) {
+      case 'edit':
+        _startEdit(m);
+      case 'copy':
+        await copyText(context, body!, what: 'Message copied');
+      case 'versions':
+        await _toggleVersions(m);
+      case 'dm':
+        try {
+          final dm = await _state.client.startDm(username: m.senderUsername);
+          await _state.refreshConversations();
+          _state.select(dm.id);
+        } catch (e) {
+          if (mounted) showToast(context, errorText(e), error: true);
+        }
+      case 'nickname':
+        await setNickname(context, _state, m.senderUsername);
+      case 'delete':
+        await _delete(m);
+    }
+  }
+
   Future<void> _toggleVersions(MessageInfo m) async {
     if (_versions.containsKey(m.id)) {
       setState(() => _versions.remove(m.id));
@@ -304,7 +363,14 @@ class _ChatViewState extends State<ChatView> {
         add(_Notice(notices[n++]));
       }
       final prev = items.isEmpty ? null : items.last;
-      final joins = prev is _Msg && prev.m.senderUsername == m.senderUsername && sameDay(prev.at, at) && Duration(milliseconds: at - prev.at) < _groupWithin;
+      final isFirstUnread = m.id == _firstUnread;
+      if (isFirstUnread) add(_NewMark(at));
+      final joins =
+          !isFirstUnread &&
+          prev is _Msg &&
+          prev.m.senderUsername == m.senderUsername &&
+          sameDay(prev.at, at) &&
+          Duration(milliseconds: at - prev.at) < _groupWithin;
       add(_Msg(m, startsGroup: !joins));
     }
     while (n < notices.length) {
@@ -326,27 +392,41 @@ class _ChatViewState extends State<ChatView> {
           Expanded(
             child: !_loaded
                 ? const Center(child: PSpinner())
-                : NotificationListener<ScrollNotification>(
-                    onNotification: _onScroll,
-                    child: SelectionArea(
-                      child: ListView.builder(
-                        controller: _scroll,
-                        reverse: true,
-                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-                        itemCount: items.length + 1,
-                        itemBuilder: (context, i) {
-                          if (i == items.length) {
-                            return _hasMore
-                                ? const Padding(
-                                    padding: EdgeInsets.all(16),
-                                    child: Center(child: PSpinner()),
-                                  )
-                                : _Beginning(conversation: c);
-                          }
-                          return _itemView(items[items.length - 1 - i]);
-                        },
+                : Stack(
+                    children: [
+                      NotificationListener<ScrollNotification>(
+                        onNotification: _onScroll,
+                        // Text can be selected and copied with Ctrl+C; a
+                        // right-click opens the message's own menu instead
+                        // of the selection's.
+                        child: SelectionArea(
+                          contextMenuBuilder: null,
+                          child: ListView.builder(
+                            controller: _scroll,
+                            reverse: true,
+                            padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+                            itemCount: items.length + 1,
+                            itemBuilder: (context, i) {
+                              if (i == items.length) {
+                                return _hasMore
+                                    ? const Padding(
+                                        padding: EdgeInsets.all(16),
+                                        child: Center(child: PSpinner()),
+                                      )
+                                    : _Beginning(conversation: c);
+                              }
+                              return _itemView(items[items.length - 1 - i]);
+                            },
+                          ),
+                        ),
                       ),
-                    ),
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 10,
+                        child: _JumpToNewest(scroll: _scroll, onTap: _jumpToNewest),
+                      ),
+                    ],
                   ),
           ),
           if (c.following)
@@ -368,6 +448,7 @@ class _ChatViewState extends State<ChatView> {
 
   Widget _itemView(_Item item) => switch (item) {
     _Day(:final at) => _DaySeparator(dayLabel(at)),
+    _NewMark() => const _NewLine(),
     _Notice(:final n) => _NoticeLine(n),
     _Msg(:final m, :final startsGroup) => _MessageTile(
       key: ValueKey(m.id),
@@ -383,6 +464,7 @@ class _ChatViewState extends State<ChatView> {
       onToggleVersions: () => _toggleVersions(m),
       onSaveEdit: () => _saveEdit(m),
       onCancelEdit: _cancelEdit,
+      onMenu: (at) => _messageMenu(m, at),
     ),
   };
 }
@@ -419,6 +501,14 @@ class _Notice extends _Item {
 
   @override
   int get at => n.atMs;
+}
+
+/// Where unread messages began when the conversation opened.
+class _NewMark extends _Item {
+  _NewMark(this.at);
+
+  @override
+  final int at;
 }
 
 class _Day extends _Item {
@@ -550,6 +640,93 @@ class _Beginning extends StatelessWidget {
   }
 }
 
+/// Once you have scrolled back a way, a pill to bring you to the newest
+/// message.
+class _JumpToNewest extends StatelessWidget {
+  const _JumpToNewest({required this.scroll, required this.onTap});
+
+  final ScrollController scroll;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: scroll,
+      builder: (context, _) {
+        // The list is reversed: offset 0 is the newest message.
+        final away = scroll.hasClients && scroll.offset > 600;
+        return Center(
+          child: IgnorePointer(
+            ignoring: !away,
+            child: AnimatedOpacity(
+              opacity: away ? 1 : 0,
+              duration: PMotion.normal,
+              child: AnimatedSlide(
+                offset: away ? Offset.zero : const Offset(0, 0.4),
+                duration: PMotion.normal,
+                curve: PMotion.curve,
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onTap: onTap,
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(14, 7, 10, 7),
+                      decoration: BoxDecoration(
+                        color: PColors.panelRaised,
+                        border: Border.all(color: PColors.borderStrong),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 16, offset: Offset(0, 6))],
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Jump to newest',
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: PColors.text),
+                          ),
+                          SizedBox(width: 6),
+                          Icon(Icons.arrow_downward_rounded, size: 16, color: PColors.accentText),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// "New": a pill and a thin line in the unread colour, above the first
+/// message that was unread.
+class _NewLine extends StatelessWidget {
+  const _NewLine();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 12, 10, 2),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+            decoration: BoxDecoration(color: PColors.unread, borderRadius: BorderRadius.circular(6)),
+            child: const Text(
+              'New',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: PColors.onUnread),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Container(height: 1, color: PColors.unread.withValues(alpha: 0.5))),
+        ],
+      ),
+    );
+  }
+}
+
 class _DaySeparator extends StatelessWidget {
   const _DaySeparator(this.label);
 
@@ -628,6 +805,7 @@ class _MessageTile extends StatefulWidget {
     required this.onToggleVersions,
     required this.onSaveEdit,
     required this.onCancelEdit,
+    required this.onMenu,
   });
 
   /// It came in while the conversation was open: slide it in.
@@ -643,6 +821,9 @@ class _MessageTile extends StatefulWidget {
   final VoidCallback onToggleVersions;
   final VoidCallback onSaveEdit;
   final VoidCallback onCancelEdit;
+
+  /// Right-clicked here (window coordinates).
+  final ValueChanged<Offset> onMenu;
 
   @override
   State<_MessageTile> createState() => _MessageTileState();
@@ -747,70 +928,73 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: AnimatedContainer(
-        duration: PMotion.fast,
-        margin: EdgeInsets.only(top: widget.startsGroup ? 10 : 0),
-        padding: const EdgeInsets.fromLTRB(10, 3, 10, 3),
-        decoration: BoxDecoration(color: _hover || widget.editing ? PColors.messageHover : PColors.panel, borderRadius: BorderRadius.circular(12)),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Opacity(
-              opacity: m.pending ? 0.55 : 1,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    width: 40,
-                    child: widget.startsGroup
-                        ? Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: PAvatar(name: m.sender, colorKey: m.senderUsername, size: 40),
-                          )
-                        : (_hover
-                              ? Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    clockTime(m.sentAtMs),
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(fontSize: 10.5, color: PColors.textFaint),
-                                  ),
-                                )
-                              : null),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(child: body),
-                ],
+      child: GestureDetector(
+        onSecondaryTapUp: widget.editing ? null : (d) => widget.onMenu(d.globalPosition),
+        child: AnimatedContainer(
+          duration: PMotion.fast,
+          margin: EdgeInsets.only(top: widget.startsGroup ? 10 : 0),
+          padding: const EdgeInsets.fromLTRB(10, 3, 10, 3),
+          decoration: BoxDecoration(color: _hover || widget.editing ? PColors.messageHover : PColors.panel, borderRadius: BorderRadius.circular(12)),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Opacity(
+                opacity: m.pending ? 0.55 : 1,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 40,
+                      child: widget.startsGroup
+                          ? Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: PAvatar(name: m.sender, colorKey: m.senderUsername, size: 40),
+                            )
+                          : (_hover
+                                ? Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      clockTime(m.sentAtMs),
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(fontSize: 10.5, color: PColors.textFaint),
+                                    ),
+                                  )
+                                : null),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(child: body),
+                  ],
+                ),
               ),
-            ),
-            if (actions.isNotEmpty && !widget.editing)
-              Positioned(
-                right: 4,
-                top: widget.startsGroup ? -14 : -18,
-                child: IgnorePointer(
-                  ignoring: !_hover,
-                  child: AnimatedOpacity(
-                    opacity: _hover ? 1 : 0,
-                    duration: PMotion.fast,
-                    child: AnimatedSlide(
-                      offset: _hover ? Offset.zero : const Offset(0, 0.15),
+              if (actions.isNotEmpty && !widget.editing)
+                Positioned(
+                  right: 4,
+                  top: widget.startsGroup ? -14 : -18,
+                  child: IgnorePointer(
+                    ignoring: !_hover,
+                    child: AnimatedOpacity(
+                      opacity: _hover ? 1 : 0,
                       duration: PMotion.fast,
-                      curve: PMotion.curve,
-                      child: Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: BoxDecoration(
-                          color: PColors.panelRaised,
-                          border: Border.all(color: PColors.borderStrong),
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 12, offset: Offset(0, 4))],
+                      child: AnimatedSlide(
+                        offset: _hover ? Offset.zero : const Offset(0, 0.15),
+                        duration: PMotion.fast,
+                        curve: PMotion.curve,
+                        child: Container(
+                          padding: const EdgeInsets.all(3),
+                          decoration: BoxDecoration(
+                            color: PColors.panelRaised,
+                            border: Border.all(color: PColors.borderStrong),
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 12, offset: Offset(0, 4))],
+                          ),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: actions),
                         ),
-                        child: Row(mainAxisSize: MainAxisSize.min, children: actions),
                       ),
                     ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );

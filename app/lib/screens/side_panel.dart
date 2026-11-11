@@ -81,23 +81,14 @@ class _MembersState extends State<_Members> {
   }
 
   Future<void> _groupMenu(BuildContext anchor) async {
-    final box = anchor.findRenderObject() as RenderBox;
-    final overlay = Overlay.of(anchor).context.findRenderObject() as RenderBox;
-    final at = box.localToGlobal(Offset(0, box.size.height + 4), ancestor: overlay);
-    final choice = await showMenu<String>(
-      context: anchor,
-      position: RelativeRect.fromRect(at & Size(box.size.width, 0), Offset.zero & overlay.size),
-      items: [
-        if (_amAdmin) const PopupMenuItem(value: 'add', child: Text('Add people')),
-        if (_amAdmin) const PopupMenuItem(value: 'rename', child: Text('Rename group')),
-        const PopupMenuItem(value: 'myname', child: Text('Your name in this group')),
-        if (_c.following)
-          const PopupMenuItem(
-            value: 'leave',
-            child: Text('Leave group', style: TextStyle(color: PColors.danger)),
-          ),
-      ],
-    );
+    // Opens just under the button.
+    final box = anchor.findRenderObject()! as RenderBox;
+    final choice = await showContextMenu<String>(anchor, box.localToGlobal(Offset(0, box.size.height + 4)), [
+      if (_amAdmin) const PMenuItem(value: 'add', label: 'Add people', icon: Icons.person_add_alt_outlined),
+      if (_amAdmin) const PMenuItem(value: 'rename', label: 'Rename group'),
+      const PMenuItem(value: 'myname', label: 'Your name in this group', caption: 'Shown to everyone here'),
+      if (_c.following) ...[const PMenuDivider(), const PMenuItem(value: 'leave', label: 'Leave group', danger: true)],
+    ]);
     if (!mounted) return;
     switch (choice) {
       case 'add':
@@ -113,22 +104,21 @@ class _MembersState extends State<_Members> {
   }
 
   Future<void> _memberMenu(MemberInfo m, Offset at) async {
-    final choice = await showMenu<String>(
-      context: context,
-      position: menuAt(context, at),
-      items: [
-        if (!m.you) const PopupMenuItem(value: 'dm', child: Text('Message')),
-        if (!m.you) const PopupMenuItem(value: 'nickname', child: Text('Set nickname')),
-        if (m.you) const PopupMenuItem(value: 'myname', child: Text('Your name in this group')),
-        if (_amAdmin && !m.admin) const PopupMenuItem(value: 'admin', child: Text('Make admin')),
-        if (_amAdmin && m.admin) const PopupMenuItem(value: 'unadmin', child: Text('Remove as admin')),
-        if (_amAdmin && !m.you)
-          PopupMenuItem(
-            value: 'remove',
-            child: Text('Remove from ${_c.title}', style: const TextStyle(color: PColors.danger)),
-          ),
+    // Like other chat apps: talking to them first, then naming, then what an
+    // admin can do, then copying.
+    final choice = await showContextMenu<String>(context, at, [
+      if (!m.you) const PMenuItem(value: 'dm', label: 'Message'),
+      if (!m.you) const PMenuItem(value: 'nickname', label: 'Set nickname', caption: 'Only you see it'),
+      if (m.you) const PMenuItem(value: 'myname', label: 'Your name in this group', caption: 'Shown to everyone here'),
+      if (_amAdmin) ...[
+        const PMenuDivider(),
+        if (!m.admin) const PMenuItem(value: 'admin', label: 'Make admin'),
+        if (m.admin) const PMenuItem(value: 'unadmin', label: 'Remove as admin'),
+        if (!m.you) PMenuItem(value: 'remove', label: 'Remove from ${_c.title}', danger: true),
       ],
-    );
+      const PMenuDivider(),
+      const PMenuItem(value: 'copy', label: 'Copy username', icon: Icons.alternate_email_rounded),
+    ]);
     if (!mounted) return;
     switch (choice) {
       case 'dm':
@@ -154,6 +144,8 @@ class _MembersState extends State<_Members> {
           danger: true,
         );
         if (ok) await _act(() => _state.client.removeMembers(conversation: _c.id, usernames: [m.username]));
+      case 'copy':
+        await copyText(context, m.username, what: 'Username copied');
     }
   }
 

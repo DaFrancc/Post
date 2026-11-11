@@ -347,6 +347,116 @@ class PDialogActions extends StatelessWidget {
   }
 }
 
+/// A compact menu entry: 32px (more with a caption), a soft rounded
+/// highlight on hover. Destructive entries are red. An icon goes on the
+/// right, only where it says something the label does not.
+class PMenuItem<T> extends PopupMenuEntry<T> {
+  const PMenuItem({super.key, required this.value, required this.label, this.caption, this.icon, this.danger = false});
+
+  final T value;
+  final String label;
+
+  /// A short line under the label, like "Only you see it".
+  final String? caption;
+  final IconData? icon;
+  final bool danger;
+
+  @override
+  double get height => caption == null ? 32 : 46;
+
+  @override
+  bool represents(T? v) => v == value;
+
+  @override
+  State<PMenuItem<T>> createState() => _PMenuItemState<T>();
+}
+
+class _PMenuItemState<T> extends State<PMenuItem<T>> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = widget;
+    final fg = w.danger ? PColors.danger : (_hover ? PColors.textStrong : PColors.text);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: () => Navigator.of(context).pop<T>(w.value),
+        child: AnimatedContainer(
+          duration: PMotion.fast,
+          height: w.height,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: _hover ? (w.danger ? PColors.dangerSoft : PColors.active) : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      w.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: fg),
+                    ),
+                    if (w.caption != null)
+                      Text(
+                        w.caption!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, color: PColors.textFaint),
+                      ),
+                  ],
+                ),
+              ),
+              if (w.icon != null) ...[const SizedBox(width: 12), Icon(w.icon, size: 16, color: w.danger ? fg : PColors.textMuted)],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A thin line between groups of menu entries.
+class PMenuDivider extends PopupMenuEntry<Never> {
+  const PMenuDivider({super.key});
+
+  @override
+  double get height => 9;
+
+  @override
+  bool represents(void value) => false;
+
+  @override
+  State<PMenuDivider> createState() => _PMenuDividerState();
+}
+
+class _PMenuDividerState extends State<PMenuDivider> {
+  @override
+  Widget build(BuildContext context) => const Padding(
+    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+    child: Divider(height: 1, thickness: 1, color: PColors.borderStrong),
+  );
+}
+
+/// Open a context menu with its corner at the pointer.
+Future<T?> showContextMenu<T>(BuildContext context, Offset globalPosition, List<PopupMenuEntry<T>> items) {
+  return showMenu<T>(
+    context: context,
+    position: menuAt(context, globalPosition),
+    constraints: const BoxConstraints(minWidth: 200, maxWidth: 280),
+    menuPadding: const EdgeInsets.all(6),
+    items: items,
+  );
+}
+
 /// Where to open a context menu so its corner is at the pointer. Pointer
 /// positions are in window coordinates; menus open in the navigator's
 /// overlay, which sits inside the window frame (below the title bar, inside

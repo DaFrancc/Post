@@ -20,6 +20,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:postern/main.dart';
 import 'package:postern/src/rust/frb_generated.dart';
+import 'package:postern/ui/controls.dart';
 
 const _shots = String.fromEnvironment('SHOTS', defaultValue: 'build/screens');
 const _port = 18090;
@@ -205,6 +206,13 @@ void main() {
     await _tap(t, find.textContaining('versions'));
     await _shot(t, '04-versions');
 
+    // A message's own menu, on a right-click.
+    await t.tapAt(t.getCenter(find.text('count me in. who has the quickdraws?')), buttons: kSecondaryButton);
+    await _wait(t, find.text('Delete message'));
+    await _shot(t, '04b-message-menu');
+    await t.sendKeyEvent(LogicalKeyboardKey.escape);
+    await _settle(t);
+
     await _tap(t, find.text('Message climbing'));
     await t.sendKeyEvent(LogicalKeyboardKey.arrowUp);
     await _shot(t, '05-editing');
@@ -229,7 +237,8 @@ void main() {
     await t.tapAt(click, buttons: kSecondaryButton);
     await _wait(t, find.text('Set nickname'));
     await _shot(t, '06b-context-menu');
-    final item = t.getRect(find.byWidgetPredicate((w) => w is PopupMenuItem).first);
+    final item = t.getRect(find.byWidgetPredicate((w) => w is PMenuItem).first);
+    expect(item.height, 32, reason: 'compact entries');
     expect(item.left - click.dx, inInclusiveRange(0, 30), reason: 'menu starts at the pointer, not away from it');
     expect(item.top - click.dy, inInclusiveRange(0, 30), reason: 'menu starts at the pointer, not away from it');
     await t.sendKeyEvent(LogicalKeyboardKey.escape);

@@ -162,6 +162,9 @@ class _Rail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final groups = state.conversations.where((c) => c.isGroup && c.following).toList();
+    // DMs with something unread come up under Home, so they are in reach
+    // from any conversation; they leave once read.
+    final unreadDms = state.conversations.where((c) => !c.isGroup && c.following && c.unread > 0 && c.id != state.selected).toList();
     return SizedBox(
       width: 64,
       child: Column(
@@ -171,6 +174,32 @@ class _Rail extends StatelessWidget {
             selected: state.selected == null,
             onTap: () => state.select(null),
             child: Image.asset('assets/brand/logo.png', width: 48, height: 48, filterQuality: FilterQuality.medium),
+          ),
+          AnimatedSize(
+            duration: PMotion.normal,
+            curve: PMotion.curve,
+            alignment: Alignment.topCenter,
+            child: Column(
+              children: [
+                for (final d in unreadDms)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: _RailButton(
+                      key: ValueKey(d.id),
+                      label: d.title,
+                      selected: false,
+                      round: true,
+                      badge: d.unread,
+                      color: PColors.avatarFor(d.peer ?? d.id),
+                      onTap: () => state.select(d.id),
+                      child: Text(
+                        initials(d.title),
+                        style: const TextStyle(fontFamily: PType.body, fontWeight: FontWeight.w600, fontSize: 15, color: PColors.onAvatar),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
           const SizedBox(height: 10),
           Container(
@@ -192,6 +221,7 @@ class _Rail extends StatelessWidget {
                         label: g.title,
                         selected: state.selected == g.id,
                         unread: g.unread > 0,
+                        badge: state.selected == g.id ? 0 : g.unread,
                         color: PColors.avatarFor(g.id),
                         onTap: () => state.select(g.id),
                         child: Text(
@@ -224,11 +254,27 @@ class _Rail extends StatelessWidget {
 /// A rail entry: round at rest, squarer on hover or when selected, with a
 /// pill on the left edge for unread or selected.
 class _RailButton extends StatefulWidget {
-  const _RailButton({required this.label, required this.selected, required this.onTap, required this.child, this.color, this.unread = false});
+  const _RailButton({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    required this.child,
+    this.color,
+    this.unread = false,
+    this.badge = 0,
+    this.round = false,
+  });
 
   final String label;
   final bool selected;
   final bool unread;
+
+  /// An unread count to show on the corner; 0 for none.
+  final int badge;
+
+  /// Stays round on hover (a person, rather than a group).
+  final bool round;
   final Color? color;
   final VoidCallback onTap;
   final Widget child;
@@ -243,7 +289,7 @@ class _RailButtonState extends State<_RailButton> {
 
   @override
   Widget build(BuildContext context) {
-    final square = widget.selected || _hover;
+    final square = !widget.round && (widget.selected || _hover);
     final pill = widget.selected ? 36.0 : (_hover ? 18.0 : (widget.unread ? 8.0 : 0.0));
     final glow = widget.color ?? PColors.accent;
     return Tooltip(
@@ -301,6 +347,32 @@ class _RailButtonState extends State<_RailButton> {
                       ],
                     ),
                     child: widget.child,
+                  ),
+                ),
+                // The count sits on the corner, ringed in the ground colour so
+                // it reads as cut out of the icon.
+                Positioned(
+                  right: 4,
+                  bottom: -2,
+                  child: AnimatedScale(
+                    scale: widget.badge > 0 ? 1 : 0,
+                    duration: PMotion.normal,
+                    curve: widget.badge > 0 ? Curves.easeOutBack : Curves.easeIn,
+                    child: Container(
+                      constraints: const BoxConstraints(minWidth: 22),
+                      height: 22,
+                      padding: const EdgeInsets.symmetric(horizontal: 5),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: PColors.unread,
+                        borderRadius: BorderRadius.circular(11),
+                        border: Border.all(color: PColors.ground, width: 3),
+                      ),
+                      child: Text(
+                        widget.badge > 99 ? '99+' : '${widget.badge}',
+                        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: PColors.onUnread),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -526,27 +598,29 @@ class _ConversationRowState extends State<_ConversationRow> {
   Future<void> _menu(Offset at) async {
     final c = widget.c;
     final state = widget.state;
-    final choice = await showMenu<String>(
-      context: context,
-      position: menuAt(context, at),
-      items: [
-        if (c.unread > 0) const PopupMenuItem(value: 'read', child: Text('Mark as read')),
-        if (!c.isGroup && c.peer != null) const PopupMenuItem(value: 'nickname', child: Text('Set nickname')),
-        if (c.isGroup && c.following)
-          const PopupMenuItem(
-            value: 'leave',
-            child: Text('Leave group', style: TextStyle(color: PColors.danger)),
-          ),
-      ],
-    );
+    final peer = c.peer;
+    final choice = await showContextMenu<String>(context, at, [
+      const PMenuItem(value: 'open', label: 'Open'),
+      if (c.unread > 0) const PMenuItem(value: 'read', label: 'Mark as read'),
+      if (peer != null) const PMenuItem(value: 'nickname', label: 'Set nickname', caption: 'Only you see it'),
+      if (c.isGroup && c.following) const PMenuItem(value: 'myname', label: 'Your name in this group'),
+      if (c.isGroup && c.following) ...[const PMenuDivider(), const PMenuItem(value: 'leave', label: 'Leave group', danger: true)],
+      if (peer != null) ...[const PMenuDivider(), const PMenuItem(value: 'copy', label: 'Copy username', icon: Icons.alternate_email_rounded)],
+    ]);
     if (!mounted) return;
     switch (choice) {
+      case 'open':
+        state.select(c.id);
       case 'read':
         await state.markRead(c.id);
       case 'nickname':
-        await setNickname(context, state, c.peer!);
+        await setNickname(context, state, peer!);
+      case 'myname':
+        await setConversationName(context, state, c, '');
       case 'leave':
         await leaveGroup(context, state, c);
+      case 'copy':
+        await copyText(context, peer!, what: 'Username copied');
     }
   }
 

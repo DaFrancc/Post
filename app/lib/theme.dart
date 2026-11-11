@@ -53,6 +53,7 @@ abstract final class PColors {
   static const away = Color(0xFFF2B33D);
   static const dnd = Color(0xFFF25F7A);
   static const offline = Color(0xFF6B7088);
+
   /// Unread counts.
   static const unread = Color(0xFFEB1A40);
   static const onUnread = Color(0xFFFFFFFF);
