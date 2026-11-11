@@ -1,5 +1,6 @@
 // Post, the app.
 
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kReleaseMode;
@@ -13,6 +14,7 @@ import 'screens/welcome.dart';
 import 'state/app_state.dart';
 import 'theme.dart';
 import 'ui/window_frame.dart';
+import 'ui/zoom.dart';
 
 /// Like the CLI, `POST_PROFILE` picks another profile directory and
 /// `POST_DB_KEY_FILE` takes its key from a file instead of the keyring:
@@ -46,10 +48,13 @@ class PostApp extends StatelessWidget {
       // The frame goes around the navigator, so dialogs, menus and toasts
       // open inside the window's rounded frame rather than over its
       // transparent margin. Transparent, so the corners show the desktop.
-      builder: (context, navigator) => _OverlayHost(
-        child: Scaffold(
-          backgroundColor: Colors.transparent,
-          body: WindowFrame(child: navigator ?? const SizedBox()),
+      // Zoom goes around everything, the frame included.
+      builder: (context, navigator) => Zoom(
+        child: _OverlayHost(
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: WindowFrame(child: navigator ?? const SizedBox()),
+          ),
         ),
       ),
       home: Root(profileDir: profileDir, keyFile: keyFile),
@@ -118,6 +123,7 @@ class _RootState extends State<Root> {
       final dir = widget.profileDir ?? '$support/profile';
       final client = await Client.open(profileDir: dir, keyFile: widget.keyFile);
       final me = await client.identity();
+      await _restoreZoom(client);
       setState(() {
         _client = client;
         _opening = false;
@@ -131,6 +137,23 @@ class _RootState extends State<Root> {
     }
   }
 
+  static const _zoomKey = 'ui.zoom';
+  VoidCallback? _saveZoom;
+
+  /// The zoom this device last used, and from now on, the zoom saved as it
+  /// changes.
+  Future<void> _restoreZoom(Client client) async {
+    try {
+      final saved = double.tryParse(await client.setting(key: _zoomKey) ?? '');
+      if (saved != null && saved >= zoomLevels.first && saved <= zoomLevels.last) appZoom.value = saved;
+    } catch (_) {}
+    _saveZoom = () {
+      final z = appZoom.value;
+      unawaited(client.setSetting(key: _zoomKey, value: z == 1 ? null : '$z').catchError((_) {}));
+    };
+    appZoom.addListener(_saveZoom!);
+  }
+
   /// From here the app stays connected for the rest of the session.
   void _signedIn(Identity me) {
     final client = _client;
@@ -140,6 +163,7 @@ class _RootState extends State<Root> {
 
   @override
   void dispose() {
+    if (_saveZoom != null) appZoom.removeListener(_saveZoom!);
     _app?.dispose();
     super.dispose();
   }

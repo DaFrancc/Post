@@ -11,9 +11,10 @@ import '../theme.dart';
 import '../ui/arrival.dart';
 import '../ui/controls.dart';
 import '../ui/format.dart';
+import '../ui/zoom.dart';
 import 'dialogs.dart';
 
-enum SettingsSection { profile, spelling, devices, security, about }
+enum SettingsSection { profile, appearance, spelling, devices, security, about }
 
 Future<void> showSettings(BuildContext context, AppState state, {SettingsSection section = SettingsSection.profile}) => showDialog(
   context: context,
@@ -86,6 +87,7 @@ class _SettingsState extends State<_Settings> {
                     child: switch (_section) {
                       SettingsSection.profile => _ProfileSettings(state: widget.state),
                       SettingsSection.devices => _DeviceSettings(state: widget.state),
+                      SettingsSection.appearance => const _AppearanceSettings(),
                       SettingsSection.spelling => _SpellingSettings(spelling: widget.state.spelling),
                       SettingsSection.security => _SecuritySettings(state: widget.state),
                       SettingsSection.about => _About(state: widget.state),
@@ -103,6 +105,7 @@ class _SettingsState extends State<_Settings> {
   static String _title(SettingsSection s) => switch (s) {
     SettingsSection.profile => 'Profile',
     SettingsSection.devices => 'Devices',
+    SettingsSection.appearance => 'Appearance',
     SettingsSection.spelling => 'Spelling',
     SettingsSection.security => 'Security',
     SettingsSection.about => 'Account',
@@ -128,6 +131,7 @@ class _NavItemState extends State<_NavItem> {
     final (icon, label) = switch (widget.section) {
       SettingsSection.profile => (Icons.person_outline_rounded, 'Profile'),
       SettingsSection.devices => (Icons.devices_outlined, 'Devices'),
+      SettingsSection.appearance => (Icons.palette_outlined, 'Appearance'),
       SettingsSection.spelling => (Icons.spellcheck_rounded, 'Spelling'),
       SettingsSection.security => (Icons.shield_outlined, 'Security'),
       SettingsSection.about => (Icons.info_outline_rounded, 'Account'),
@@ -518,6 +522,42 @@ class _CheckRow extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------- appearance
+
+class _AppearanceSettings extends StatelessWidget {
+  const _AppearanceSettings();
+
+  @override
+  Widget build(BuildContext context) {
+    return _Page(
+      children: [
+        const Text('Zoom', style: PType.name),
+        const SizedBox(height: 4),
+        const Text(
+          'Makes everything larger or smaller. Also Ctrl+= and Ctrl+−, and Ctrl+0 for 100%.',
+          style: TextStyle(fontSize: 12.5, color: PColors.textFaint),
+        ),
+        const SizedBox(height: 12),
+        ValueListenableBuilder<double>(
+          valueListenable: appZoom,
+          builder: (context, z, _) => Row(
+            children: [
+              PIconButton(icon: Icons.remove_rounded, tooltip: 'Smaller', onPressed: z > zoomLevels.first ? () => appZoom.value = zoomedOut(z) : null),
+              SizedBox(
+                width: 64,
+                child: Text(zoomLabel(z), textAlign: TextAlign.center, style: PType.name),
+              ),
+              PIconButton(icon: Icons.add_rounded, tooltip: 'Larger', onPressed: z < zoomLevels.last ? () => appZoom.value = zoomedIn(z) : null),
+              const SizedBox(width: 12),
+              TextButton(onPressed: z == 1 ? null : () => appZoom.value = 1, child: const Text('Reset to 100%')),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
