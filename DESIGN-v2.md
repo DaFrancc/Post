@@ -409,10 +409,35 @@ inspects a staged commit:
   both sides are admins and the account set is fixed.
 - Any member may add a **device** of an account that is already a member, and may
   remove a device whose removal appears in its account's chain.
-- Leaving: the device asks the server to stop delivery and sends a remove proposal
-  for its account's leaves; the next online member commits it.
+- A commit that changes the extension must set exactly Postern's extensions, may not
+  change the conversation kind, and must leave at least one admin among the members.
+  A self group never changes its metadata or gains another account.
+- Removing an account takes all its leaves and its admin role. Removals are justified
+  only by facts that do not change with time: the committer's own account, the
+  member's own leave proposal, removal from the chain, or an admin's decision. (A
+  device judging its own past removal by today's directory must reach the same
+  answer as when it was committed.)
+- Leaving: a member cannot commit its own removal, so the leaving device sends a
+  remove proposal for each of its account's leaves, and the next member to sync
+  commits them. Proposals are only valid in their epoch, and a commit from a member
+  that had not yet seen them would drop them, so the leaving device proposes again in
+  each new epoch until its removal lands. It shows the group as left at once and
+  keeps nothing more from it. The only admin hands the group to the longest-standing
+  member first. Clients accept a proposal only if it removes the proposer's own
+  devices, before it can reach the proposal store and ride along in an honest
+  member's commit.
 
 A commit that breaks policy is rejected locally and reported to the user.
+
+**Being added back.** A Welcome for a group a device already knows replaces that
+group's state only if the device is no longer in it (removed, or left); the
+conversation and its messages carry on. A group the device is still in is never
+replaced, or anyone holding one of its KeyPackages could knock it out of a
+conversation with a forged Welcome reusing the group's ID. Sync reads group logs
+before Welcomes, so a device removed and added back while offline sees its removal
+first. A fetch refused for a wrong access key means the device fell behind the
+server's 30-day log; it stops following that group, with a notice, so being added
+back works there too.
 
 ### Ordering
 
@@ -562,17 +587,25 @@ are not built now, but nothing above blocks them. The intended shape:
 
 ### Key refresh
 
-A device commits an update of its own leaf in each group when that leaf is older
-than seven days, with random jitter. This is what gives post-compromise security,
-and each refresh uses fresh hybrid KEM keys.
+A device commits an update of its own leaf in each group when that leaf is a week
+old. Each group falls due up to a day early, by a spread derived from its ID, so a
+device's refreshes do not all land at once. Any own commit with a path counts. This
+is what gives post-compromise security, and each refresh uses fresh hybrid KEM keys.
+`refresh_keys` makes every leaf due at once, for after a device may have been
+exposed.
 
 ### Stale devices
 
-- A device unseen for 30 days is flagged stale by the server. Its account's other
-  devices, or a group admin, remove its leaves.
-- The log is kept until every member device has acknowledged an entry, or 30 days.
-  A device that falls behind that horizon must be removed and re-added.
-- A returning device publishes fresh KeyPackages and is re-added by a sibling device.
+- A device unseen for 30 days is flagged stale by the server's hourly job and listed
+  in the directory; logging in clears the flag. Clients fetch the directory at the
+  start of every sync (one small request when nothing changed).
+- Its account's other devices, or a group admin, remove its leaves wherever the
+  account keeps another, non-stale device. An account's last leaf is never removed,
+  so an account stays a member while all its devices are away.
+- The server keeps group logs for 30 days. A device that falls behind that horizon
+  stops following the group (above, "Being added back").
+- A returning device is added back by its account's other devices, using its
+  KeyPackages on the server, and rejoins after seeing its removals.
 
 ### Ephemeral signals
 
@@ -591,7 +624,12 @@ skip, and they would fill the group log. Instead:
 - Recipients check that the signing key belongs to the claimed device's leaf in the
   group, so a member cannot fake another member's typing or status. The signature is
   checked and then discarded (section 14).
-- Signals older than 60 seconds on arrival are dropped.
+- Signals more than 60 seconds old, or from more than 60 seconds in the future, on
+  arrival are dropped.
+
+Implemented in `crates/postern-core/src/ephemeral.rs`. A device sends at most 15
+signals a second when announcing presence to many groups, under the server's relay
+limit of 20.
 
 ## 7. Profiles, presence and message content
 
@@ -815,7 +853,7 @@ like.
 | Session | KeyPackages | `UploadKeyPackages` |
 | Session | Mailbox | `FetchMailbox`, `AckMailbox` (Welcomes addressed to this device) |
 | Session | Tokens | `IssueTokens(blinded messages)` |
-| Anonymous | Groups | `CreateGroup` (token), `Send`, `Commit`, `FetchGroups`, `Subscribe` (access key) |
+| Anonymous | Groups | `CreateGroup` (token), `Send` (application messages and proposals), `Commit`, `FetchGroups`, `Subscribe` (access key) |
 | Anonymous | KeyPackages | `ClaimKeyPackages(account)` or `(account, device, count)` (token) |
 | Anonymous | Linking | `LinkPut`, `LinkGet` (sealed rendezvous slots; section 5) |
 | Session | Later phases | `Push.Register`, `Call.Token`, blob tokens |
@@ -1155,7 +1193,7 @@ For every change:
 | 1 | `postern-proto`, `postern-identity` | Chain and hybrid-signature tests pass. **Done 2026-11-10.** |
 | 2 | Server core with metadata protection (anonymous connection, access keys, tokens, mailboxes, ephemeral relay), `postern-api` and the CLI built on it: register, login, directory, KeyPackages, DMs with edits (all versions kept) and deletes, profiles (display names, per-conversation names, typing template, note); `--json` output and `postern daemon --stdio` | Two CLI devices exchange, edit and delete DMs and see each other's profiles in an in-process test, and a test drives one through the JSON-RPC daemon. **Done 2026-11-10**; see "Phase 2 status" below |
 | 3 | Multi-device: linking, self group, device add and remove, chain-head gossip, private nicknames (stored in the self group) | A linked device joins all conversations; a removed one is cut off. **Done 2026-11-10**; see "Phase 3 status" below |
-| 4 | Groups: policy, metadata, leave, stale devices, key refresh; typing indicators and presence | Adversarial server tests pass; typing and presence reach online members and are never stored |
+| 4 | Groups: policy, metadata, leave, stale devices, key refresh; typing indicators and presence | Adversarial server tests pass; typing and presence reach online members and are never stored. **Done 2026-11-11**; see "Phase 4 status" below |
 | 5 | Flutter app, text only: Linux, then Windows, then Android | Daily use between real devices |
 | 6 | Attachments, profile pictures, and history sharing for new members and new devices | Resumable upload and download on all three platforms; a member added to a `Shared` group sees its history |
 | 7 | Android push and background sync | Messages arrive with the app closed |
@@ -1230,6 +1268,46 @@ Deferred:
 - Signing a device out from itself (section 5, "Removing a device").
 - History for a newly linked device (phase 6, with attachments).
 - A QR code in the CLI; the app will show one.
+
+### Phase 4 status (2026-11-11)
+
+Built: named groups with admins (create, add and remove people, rename, admins,
+history setting, members list), leaving by proposal, weekly key refresh and
+`refresh_keys`, stale device removal and return, rejoining a group after removal,
+typing indicators and presence, and the matching API methods and CLI commands
+(`postern group ...`, `postern presence`, `postern typing`, `postern refresh-keys`).
+Protocol version 4. Profile databases reach schema version 5; the server database
+gains schema versioning (version 2).
+
+Verified:
+
+- End to end in one process: group creation with a multi-device member, profiles
+  reaching people who never shared a conversation, admin-only changes, handing the
+  group on, removal and being added back (also while offline), leaving with all of
+  an account's devices, the only admin's hand-over, simultaneous key refreshes from
+  two members (counted on the server: exactly one commit per leaf, none on the next
+  sync), stale devices removed by their account and by an admin but never an
+  account's last device, and their return; typing rendered with the sender's template
+  and the viewer's nickname, presence changes, invisible sending nothing after
+  "offline", and none of it entering a group log.
+- Adversarial members, with real MLS commits and proposals (`adversarial_tests.rs`):
+  a non-admin adding, renaming, promoting themselves or removing someone; an admin
+  changing the conversation kind or orphaning the group; unlisted devices; a third
+  account in a DM; another account in a self group; a proposal to remove someone
+  else; a Welcome listing an unlisted device; a forged Welcome reusing a group's ID.
+  The legitimate counterparts pass.
+- The real binaries: group commands end to end, including refusal of a non-admin and
+  of leaving without a terminal or `--yes`.
+
+Deferred:
+
+- Away after 10 minutes idle, and "offline" on a clean shutdown: app behaviour
+  (phase 5).
+- The setting to see standard typing text instead of others' templates (phase 5).
+- Adversarial *server* tests beyond what the protocol checks already cover
+  (withheld chain links, forked directories and unauthorized KeyPackages are
+  rejected by code tested in phases 1 to 3); a test server that reorders or replays
+  log entries on purpose is still to build.
 
 ### Spikes to run first
 
