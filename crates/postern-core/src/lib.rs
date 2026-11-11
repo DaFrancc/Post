@@ -427,6 +427,16 @@ pub enum Event {
     },
 }
 
+/// Settings live in the meta table under their own prefix, so they can
+/// never touch the core's own entries. Keys are short: a-z, 0-9, `.`, `_`, `-`.
+fn setting_key(key: &str) -> Result<String> {
+    let ok = !key.is_empty() && key.len() <= 64 && key.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._-".contains(&b));
+    if !ok {
+        return Err(Error::InvalidInput(format!("not a setting name: {key}")));
+    }
+    Ok(format!("setting:{key}"))
+}
+
 pub(crate) fn conversation_from_row(conn: &Connection, c: &store::ConversationRow) -> Result<Conversation> {
     let peer = match &c.peer_account {
         Some(p) => store::username_of(conn, p)?,
@@ -802,6 +812,26 @@ impl Core {
         self.engine.lock().await.set_verified(username, verified).await
     }
 
+    /// An app setting on this device, such as the spellcheck language. Kept
+    /// in the encrypted profile, since some (a personal dictionary) say
+    /// something about what the user writes.
+    pub fn setting(&self, key: &str) -> Result<Option<String>> {
+        let k = setting_key(key)?;
+        self.read(|c| store::meta_str(c, &k))
+    }
+
+    /// Set (or with `None` clear) an app setting on this device.
+    pub async fn set_setting(&self, key: &str, value: Option<&str>) -> Result<()> {
+        const MAX: usize = 256 * 1024;
+        let k = setting_key(key)?;
+        let engine = self.engine.lock().await;
+        match value {
+            Some(v) if v.len() > MAX => Err(Error::InvalidInput("setting is too long".into())),
+            Some(v) => store::meta_put(&engine.conn, &k, v.as_bytes()),
+            None => store::meta_delete(&engine.conn, &k),
+        }
+    }
+
     /// The newest `limit` notices about a conversation, or with `None` about
     /// the account as a whole, oldest first. Notices are what
     /// [`Event::Notice`] announced, kept.
@@ -988,6 +1018,7 @@ fn core_futures_are_send(c: &Core, conv: ConversationId, msg: MessageId) {
     send(c.send_text(conv, ""));
     send(c.mark_read(conv));
     send(c.set_verified("", true));
+    send(c.set_setting("", None));
     send(c.edit_message(conv, msg, ""));
     send(c.delete_message(conv, msg));
     send(c.set_profile(ProfileUpdate::default()));

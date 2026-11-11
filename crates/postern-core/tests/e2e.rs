@@ -776,6 +776,23 @@ fn last_in(c: &Core, conv: postern_core::ConversationId) -> Option<String> {
     c.messages(conv, 10).expect("messages").last().and_then(|m| m.body.clone())
 }
 
+#[tokio::test]
+async fn app_settings_persist() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("p");
+    let core = Core::open(&path, &DbKey::from_bytes([7; 32])).expect("open");
+    assert_eq!(core.setting("spellcheck.language").expect("read"), None);
+    core.set_setting("spellcheck.language", Some("en_GB")).await.expect("set");
+    core.set_setting("spellcheck.words", Some("postern\nopenmls")).await.expect("set");
+    core.set_setting("spellcheck.words", None).await.expect("clear");
+    assert!(core.set_setting("Not Valid", Some("x")).await.is_err(), "names are checked");
+    assert!(core.setting("../meta").is_err());
+    drop(core);
+    let core = Core::open(&path, &DbKey::from_bytes([7; 32])).expect("reopen");
+    assert_eq!(core.setting("spellcheck.language").expect("read").as_deref(), Some("en_GB"));
+    assert_eq!(core.setting("spellcheck.words").expect("read"), None);
+}
+
 #[cfg(unix)]
 #[test]
 fn profiles_are_readable_by_their_owner_only() {
