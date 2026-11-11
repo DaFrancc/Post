@@ -13,6 +13,7 @@ import '../ui/format.dart';
 import '../ui/markup.dart' show plainText;
 import 'chat.dart';
 import 'dialogs.dart';
+import 'search.dart';
 import 'settings.dart';
 import 'side_panel.dart';
 
@@ -59,7 +60,9 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (context, box) {
           final c = state.current;
           final roomForPanel = box.maxWidth >= _panelMinWidth;
-          final showPanel = _panel && roomForPanel && c != null;
+          // Search results take the side panel's place while searching.
+          final searching = state.searchText.trim().isNotEmpty;
+          final showPanel = (_panel || searching) && roomForPanel && c != null;
           return Padding(
             padding: const EdgeInsets.fromLTRB(PShape.gap, 0, PShape.gap, PShape.gap),
             child: Row(
@@ -106,7 +109,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               width: 268,
                               child: AnimatedSwitcher(
                                 duration: PMotion.normal,
-                                child: SidePanel(key: ValueKey('panel-${c.id}'), state: state, conversation: c),
+                                child: searching
+                                    ? SearchPanel(key: const ValueKey('search'), state: state)
+                                    : SidePanel(key: ValueKey('panel-${c.id}'), state: state, conversation: c),
                               ),
                             ),
                           ],

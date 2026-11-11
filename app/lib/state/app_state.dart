@@ -163,6 +163,44 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------- search
+
+  /// What is being searched for; empty when not searching.
+  String searchText = '';
+
+  /// Search every conversation rather than the one on screen.
+  bool searchAll = false;
+
+  /// A message to bring into view (and flash) once its conversation shows.
+  ({String conversation, String message})? _jump;
+
+  void setSearch(String text, {bool? all}) {
+    searchText = text;
+    if (all != null) searchAll = all;
+    notifyListeners();
+  }
+
+  void closeSearch() => setSearch('');
+
+  /// Open a message's conversation and scroll to the message.
+  void jumpTo(String conversation, String message) {
+    _jump = (conversation: conversation, message: message);
+    if (selected == conversation) {
+      notifyListeners();
+    } else {
+      select(conversation);
+    }
+  }
+
+  /// The message to jump to in this conversation, if there is one: given
+  /// once.
+  String? takeJump(String conversation) {
+    final j = _jump;
+    if (j == null || j.conversation != conversation) return null;
+    _jump = null;
+    return j.message;
+  }
+
   /// Show a conversation (or none) and mark it read.
   void select(String? id) {
     if (selected == id) return;

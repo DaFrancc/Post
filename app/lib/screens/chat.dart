@@ -151,11 +151,22 @@ class _ChatViewState extends State<ChatView> {
   String get _id => widget.conversation.id;
   AppState get _state => widget.state;
 
+  // Search: the header's box (carrying what was typed across conversations,
+  // since opening a result opens its conversation), and a message brought
+  // into view and lit for a moment.
+  late final _search = TextEditingController(text: _state.searchText);
+  final _searchFocus = FocusNode();
+  String? _highlight;
+  String? _jumpTarget;
+  final _highlightKey = GlobalKey();
+  Timer? _unhighlight;
+
   @override
   void initState() {
     super.initState();
     _events = _state.events.listen(_onEvent);
     HardwareKeyboard.instance.addHandler(_typeToCompose);
+    HardwareKeyboard.instance.addHandler(_findKey);
     unawaited(_load());
     unawaited(_loadMembers());
     _composerFocus.requestFocus();
@@ -170,12 +181,70 @@ class _ChatViewState extends State<ChatView> {
     _spellTimer?.cancel();
     _state.spelling.removeListener(_spellSoon);
     HardwareKeyboard.instance.removeHandler(_typeToCompose);
+    HardwareKeyboard.instance.removeHandler(_findKey);
+    _search.dispose();
+    _searchFocus.dispose();
+    _unhighlight?.cancel();
     _composer.dispose();
     _composerFocus.dispose();
     _editor.dispose();
     _editorFocus.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(ChatView old) {
+    super.didUpdateWidget(old);
+    // A search result in this conversation was opened.
+    if (_loaded) _takeJump();
+  }
+
+  void _takeJump() {
+    final id = _state.takeJump(_id);
+    if (id != null) WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(_jumpTo(id)));
+  }
+
+  /// Ctrl+F: to the search box, its text selected for typing over.
+  bool _findKey(KeyEvent e) {
+    final keys = HardwareKeyboard.instance;
+    if (e is! KeyDownEvent || e.logicalKey != LogicalKeyboardKey.keyF || !keys.isControlPressed || keys.isAltPressed) return false;
+    if (!(ModalRoute.of(context)?.isCurrent ?? false)) return false;
+    _searchFocus.requestFocus();
+    _search.selection = TextSelection(baseOffset: 0, extentOffset: _search.text.length);
+    return true;
+  }
+
+  /// Bring a message into view, centred, and light it for a moment. It may
+  /// be older than what is loaded, and the list only builds rows near the
+  /// screen: load until it is there, then scroll back until its row is
+  /// built, then centre it.
+  Future<void> _jumpTo(String id) async {
+    bool have() => _messages.any((m) => m.id == id);
+    while (!have() && _hasMore && _limit < 20000) {
+      _limit += _page * 4;
+      await _load();
+      if (!mounted) return;
+    }
+    if (!have()) {
+      if (mounted) showToast(context, "That message isn't here any more.");
+      return;
+    }
+    setState(() => _highlight = _jumpTarget = id);
+    await WidgetsBinding.instance.endOfFrame;
+    for (var i = 0; i < 300 && mounted && _highlightKey.currentContext == null && _scroll.hasClients; i++) {
+      final p = _scroll.position;
+      final next = math.min(p.pixels + p.viewportDimension * 0.8, p.maxScrollExtent);
+      if (next <= p.pixels) break;
+      _scroll.jumpTo(next);
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    final row = _highlightKey.currentContext;
+    if (row != null && row.mounted) await Scrollable.ensureVisible(row, alignment: 0.5, duration: PMotion.slow, curve: PMotion.curve);
+    _unhighlight?.cancel();
+    _unhighlight = Timer(const Duration(milliseconds: 1800), () {
+      if (mounted) setState(() => _highlight = null);
+    });
   }
 
   void _onEvent(AppEvent e) {
@@ -247,6 +316,8 @@ class _ChatViewState extends State<ChatView> {
       for (final u in arrivedFrom) {
         _state.stoppedTyping(_id, u);
       }
+      // Opened from a search result: now the messages are here, go to it.
+      _takeJump();
       if (messages.isNotEmpty && messages.last.id != before) unawaited(_state.markRead(_id));
     } catch (e) {
       if (mounted) setState(() => _loadingMore = false);
@@ -585,7 +656,14 @@ class _ChatViewState extends State<ChatView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _Header(state: _state, conversation: c, memberCount: _members.length, panelOpen: widget.panelOpen, onTogglePanel: widget.onTogglePanel),
+          _Header(
+            state: _state,
+            conversation: c,
+            memberCount: _members.length,
+            panelOpen: widget.panelOpen,
+            onTogglePanel: widget.onTogglePanel,
+            search: _SearchBox(controller: _search, focus: _searchFocus, state: _state),
+          ),
           Expanded(
             child: !_loaded
                 ? const Center(child: PSpinner())
@@ -673,6 +751,11 @@ class _ChatViewState extends State<ChatView> {
     _NewMark() => const _NewLine(),
     _Notice(:final n) => _NoticeLine(n),
     _Msg(:final m, :final startsGroup) => _MessageTile(
+      // The message a search result opened carries a key, to find its row.
+      // Kept after the light fades, so the row is not rebuilt (and its
+      // fade cut short) when it goes out.
+      key: m.id == _jumpTarget ? _highlightKey : null,
+      highlighted: m.id == _highlight,
       flight: _flightFor(m),
       arrival: _arrivalFor(m),
       arrived: !(_initial?.contains(m.id) ?? true),
@@ -985,14 +1068,103 @@ class _FlyingState extends State<_Flying> with SingleTickerProviderStateMixin {
 
 // ---------------------------------------------------------------- header
 
+/// The search box in the header: widens while in use; Escape clears and
+/// closes the search.
+class _SearchBox extends StatelessWidget {
+  const _SearchBox({required this.controller, required this.focus, required this.state});
+
+  final TextEditingController controller;
+  final FocusNode focus;
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([focus, controller]),
+      builder: (context, _) {
+        final active = focus.hasFocus || controller.text.isNotEmpty;
+        return AnimatedContainer(
+          duration: PMotion.normal,
+          curve: PMotion.curve,
+          width: active ? 260 : 190,
+          height: 36,
+          decoration: BoxDecoration(
+            color: PColors.sunken,
+            border: Border.all(color: focus.hasFocus ? PColors.focusEdge : PColors.border),
+            borderRadius: BorderRadius.circular(11),
+          ),
+          child: Focus(
+            onKeyEvent: (_, e) {
+              if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.escape) {
+                controller.clear();
+                state.closeSearch();
+                focus.unfocus();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: Row(
+              children: [
+                const SizedBox(width: 10),
+                const Icon(Icons.search_rounded, size: 17, color: PColors.textFaint),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: TextField(
+                    controller: controller,
+                    focusNode: focus,
+                    onChanged: state.setSearch,
+                    style: const TextStyle(fontSize: 13.5, color: PColors.text),
+                    decoration: const InputDecoration(
+                      hintText: 'Search (Ctrl+F)',
+                      hintStyle: TextStyle(fontSize: 13.5, color: PColors.textFaint),
+                      isDense: true,
+                      filled: false,
+                      contentPadding: EdgeInsets.symmetric(vertical: 9),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                    ),
+                  ),
+                ),
+                if (controller.text.isNotEmpty)
+                  PIconButton(
+                    icon: Icons.close_rounded,
+                    tooltip: 'Clear',
+                    size: 28,
+                    iconSize: 15,
+                    onPressed: () {
+                      controller.clear();
+                      state.closeSearch();
+                    },
+                  ),
+                const SizedBox(width: 4),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _Header extends StatelessWidget {
-  const _Header({required this.state, required this.conversation, required this.memberCount, required this.panelOpen, this.onTogglePanel});
+  const _Header({
+    required this.state,
+    required this.conversation,
+    required this.memberCount,
+    required this.panelOpen,
+    required this.search,
+    this.onTogglePanel,
+  });
 
   final AppState state;
   final ConversationInfo conversation;
   final int memberCount;
   final bool panelOpen;
   final VoidCallback? onTogglePanel;
+
+  /// The search box.
+  final Widget search;
 
   @override
   Widget build(BuildContext context) {
@@ -1033,6 +1205,8 @@ class _Header extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
+          search,
+          const SizedBox(width: 8),
           if (onTogglePanel != null)
             PIconButton(
               icon: c.isGroup ? Icons.people_alt_outlined : Icons.person_outline_rounded,
@@ -1257,6 +1431,8 @@ class _NoticeLine extends StatelessWidget {
 
 class _MessageTile extends StatefulWidget {
   const _MessageTile({
+    super.key,
+    this.highlighted = false,
     required this.arrived,
     required this.m,
     required this.startsGroup,
@@ -1285,6 +1461,9 @@ class _MessageTile extends StatefulWidget {
 
   /// It came in while the conversation was open: slide it in.
   final bool arrived;
+
+  /// Opened from a search: lit for a moment.
+  final bool highlighted;
 
   /// Where its text flies in from, if it is new and came from the composer
   /// or a typing line.
@@ -1470,9 +1649,15 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
           padding: EdgeInsets.only(top: widget.startsGroup ? 10 : 0),
           child: AnimatedContainer(
             key: _rowKey,
-            duration: PMotion.fast,
+            // Lit at once, fading slowly back.
+            duration: widget.highlighted ? PMotion.fast : const Duration(milliseconds: 900),
+            curve: PMotion.curve,
             padding: const EdgeInsets.fromLTRB(10, 3, 10, 3),
-            decoration: BoxDecoration(color: _hover || widget.editing ? PColors.messageHover : PColors.panel, borderRadius: BorderRadius.circular(12)),
+            decoration: BoxDecoration(
+              color: widget.highlighted ? const Color(0xFF1C2444) : (_hover || widget.editing ? PColors.messageHover : PColors.panel),
+              border: Border.all(color: widget.highlighted ? PColors.activeEdge : Colors.transparent),
+              borderRadius: BorderRadius.circular(12),
+            ),
             child: Stack(
               clipBehavior: Clip.none,
               children: [
