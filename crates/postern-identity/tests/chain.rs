@@ -3,7 +3,7 @@
 //! from an untrusted server.
 
 use postern_identity::chain::{LINK_VERSION, MAX_ACTIVE_DEVICES, seal, validate_domain, validate_username};
-use postern_identity::{Chain, DeviceKeys, Error, Link, Op};
+use postern_identity::{Chain, DeviceEntry, DeviceKeys, Error, Link, Op};
 
 const DOMAIN: &str = "chat.example.org";
 
@@ -464,4 +464,30 @@ fn bot_status_is_fixed_by_genesis() {
     let op = Op::AddDevice { device: sneaky.entry(true) };
     assert_rejected!(alice, raw_link(&alice, &laptop, op, Some(&sneaky)), Error::BotMismatch);
     assert!(verify_fresh(&bot).is_bot());
+}
+
+#[test]
+fn device_entries_travel_on_their_own() {
+    // A new device sends its entry to the device that will add it.
+    let k = keys();
+    let entry = k.entry(false);
+    let bytes = entry.encode();
+    assert_eq!(DeviceEntry::decode(&bytes).expect("decode"), entry);
+    assert_eq!(DeviceEntry::decode(&bytes).expect("decode").device_id(), k.device_id());
+    // One valid encoding only, and keys must be valid.
+    let mut padded = bytes.clone();
+    padded.extend_from_slice(&[0x98, 0x06, 0x01]);
+    assert!(DeviceEntry::decode(&padded).is_err());
+    assert!(DeviceEntry::decode(&bytes[..bytes.len() - 5]).is_err());
+}
+
+#[test]
+fn hashes_by_position() {
+    let (mut chain, laptop) = new_account("alice");
+    let genesis = chain.head();
+    add(&mut chain, &laptop, &keys(), "phone");
+    assert_eq!(chain.hash_at(0), Some(genesis));
+    assert_eq!(chain.hash_at(1), Some(chain.head()));
+    assert_eq!(chain.hash_at(2), None);
+    assert_eq!(chain.hash_at(u64::MAX), None);
 }

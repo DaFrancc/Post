@@ -95,6 +95,19 @@ impl DeviceEntry {
         self.chain_key.device_id()
     }
 
+    /// Encode on its own, as a new device sends it to the device that will
+    /// add it (design section 5, "Linking a device").
+    pub fn encode(&self) -> Vec<u8> {
+        use prost::Message;
+        self.to_wire().encode_to_vec()
+    }
+
+    /// Decode an entry made by [`DeviceEntry::encode`]. Rejects non-canonical
+    /// encodings and invalid keys.
+    pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
+        Self::from_wire(&decode_canonical::<WireDeviceEntry>(bytes, "device entry")?)
+    }
+
     fn to_wire(&self) -> WireDeviceEntry {
         WireDeviceEntry {
             chain_pub_ed25519: self.chain_key.ed25519_bytes().to_vec(),
@@ -618,6 +631,12 @@ impl Chain {
     /// Hash of the newest link. Gossiped inside messages (design section 5).
     pub fn head(&self) -> LinkHash {
         *self.hashes.last().expect("a chain always has its genesis link")
+    }
+
+    /// Hash of the link at `seq`, if the chain has one. Used to check gossiped
+    /// chain heads against the copy this device holds.
+    pub fn hash_at(&self, seq: u64) -> Option<LinkHash> {
+        usize::try_from(seq).ok().and_then(|i| self.hashes.get(i)).copied()
     }
 
     /// The signed links, genesis first, exactly as received.
