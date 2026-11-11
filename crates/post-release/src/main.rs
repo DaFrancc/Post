@@ -3,7 +3,7 @@
 //!
 //! The release key's secret half stays on the maintainer's machine, sealed
 //! with a passphrase; CI builds the files and an unsigned manifest, and the
-//! maintainer signs it here (see `scripts/release-sign.sh`).
+//! maintainer signs it here (see `scripts/release.sh sign`).
 
 use std::fs;
 use std::io::Read;

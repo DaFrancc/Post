@@ -1,11 +1,12 @@
 # Build a release when a version tag is pushed, and leave it as a draft
 # (design section 12, "App updates"):
 #
-#   git tag -a v1.2.0      the tag message is the release notes; a line
-#   git push origin v1.2.0 "Min-Version: 1.1.0" marks older apps as too old
+#   scripts/release.sh new 1.2.0   tags and pushes; the tag message is the
+#                                  notes, and a "Min-Version: 1.1.0" line
+#                                  marks older apps as too old
 #
 # CI never holds the release key. Signing happens on the maintainer's
-# machine with scripts/release-sign.sh, which checks the files, signs each
+# machine with `scripts/release.sh sign`, which checks the files, signs each
 # manifest and publishes the release. Only then do servers fetch it.
 name: Release
 

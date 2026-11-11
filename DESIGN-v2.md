@@ -1176,12 +1176,13 @@ accept. Built in phase 5b for Linux (`crates/post-release`, `post-server/src/rel
   `{ version, platform, files: [{ name, size, sha256 }], min_version, notes,
   released_at_ms }`. The release key signs its exact bytes under the label
   `post/release/v1`; both signatures must verify.
-- **Building and signing.** Pushing a `vX.Y.Z` tag makes CI build each platform's
-  files and an unsigned manifest, and leave them in a draft GitHub release. The
-  tag message is the notes; a `Min-Version:` line sets `min_version`. CI never
-  holds the key. The maintainer runs `scripts/release-sign.sh`: it downloads the
-  draft, checks every file against its manifest, signs each manifest, uploads the
-  signatures and publishes the release.
+- **Building and signing** (`scripts/release.sh`). `release.sh new X.Y.Z` tags the
+  pushed commit and pushes the tag. CI then builds each platform's files and an
+  unsigned manifest, and leaves them in a draft GitHub release. The tag message is
+  the notes; a `Min-Version:` line sets `min_version`. CI never holds the key.
+  `release.sh sign` takes the newest draft. It checks every file against its
+  manifest, signs each manifest with the key file (`~/post-release.key` by
+  default), uploads the signatures and publishes the release.
 - **Distribution.** Every hour `postd` asks GitHub for the latest published
   release. It verifies the manifest, downloads and checks each file, and only
   then serves the release from its releases directory. An operator can also copy
