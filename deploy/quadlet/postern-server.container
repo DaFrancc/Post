@@ -1,0 +1,22 @@
+[Unit]
+Description=Postern server (posternd)
+
+[Container]
+ContainerName=postern-server
+Image=localhost/posternd:latest
+Pod=postern.pod
+Volume=postern-data.volume:/var/lib/postern
+# The database key, from `podman secret create postern-db-key ...`.
+Secret=postern-db-key,type=mount,target=/run/secrets/postern-db-key,uid=65532,gid=65532,mode=0400
+# Change to your domain. It is bound into every account and cannot change later.
+Environment=POSTERN_DOMAIN=chat.example.org
+Environment=POSTERN_LISTEN=127.0.0.1:8080
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=ALL
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

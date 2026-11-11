@@ -1,0 +1,7 @@
+# The Postern pod: Caddy and posternd share one network namespace.
+# Only Caddy's ports are published; posternd listens on localhost inside.
+[Pod]
+PodName=postern
+PublishPort=80:80
+PublishPort=443:443
+PublishPort=443:443/udp
