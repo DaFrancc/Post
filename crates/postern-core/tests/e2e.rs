@@ -215,6 +215,8 @@ async fn linked_device_joins_conversations() {
     let dir = tempfile::tempdir().expect("tempdir");
     let alice = server.client(dir.path(), "alice").await;
     let bob = server.client(dir.path(), "bob").await;
+    // Nothing in a normal linking should alarm anyone.
+    let (mut alice_events, mut bob_events) = (alice.subscribe(), bob.subscribe());
     alice.set_profile(ProfileUpdate { display_name: Some("Alice A".into()), ..Default::default() }).await.expect("profile");
     let dm = alice.start_dm("bob").await.expect("dm");
     alice.send_text(dm.id, "before the phone").await.expect("send");
@@ -269,6 +271,12 @@ async fn linked_device_joins_conversations() {
     carol.send_text(dm2.id, "hello alice").await.expect("send");
     phone.sync().await.expect("phone sync");
     assert_eq!(last_in(&phone, dm2.id).as_deref(), Some("hello alice"));
+
+    for rx in [&mut alice_events, &mut bob_events] {
+        while let Ok(e) = rx.try_recv() {
+            assert!(!matches!(e, Event::Notice { .. }), "unexpected notice: {e:?}");
+        }
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -237,6 +237,8 @@ pub(crate) struct Engine {
     subscribed: Vec<(Vec<u8>, u64)>,
     /// Devices whose last KeyPackage claim came back empty, and when.
     no_key_packages: HashMap<DeviceId, std::time::Instant>,
+    /// Chain heads already warned about, so one problem is reported once.
+    gossip_warned: HashSet<(AccountId, u64)>,
     link: Option<PendingLink>,
     pub events: broadcast::Sender<Event>,
 }
@@ -253,6 +255,7 @@ impl Engine {
             anon: None,
             subscribed: Vec::new(),
             no_key_packages: HashMap::new(),
+            gossip_warned: HashSet::new(),
             link: None,
             events,
         };
@@ -1647,7 +1650,13 @@ impl Engine {
                 }
             };
             match step {
-                Step::Done(outcome) => return self.emit_outcome(gid, outcome),
+                Step::Done((outcome, gossip)) => {
+                    self.emit_outcome(gid, outcome)?;
+                    if let Some((account, head)) = gossip {
+                        self.check_gossip(account, &head).await?;
+                    }
+                    return Ok(());
+                }
                 Step::Retry => self.sync_directory().await?,
                 Step::Refused(msg) => {
                     // Fail closed but visibly: skip the entry, tell the user.
@@ -1658,6 +1667,38 @@ impl Engine {
             }
         }
         Ok(())
+    }
+
+    /// Every message carries its sender's chain head (design section 5,
+    /// "Protection against a withholding server"). If this device's copy is
+    /// behind, fetch the directory; if the server still cannot produce the
+    /// links, or a different link sits at that position, warn the user once:
+    /// the server may be hiding a device change, such as a stolen phone's
+    /// removal. Messages from this account's other devices check our own chain.
+    async fn check_gossip(&mut self, account: AccountId, head: &content::ChainHead) -> Result<()> {
+        if self.gossip_warned.contains(&(account, head.seq)) {
+            return Ok(());
+        }
+        let mut verdict = match self.chains.get(&account) {
+            Some(chain) => compare_gossip(chain, head),
+            None => return Ok(()),
+        };
+        if verdict == Gossip::Ahead {
+            self.sync_directory().await?;
+            verdict = self.chains.get(&account).map_or(Gossip::Ahead, |c| compare_gossip(c, head));
+        }
+        let who = store::username_of(&self.conn, &account.0)?.unwrap_or_else(|| "someone".into());
+        let warning = match verdict {
+            Gossip::Matches => return Ok(()),
+            Gossip::Ahead => format!(
+                "{who}'s messages mention device changes the server has not delivered; it may be hiding one. Compare safety numbers and device lists with {who}."
+            ),
+            Gossip::Conflicts => format!(
+                "{who}'s messages and the server disagree about {who}'s devices. Do not trust new devices for {who} until you have compared safety numbers."
+            ),
+        };
+        self.gossip_warned.insert((account, head.seq));
+        self.notice(None, &warning)
     }
 
     fn emit_outcome(&self, gid: [u8; 16], outcome: Outcome) -> Result<()> {
@@ -1765,6 +1806,25 @@ impl Engine {
                 Ok(())
             }
         }
+    }
+}
+
+/// How a gossiped chain head compares with the chain this device holds.
+#[derive(Debug, PartialEq, Eq)]
+enum Gossip {
+    /// The same link sits at that position.
+    Matches,
+    /// The sender knows links this device does not have yet.
+    Ahead,
+    /// A different link sits at that position: someone forked the chain.
+    Conflicts,
+}
+
+fn compare_gossip(chain: &Chain, head: &content::ChainHead) -> Gossip {
+    match chain.hash_at(head.seq) {
+        Some(h) if h.0[..] == head.head[..] => Gossip::Matches,
+        Some(_) => Gossip::Conflicts,
+        None => Gossip::Ahead,
     }
 }
 
@@ -1925,7 +1985,7 @@ fn process_in_tx(
     chains: &HashMap<AccountId, Chain>,
     gid: &[u8; 16],
     e: &proto::LogEntry,
-) -> std::result::Result<Outcome, Fail> {
+) -> std::result::Result<(Outcome, Option<(AccountId, content::ChainHead)>), Fail> {
     let provider = Provider::on(tx);
     let mut group = load_group(&provider, gid)?;
     let msg = MlsMessageIn::tls_deserialize_exact(&e.payload)
@@ -1936,7 +1996,13 @@ fn process_in_tx(
     let (sender, sender_device) =
         postern_mls::parse_credential(processed.credential()).map_err(|_| reject("a message had an invalid sender"))?;
     match processed.into_content() {
-        ProcessedMessageContent::ApplicationMessage(app) => handle_content(tx, me, gid, &sender, &sender_device, e, &app.into_bytes()),
+        ProcessedMessageContent::ApplicationMessage(app) => {
+            let bytes = app.into_bytes();
+            let outcome = handle_content(tx, me, gid, &sender, &sender_device, e, &bytes)?;
+            // The sender's chain head, checked once this entry is committed.
+            let gossip = Content::decode(bytes.as_slice()).ok().and_then(|c| c.sender_chain).map(|h| (sender, h));
+            Ok((outcome, gossip))
+        }
         ProcessedMessageContent::StagedCommitMessage(staged) => {
             check_commit(&group, &staged, &sender, chains)?;
             // Someone else's commit took this epoch, so ours can never land.
@@ -1952,7 +2018,7 @@ fn process_in_tx(
             } else if new_meta.conversation_kind() == Some(MlsKind::Group) {
                 store::set_name(tx, gid, &new_meta.name)?;
             }
-            Ok(Outcome::Conversation)
+            Ok((Outcome::Conversation, None))
         }
         _ => Err(reject("an unsupported proposal was skipped")),
     }
@@ -2129,5 +2195,36 @@ fn handle_content(
             let added = store::insert_message(tx, &new_message(None))?;
             Ok(if added { Outcome::Added(id) } else { Outcome::Nothing })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use postern_identity::chain::seal;
+
+    #[test]
+    fn gossiped_heads_are_compared_by_position() {
+        let laptop = DeviceKeys::generate().expect("keys");
+        let (mut chain, _) = Chain::create(&laptop, "chat.example.org", "alice", false, 1).expect("chain");
+        let genesis = chain.head();
+        let head = |seq: u64, hash: [u8; 32]| content::ChainHead { seq, head: hash.to_vec() };
+
+        assert_eq!(compare_gossip(&chain, &head(0, genesis.0)), Gossip::Matches);
+        // The sender has added a device this copy has not seen.
+        assert_eq!(compare_gossip(&chain, &head(1, [9; 32])), Gossip::Ahead);
+        // A different genesis at the same position.
+        assert_eq!(compare_gossip(&chain, &head(0, [9; 32])), Gossip::Conflicts);
+        // Malformed hashes never match.
+        assert_eq!(compare_gossip(&chain, &content::ChainHead { seq: 0, head: vec![1, 2] }), Gossip::Conflicts);
+
+        // Once the link arrives, the same gossip matches.
+        let phone = DeviceKeys::generate().expect("keys");
+        let bytes = chain.next_link(laptop.device_id(), Op::AddDevice { device: phone.entry(false) }, 2).expect("link");
+        chain
+            .append(&seal(&bytes, &laptop.sign_link(&bytes).expect("sign"), Some(&phone.cosign_link(&bytes).expect("cosign"))))
+            .expect("append");
+        assert_eq!(compare_gossip(&chain, &head(1, chain.head().0)), Gossip::Matches);
+        assert_eq!(compare_gossip(&chain, &head(1, genesis.0)), Gossip::Conflicts);
     }
 }
