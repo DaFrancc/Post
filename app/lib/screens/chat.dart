@@ -2,6 +2,7 @@
 // in line, who is typing, and the composer.
 
 import 'dart:async';
+import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -57,6 +58,37 @@ class _ChatViewState extends State<ChatView> {
   /// The first message that was unread when the conversation opened: the
   /// "New" line goes above it, and stays while the conversation is open.
   String? _firstUnread;
+
+  // Messages fly into the history from where they were: yours from the
+  // composer, others' from their typing line.
+  final _composerFieldKey = GlobalKey();
+  final _typingKeys = <String, GlobalKey>{};
+
+  /// Flights waiting for their message to appear.
+  final _flights = <_Flight>[];
+
+  /// Each new message's flight, or none, decided once when it first shows.
+  final _claimed = <String, _Flight?>{};
+
+  GlobalKey _typingKey(String username) => _typingKeys.putIfAbsent(username, GlobalKey.new);
+
+  /// The global rectangle of a laid-out widget, if it is on screen.
+  static Rect? _rectOf(GlobalKey key) {
+    final box = key.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.hasSize || !box.attached) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
+
+  /// The flight for a message that has just appeared: yours, matched by
+  /// text; someone else's, matched by who was typing.
+  _Flight? _flightFor(MessageInfo m) {
+    if (_initial == null || _initial!.contains(m.id)) return null;
+    return _claimed.putIfAbsent(m.id, () {
+      final i = _flights.indexWhere((f) => m.outgoing ? (f.outgoing && f.body == m.body) : (!f.outgoing && f.username == m.senderUsername));
+      return i < 0 ? null : _flights.removeAt(i);
+    });
+  }
+
   bool _loadingMore = false;
   String? _editing;
   DateTime _lastTyping = DateTime.fromMillisecondsSinceEpoch(0);
@@ -114,6 +146,22 @@ class _ChatViewState extends State<ChatView> {
         _versions[id] = await _state.client.messageVersions(conversation: _id, messageId: id);
       }
       if (!mounted) return;
+      // Messages from people shown typing fly from their typing line, which
+      // is about to go: note where it is while it is still there.
+      final known = {for (final m in _messages) m.id};
+      final arrivedFrom = <String>{};
+      if (_initial != null) {
+        final typing = {for (final (u, _) in _state.typingUsersIn(_id)) u};
+        for (final m in messages.where((m) => !m.outgoing && !known.contains(m.id))) {
+          arrivedFrom.add(m.senderUsername);
+          final rect = _rectOf(_typingKey(m.senderUsername));
+          if (rect != null && typing.contains(m.senderUsername) && m.body != null) {
+            _flights.add(_Flight(body: m.body!, outgoing: false, username: m.senderUsername, from: rect, fromStyle: _Composer.typingStyle));
+          }
+        }
+      }
+      // A flight whose message never came (a send that failed) is dropped.
+      _flights.removeWhere((f) => DateTime.now().difference(f.made) > const Duration(seconds: 5));
       setState(() {
         _messages = messages;
         _notices = notices;
@@ -124,11 +172,10 @@ class _ChatViewState extends State<ChatView> {
         _loaded = true;
         _loadingMore = false;
       });
-      if (messages.isNotEmpty && messages.last.id != before) {
-        final last = messages.last;
-        if (!last.outgoing) _state.stoppedTyping(_id, last.senderUsername);
-        unawaited(_state.markRead(_id));
+      for (final u in arrivedFrom) {
+        _state.stoppedTyping(_id, u);
       }
+      if (messages.isNotEmpty && messages.last.id != before) unawaited(_state.markRead(_id));
     } catch (e) {
       if (mounted) setState(() => _loadingMore = false);
     }
@@ -171,6 +218,13 @@ class _ChatViewState extends State<ChatView> {
   Future<void> _send() async {
     final text = _composer.text.trim();
     if (text.isEmpty) return;
+    // Where the text sits now, inside the field's 10 px of vertical padding:
+    // the message flies from here when it appears in the history.
+    final field = _rectOf(_composerFieldKey);
+    if (field != null) {
+      final from = Rect.fromLTRB(field.left, field.top + 10, field.right, field.bottom - 10);
+      _flights.add(_Flight(body: text, outgoing: true, from: from, fromStyle: _composerText));
+    }
     _composer.clear();
     try {
       await _state.client.sendText(conversation: _id, text: text);
@@ -383,7 +437,7 @@ class _ChatViewState extends State<ChatView> {
   @override
   Widget build(BuildContext context) {
     final c = widget.conversation;
-    final typing = _state.typingIn(_id);
+    final typing = _state.typingUsersIn(_id);
     final items = _timeline();
     // Each row's position in the (newest-first) list, by key.
     final positions = <Key, int>{
@@ -451,6 +505,8 @@ class _ChatViewState extends State<ChatView> {
               focus: _composerFocus,
               placeholder: 'Message ${c.title}',
               typing: typing,
+              typingKey: _typingKey,
+              fieldKey: _composerFieldKey,
               onKey: _composerKey,
               onChanged: _typed,
               onSend: _send,
@@ -467,6 +523,7 @@ class _ChatViewState extends State<ChatView> {
     _NewMark() => const _NewLine(),
     _Notice(:final n) => _NoticeLine(n),
     _Msg(:final m, :final startsGroup) => _MessageTile(
+      flight: _flightFor(m),
       arrived: !(_initial?.contains(m.id) ?? true),
       m: m,
       startsGroup: startsGroup,
@@ -549,6 +606,104 @@ class _Day extends _Item {
   Key get key {
     final d = DateTime.fromMillisecondsSinceEpoch(at);
     return ValueKey('day ${d.year}-${d.month}-${d.day}');
+  }
+}
+
+// ---------------------------------------------------------------- flights
+
+/// A message's text on its way into the history: from the composer when you
+/// send, or from the sender's typing line when they do.
+class _Flight {
+  _Flight({required this.body, required this.outgoing, required this.from, required this.fromStyle, this.username});
+
+  final String body;
+  final bool outgoing;
+
+  /// Whose typing line it leaves (someone else's message).
+  final String? username;
+
+  /// Where it starts, in window coordinates, and how its text looks there.
+  final Rect from;
+  final TextStyle fromStyle;
+
+  final DateTime made = DateTime.now();
+}
+
+/// The text in flight, drawn above everything. Each frame it looks up where
+/// its message now sits, so it lands right even if the list moves meanwhile.
+class _Flying extends StatefulWidget {
+  const _Flying({required this.flight, required this.target, required this.toStyle, required this.onDone});
+
+  final _Flight flight;
+  final GlobalKey target;
+  final TextStyle toStyle;
+  final VoidCallback onDone;
+
+  @override
+  State<_Flying> createState() => _FlyingState();
+}
+
+class _FlyingState extends State<_Flying> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    // Rising from the typing line, the text also fades in: a little longer.
+    duration: Duration(milliseconds: widget.flight.outgoing ? 340 : 420),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _c.forward().whenComplete(widget.onDone);
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        // An overlay entry fills the overlay, so this widget's own box is the
+        // space to place the text in (laid out from the second frame on).
+        final box = context.findRenderObject();
+        final to = _ChatViewState._rectOf(widget.target);
+        if (to == null || box is! RenderBox || !box.hasSize) return const Stack(children: []);
+        final t = Curves.easeOutCubic.transform(_c.value);
+        Rect local(Rect r) => box.globalToLocal(r.topLeft) & r.size;
+        final at = Rect.lerp(local(widget.flight.from), local(to), t)!;
+        final f = widget.flight;
+        return Stack(
+          children: [
+            Positioned(
+              left: at.left,
+              top: at.top,
+              child: IgnorePointer(
+                // Your text's room to wrap eases from the composer's width to
+                // where it lands, as its size does, so text that fits on one
+                // line stays on one line. Someone else's text is at its final
+                // size throughout, so it takes its final width throughout
+                // (not the narrow typing line's). Either way it ends wrapped
+                // exactly as the real text, so nothing jumps when they swap;
+                // the extra pixel keeps rounding from wrapping the last word.
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: (f.outgoing ? lerpDouble(f.from.width, to.width, t)! : to.width) + 1),
+                  // Someone else's message appears as it rises; the typing
+                  // line it leaves fades out on its own.
+                  child: Opacity(
+                    opacity: f.outgoing ? 1 : Curves.easeOut.transform((_c.value / 0.6).clamp(0, 1)),
+                    child: MarkupText(f.body, style: TextStyle.lerp(f.outgoing ? f.fromStyle : widget.toStyle, widget.toStyle, t)!),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 }
 
@@ -839,10 +994,15 @@ class _MessageTile extends StatefulWidget {
     required this.onSaveEdit,
     required this.onCancelEdit,
     required this.onMenu,
+    this.flight,
   });
 
   /// It came in while the conversation was open: slide it in.
   final bool arrived;
+
+  /// Where its text flies in from, if it is new and came from the composer
+  /// or a typing line.
+  final _Flight? flight;
   final MessageInfo m;
   final bool startsGroup;
   final List<MessageVersionInfo>? versions;
@@ -866,14 +1026,46 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
   bool _hover = false;
   late final AnimationController _in = AnimationController(vsync: this, duration: PMotion.slow, value: widget.arrived ? 0 : 1);
 
+  /// Around the message's text: where a flight lands.
+  final _bodyKey = GlobalKey();
+
+  /// False while the text is still flying in; the real text shows once it lands.
+  late bool _landed = widget.flight == null;
+  OverlayEntry? _flying;
+
   @override
   void initState() {
     super.initState();
     if (widget.arrived) _in.forward();
+    // Laid out first, so the flight knows where to land.
+    if (widget.flight != null) WidgetsBinding.instance.addPostFrameCallback((_) => _launch());
+  }
+
+  void _launch() {
+    if (!mounted) return;
+    final flight = widget.flight!;
+    if (MediaQuery.disableAnimationsOf(context) || _ChatViewState._rectOf(_bodyKey) == null) {
+      setState(() => _landed = true);
+      return;
+    }
+    _flying = OverlayEntry(
+      builder: (_) => _Flying(
+        flight: flight,
+        target: _bodyKey,
+        toStyle: PType.text,
+        onDone: () {
+          _flying?.remove();
+          _flying = null;
+          if (mounted) setState(() => _landed = true);
+        },
+      ),
+    );
+    Overlay.of(context).insert(_flying!);
   }
 
   @override
   void dispose() {
+    _flying?.remove();
     _in.dispose();
     super.dispose();
   }
@@ -881,12 +1073,11 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
   @override
   Widget build(BuildContext context) {
     final a = CurvedAnimation(parent: _in, curve: PMotion.curve);
+    // With a flight, the text itself travels; the rest fades in where it is.
+    final slide = widget.flight == null ? Tween(begin: const Offset(0, 0.25), end: Offset.zero) : Tween(begin: Offset.zero, end: Offset.zero);
     return FadeTransition(
       opacity: a,
-      child: SlideTransition(
-        position: Tween(begin: const Offset(0, 0.25), end: Offset.zero).animate(a),
-        child: _tile(context),
-      ),
+      child: SlideTransition(position: slide.animate(a), child: _tile(context)),
     );
   }
 
@@ -943,7 +1134,11 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
         if (widget.editing)
           _InlineEditor(controller: widget.editor, focus: widget.editorFocus, onSave: widget.onSaveEdit, onCancel: widget.onCancelEdit)
         else
-          _bodyText(m),
+          // Hidden, but laid out, while its text flies in.
+          Opacity(
+            opacity: _landed ? 1 : 0,
+            child: KeyedSubtree(key: _bodyKey, child: _bodyText(m)),
+          ),
         if (m.failed)
           const Padding(
             padding: EdgeInsets.only(top: 3),
@@ -1212,15 +1407,27 @@ class _Composer extends StatelessWidget {
     required this.focus,
     required this.placeholder,
     required this.typing,
+    required this.typingKey,
+    required this.fieldKey,
     required this.onKey,
     required this.onChanged,
     required this.onSend,
   });
 
+  static const typingStyle = TextStyle(fontFamily: PType.body, fontSize: 12.5, color: PColors.textMuted);
+
   final TextEditingController controller;
   final FocusNode focus;
   final String placeholder;
-  final List<String> typing;
+
+  /// Who is typing, and what to show for each.
+  final List<(String, String)> typing;
+
+  /// A key for each typing person's text, so their message can fly from it.
+  final GlobalKey Function(String username) typingKey;
+
+  /// On the text field, so a sent message can fly from it.
+  final GlobalKey fieldKey;
   final FocusOnKeyEventCallback onKey;
   final ValueChanged<String> onChanged;
   final VoidCallback onSend;
@@ -1252,14 +1459,12 @@ class _Composer extends StatelessWidget {
                         children: [
                           const _TypingDots(),
                           const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              typing.join(' · '),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 12.5, color: PColors.textMuted),
+                          for (final (i, (user, text)) in typing.indexed) ...[
+                            if (i > 0) const Text(' · ', style: typingStyle),
+                            Flexible(
+                              child: Text(text, key: typingKey(user), maxLines: 1, overflow: TextOverflow.ellipsis, style: typingStyle),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ),
@@ -1293,6 +1498,7 @@ class _Composer extends StatelessWidget {
                     child: Theme(
                       data: Theme.of(context).copyWith(visualDensity: VisualDensity.standard),
                       child: TextField(
+                        key: fieldKey,
                         controller: controller,
                         focusNode: focus,
                         minLines: 1,

@@ -65,6 +65,13 @@ final _screen = GlobalKey();
 
 Future<void> _shot(WidgetTester t, String name) async {
   await settle(t);
+  await _capture(t, name);
+}
+
+/// A screenshot as it is now, without waiting for anything to finish: for
+/// frames of an animation.
+Future<void> _capture(WidgetTester t, String name) async {
+  await t.pump();
   final boundary = _screen.currentContext!.findRenderObject()! as RenderRepaintBoundary;
   final image = await boundary.toImage(pixelRatio: 1);
   final png = await image.toByteData(format: ui.ImageByteFormat.png);
@@ -121,10 +128,38 @@ void main() {
     expect(field.height, send.height);
     expect(hint.center.dy, closeTo(send.center.dy, 0.5));
 
+    // Sending: the text flies from the composer into the history. Frames
+    // along the way, then exactly one copy left, in the history.
+    // The composer: the last field that takes typing (selectable text, like
+    // the safety number, is read-only).
+    final composer = t.widget<EditableText>(find.byWidgetPredicate((w) => w is EditableText && !w.readOnly).last);
+    composer.controller.text = 'flying in from the composer';
+    await t.pump();
+    await t.tap(find.byTooltip('Send (Enter). Shift+Enter for a new line.'));
+    await waitFor(t, find.text('flying in from the composer'));
+    for (final ms in [0, 110, 220]) {
+      await Future<void>.delayed(Duration(milliseconds: ms == 0 ? 0 : 110));
+      await _capture(t, '02b-send-$ms');
+    }
+    await settle(t);
+    expect(find.text('flying in from the composer'), findsOneWidget, reason: 'the flying copy is gone once it lands');
+
     await tap(t, find.text('climbing'));
     await h.cli('carol', ['typing', group]);
     await waitFor(t, find.textContaining('typing'));
     await _shot(t, '03-group');
+
+    // Someone typing who then sends: their text rises from the typing line.
+    await h.cli('carol', ['send', '--conversation', group, 'rising from the typing line']);
+    await waitFor(t, find.text('rising from the typing line'));
+    for (final ms in [0, 140, 280]) {
+      await Future<void>.delayed(Duration(milliseconds: ms == 0 ? 0 : 140));
+      await _capture(t, '03b-arrive-$ms');
+    }
+    await settle(t);
+    expect(find.text('rising from the typing line'), findsOneWidget, reason: 'the flying copy is gone once it lands');
+    await h.cli('carol', ['typing', group]);
+    await waitFor(t, find.textContaining('typing'));
 
     await tap(t, find.textContaining('versions'));
     await _shot(t, '04-versions');

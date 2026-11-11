@@ -170,6 +170,11 @@ class AppState extends ChangeNotifier {
   }
 
   /// The typing notices showing in a conversation.
+  /// Who is typing in a conversation, and the notice to show for each.
+  List<(String, String)> typingUsersIn(String conversation) => [
+    for (final e in _typing[conversation]?.entries ?? const <MapEntry<String, ({String text, DateTime until})>>[]) (e.key, e.value.text),
+  ];
+
   List<String> typingIn(String conversation) => _typing[conversation]?.values.map((v) => v.text).toList() ?? const [];
 
   /// Someone sent a message, so they have stopped typing.
