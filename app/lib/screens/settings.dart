@@ -7,6 +7,7 @@ import 'package:post/src/rust/api/client.dart';
 
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../ui/arrival.dart';
 import '../ui/controls.dart';
 import '../ui/format.dart';
 import 'dialogs.dart';
@@ -328,7 +329,191 @@ class _ProfileSettingsState extends State<_ProfileSettings> {
           alignment: Alignment.centerRight,
           child: FilledButton(onPressed: _busy ? null : _save, child: _busy ? const PSpinner() : const Text('Save profile')),
         ),
+        const SizedBox(height: 28),
+        _ArrivalPicker(state: widget.state, chosen: Arrival.parse(_was?.arrival), onChosen: (_) => unawaited(_load())),
       ],
+    );
+  }
+}
+
+/// How your messages arrive on everyone's screen: every style playing on a
+/// sample line, chosen with a click and shared at once. And whether other
+/// people's styles play on yours.
+class _ArrivalPicker extends StatefulWidget {
+  const _ArrivalPicker({required this.state, required this.chosen, required this.onChosen});
+
+  final AppState state;
+  final Arrival chosen;
+  final ValueChanged<Arrival> onChosen;
+
+  @override
+  State<_ArrivalPicker> createState() => _ArrivalPickerState();
+}
+
+class _ArrivalPickerState extends State<_ArrivalPicker> {
+  /// Shown chosen at once, while it saves.
+  Arrival? _choosing;
+
+  Future<void> _choose(Arrival a) async {
+    if (a == (_choosing ?? widget.chosen)) return;
+    setState(() => _choosing = a);
+    try {
+      await widget.state.client.setProfile(change: ProfileChange(arrival: a == Arrival.standard ? '' : a.name, noteKeep: false));
+      await widget.state.reloadPerson(widget.state.me.username);
+      widget.onChosen(a);
+    } catch (e) {
+      if (mounted) showToast(context, errorText(e), error: true);
+      if (mounted) setState(() => _choosing = null);
+    }
+  }
+
+  @override
+  void didUpdateWidget(_ArrivalPicker old) {
+    super.didUpdateWidget(old);
+    if (widget.chosen == _choosing) _choosing = null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final chosen = _choosing ?? widget.chosen;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('How your messages arrive', style: PType.name),
+        const SizedBox(height: 4),
+        const Text('Everyone sees your messages arrive this way.', style: TextStyle(fontSize: 12.5, color: PColors.textFaint)),
+        const SizedBox(height: 12),
+        LayoutBuilder(
+          builder: (context, box) {
+            // Two columns when there is room, one when narrow.
+            final columns = box.maxWidth >= 460 ? 2 : 1;
+            final width = (box.maxWidth - (columns - 1) * 10) / columns;
+            return Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final a in Arrival.values)
+                  SizedBox(
+                    width: width,
+                    child: _ArrivalOption(arrival: a, chosen: a == chosen, onTap: () => unawaited(_choose(a))),
+                  ),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 14),
+        ListenableBuilder(
+          listenable: widget.state,
+          builder: (context, _) => _CheckRow(
+            value: widget.state.showOthersArrivals,
+            label: "Show other people's styles",
+            help: 'Off, their messages simply rise in.',
+            onChanged: (v) => unawaited(widget.state.setShowOthersArrivals(v)),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ArrivalOption extends StatefulWidget {
+  const _ArrivalOption({required this.arrival, required this.chosen, required this.onTap});
+
+  final Arrival arrival;
+  final bool chosen;
+  final VoidCallback onTap;
+
+  @override
+  State<_ArrivalOption> createState() => _ArrivalOptionState();
+}
+
+class _ArrivalOptionState extends State<_ArrivalOption> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final a = widget.arrival;
+    return FocusableActionDetector(
+      mouseCursor: SystemMouseCursors.click,
+      onShowHoverHighlight: (v) => setState(() => _hover = v),
+      actions: {ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: (_) => widget.onTap())},
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: PMotion.fast,
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+          decoration: BoxDecoration(
+            color: widget.chosen ? PColors.active : (_hover ? PColors.hover : PColors.panelRaised),
+            border: Border.all(color: widget.chosen ? PColors.activeEdge : PColors.border),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(a.label, style: PType.name),
+                  if (a == Arrival.standard) const Text('  default', style: TextStyle(fontSize: 12, color: PColors.textFaint)),
+                  const Spacer(),
+                  AnimatedOpacity(
+                    opacity: widget.chosen ? 1 : 0,
+                    duration: PMotion.fast,
+                    child: const Icon(Icons.check_rounded, size: 18, color: PColors.accentText),
+                  ),
+                ],
+              ),
+              Text(a.description, style: const TextStyle(fontSize: 12, color: PColors.textFaint)),
+              const SizedBox(height: 4),
+              ArrivalPreview(arrival: a),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A checkbox with its label, lined up with the fields' edge.
+class _CheckRow extends StatelessWidget {
+  const _CheckRow({required this.value, required this.label, required this.onChanged, this.help});
+
+  final bool value;
+  final String label;
+  final String? help;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => onChanged(!value),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: Checkbox(
+                value: value,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+                onChanged: (v) => onChanged(v ?? false),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: const TextStyle(fontSize: 13.5, color: PColors.textMuted)),
+                  if (help != null) Text(help!, style: const TextStyle(fontSize: 12, color: PColors.textFaint)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -176,6 +176,27 @@ void main() {
     }
     await settle(t);
     expect(find.text('rising from the typing line'), findsOneWidget, reason: 'the flying copy is gone once it lands');
+
+    // Each person's messages arrive in the style they chose: frames of a
+    // few, mid-effect, and each ends as plain text.
+    for (final (who, style, text) in [
+      ('carol', 'decode', 'decoding into **place**, `code` too'),
+      ('bob', 'typewriter', 'typed out one letter at a time'),
+      ('alice', 'wave', 'a ripple across the line'),
+      ('carol', 'focus', 'sharpening out of the blur'),
+    ]) {
+      await h.cli(who, ['profile', '--arrival', style]);
+      await settle(t, 1500);
+      await h.cli(who, ['send', '--conversation', group, text]);
+      await waitFor(t, find.textContaining(text.split(' ').first));
+      final watch = Stopwatch()..start();
+      for (var frame = 0; frame < 3; frame++) {
+        await Future<void>.delayed(Duration(milliseconds: frame == 0 ? 120 : 200));
+        await _capture(t, '03c-$style-$frame');
+      }
+      await settle(t);
+      expect(watch.elapsedMilliseconds, lessThan(4000));
+    }
     await h.cli('carol', ['typing', group]);
     await waitFor(t, find.textContaining('typing'));
 
@@ -194,7 +215,14 @@ void main() {
     await t.sendKeyEvent(LogicalKeyboardKey.escape);
     await settle(t);
 
-    await tap(t, find.text('Message climbing'));
+    // Into the composer: the field itself (its placeholder takes no taps,
+    // and a tap on it sometimes missed the field).
+    await tap(t, find.byWidgetPredicate((w) => w is EditableText && !w.readOnly).last);
+    expect(
+      t.widget<EditableText>(find.byWidgetPredicate((w) => w is EditableText && !w.readOnly).last).focusNode.hasFocus,
+      isTrue,
+      reason: 'the composer has the keyboard',
+    );
     await t.sendKeyEvent(LogicalKeyboardKey.arrowUp);
     await _shot(t, '05-editing');
     await t.sendKeyEvent(LogicalKeyboardKey.escape);
@@ -246,6 +274,11 @@ void main() {
 
     await tap(t, find.byTooltip('Settings'));
     await _shot(t, '09-settings-profile');
+    await t.scrollUntilVisible(find.text('How your messages arrive'), 300, scrollable: find.byType(Scrollable).last);
+    await t.drag(find.byType(Scrollable).last, const Offset(0, -400));
+    await _capture(t, '09b-arrival-picker');
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await _capture(t, '09c-arrival-picker');
     await tap(t, find.text('Devices'));
     await _shot(t, '10-settings-devices');
     await t.sendKeyEvent(LogicalKeyboardKey.escape);
