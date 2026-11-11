@@ -9,6 +9,8 @@
 //! lists, messages) use a second database connection and never wait for the
 //! network.
 
+pub mod keyfile;
+
 mod content;
 mod engine;
 mod ephemeral;
