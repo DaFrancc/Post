@@ -669,7 +669,7 @@ const _travel = Cubic(0.62, 0, 0.32, 1.15);
 /// The text in flight, drawn above everything, carried in a bubble for the
 /// journey: the bubble leaves as the composer (or a pill at the typing
 /// line), closes around the text, swings out to the right and back in to the
-/// message's place, leaning into the turn, and dissolves as it lands. Each
+/// message's place, and dissolves as it lands. Each
 /// frame it looks up where its message now sits, so it lands right even if
 /// the list moves meanwhile.
 class _Flying extends StatefulWidget {
@@ -771,81 +771,69 @@ class _FlyingState extends State<_Flying> with SingleTickerProviderStateMixin {
         // Raised off the page in flight, flat at both ends.
         final lift = math.sin(math.pi * v);
 
-        // Leaning into the turn: tilted by how fast it moves sideways, only
-        // once it has left the composer and until it lands.
-        final ahead = _arc(from.topLeft, dest.topLeft, bulge, _travel.transform(math.min(v + 0.02, 1)));
-        final lean = ((ahead.dx - x) * 0.006).clamp(-0.06, 0.06) * gather * (1 - settle);
-        final pivot = Offset(x, y) + size.center(Offset.zero);
-
-        return Transform(
-          transform: Matrix4.identity()
-            ..translateByDouble(pivot.dx, pivot.dy, 0, 1)
-            ..rotateZ(lean)
-            ..translateByDouble(-pivot.dx, -pivot.dy, 0, 1),
-          child: Stack(
-            children: [
-              Positioned.fromRect(
-                rect: shape,
-                child: IgnorePointer(
-                  child: Opacity(
-                    // Yours starts as the composer itself, so it is there from
-                    // the first frame; someone else's grows out of nothing.
-                    opacity: (f.outgoing ? 1 : gather) * (1 - settle),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: fill,
-                        border: Border.all(color: edge),
-                        borderRadius: BorderRadius.circular(radius),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.5 * lift),
-                            blurRadius: 26 * lift,
-                            offset: Offset(0, 10 * lift),
-                          ),
-                          if (f.outgoing)
-                            BoxShadow(
-                              color: PColors.accent.withValues(alpha: 0.22 * lift),
-                              blurRadius: 30 * lift,
-                              spreadRadius: lift,
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Positioned(
-                left: x,
-                top: y,
-                child: IgnorePointer(
-                  // Your text's room to wrap eases from the composer's width to
-                  // where it lands, as its size does, so text that fits on one
-                  // line stays on one line. Someone else's text is at its final
-                  // size throughout, so it takes its final width throughout
-                  // (not the narrow typing line's). Either way it ends wrapped
-                  // exactly as the real text, so nothing jumps when they swap;
-                  // the extra pixel keeps rounding from wrapping the last word.
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: (f.outgoing ? lerpDouble(from.width, dest.width, t)! : dest.width) + 1),
-                    // Someone else's message appears as it rises, growing a
-                    // little into its size; the typing line it leaves fades
-                    // out on its own.
-                    child: Opacity(
-                      opacity: f.outgoing ? 1 : Curves.easeInOut.transform((v / 0.5).clamp(0, 1)),
-                      child: Transform.scale(
-                        scale: f.outgoing ? 1 : lerpDouble(0.9, 1, gather)!,
-                        alignment: Alignment.centerLeft,
-                        child: KeyedSubtree(
-                          key: _text,
-                          child: MarkupText(f.body, style: TextStyle.lerp(f.outgoing ? f.fromStyle : widget.toStyle, widget.toStyle, t)!),
+        return Stack(
+          children: [
+            Positioned.fromRect(
+              rect: shape,
+              child: IgnorePointer(
+                child: Opacity(
+                  // Yours starts as the composer itself, so it is there from
+                  // the first frame; someone else's grows out of nothing.
+                  opacity: (f.outgoing ? 1 : gather) * (1 - settle),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: fill,
+                      border: Border.all(color: edge),
+                      borderRadius: BorderRadius.circular(radius),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.5 * lift),
+                          blurRadius: 26 * lift,
+                          offset: Offset(0, 10 * lift),
                         ),
+                        if (f.outgoing)
+                          BoxShadow(
+                            color: PColors.accent.withValues(alpha: 0.22 * lift),
+                            blurRadius: 30 * lift,
+                            spreadRadius: lift,
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: x,
+              top: y,
+              child: IgnorePointer(
+                // Your text's room to wrap eases from the composer's width to
+                // where it lands, as its size does, so text that fits on one
+                // line stays on one line. Someone else's text is at its final
+                // size throughout, so it takes its final width throughout
+                // (not the narrow typing line's). Either way it ends wrapped
+                // exactly as the real text, so nothing jumps when they swap;
+                // the extra pixel keeps rounding from wrapping the last word.
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: (f.outgoing ? lerpDouble(from.width, dest.width, t)! : dest.width) + 1),
+                  // Someone else's message appears as it rises, growing a
+                  // little into its size; the typing line it leaves fades
+                  // out on its own.
+                  child: Opacity(
+                    opacity: f.outgoing ? 1 : Curves.easeInOut.transform((v / 0.5).clamp(0, 1)),
+                    child: Transform.scale(
+                      scale: f.outgoing ? 1 : lerpDouble(0.9, 1, gather)!,
+                      alignment: Alignment.centerLeft,
+                      child: KeyedSubtree(
+                        key: _text,
+                        child: MarkupText(f.body, style: TextStyle.lerp(f.outgoing ? f.fromStyle : widget.toStyle, widget.toStyle, t)!),
                       ),
                     ),
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         );
       },
     );
@@ -1169,7 +1157,7 @@ class _MessageTile extends StatefulWidget {
 
 class _MessageTileState extends State<_MessageTile> with SingleTickerProviderStateMixin {
   bool _hover = false;
-  late final AnimationController _in = AnimationController(vsync: this, duration: PMotion.slow, value: widget.arrived ? 0 : 1);
+  late final AnimationController _in = AnimationController(vsync: this, duration: const Duration(milliseconds: 520), value: widget.arrived ? 0 : 1);
 
   /// Around the message's text, and its row: where a flight lands.
   final _bodyKey = GlobalKey();
@@ -1219,12 +1207,21 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
 
   @override
   Widget build(BuildContext context) {
-    final a = CurvedAnimation(parent: _in, curve: PMotion.curve);
-    // With a flight, the text itself travels; the rest fades in where it is.
-    final slide = widget.flight == null ? Tween(begin: const Offset(0, 0.25), end: Offset.zero) : Tween(begin: Offset.zero, end: Offset.zero);
-    return FadeTransition(
-      opacity: a,
-      child: SlideTransition(position: slide.animate(a), child: _tile(context)),
+    // A new message makes room for itself: its row opens up, easing in and
+    // out, so the messages above glide up rather than jump; then what is in
+    // the row fades in (a flying message's text arrives on its own).
+    final open = CurvedAnimation(
+      parent: _in,
+      curve: const Interval(0, 0.75, curve: Curves.easeInOutCubic),
+    );
+    final fade = CurvedAnimation(
+      parent: _in,
+      curve: const Interval(0.3, 1, curve: Curves.easeInOut),
+    );
+    return SizeTransition(
+      sizeFactor: open,
+      alignment: Alignment.topLeft,
+      child: FadeTransition(opacity: fade, child: _tile(context)),
     );
   }
 
