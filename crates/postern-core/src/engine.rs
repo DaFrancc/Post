@@ -2697,19 +2697,24 @@ fn process_in_tx(
             Ok((outcome, None))
         }
         ProcessedMessageContent::ProposalMessage(p) => {
-            // The only proposal Postern sends: a member leaving, removing its
-            // own account's devices. Anything else is refused here, before it
-            // can reach the proposal store and ride along in someone's commit.
-            let Proposal::Remove(r) = p.proposal() else { return Err(reject("an unsupported proposal was skipped")) };
-            let target = group.members().find(|m| m.index == r.removed()).ok_or_else(|| reject("a proposal named no member"))?;
-            if leaf_of_member(&target)?.account != sender {
-                return Err(reject("someone proposed removing another member"));
-            }
+            check_proposal(&group, &sender, &p)?;
             group.store_pending_proposal(provider.storage(), *p).map_err(fatal)?;
             Ok((Outcome::Nothing, None))
         }
         _ => Err(reject("an unsupported message was skipped")),
     }
+}
+
+/// The only proposal Postern sends: a member leaving, removing its own
+/// account's devices. Anything else is refused before it can reach the
+/// proposal store and ride along in an honest member's commit.
+fn check_proposal(group: &MlsGroup, sender: &AccountId, p: &QueuedProposal) -> std::result::Result<(), Fail> {
+    let Proposal::Remove(r) = p.proposal() else { return Err(reject("an unsupported proposal was skipped")) };
+    let target = group.members().find(|m| m.index == r.removed()).ok_or_else(|| reject("a proposal named no member"))?;
+    if leaf_of_member(&target)?.account != *sender {
+        return Err(reject("someone proposed removing another member"));
+    }
+    Ok(())
 }
 
 /// Policy for a commit by `committer` (design section 6, "Group policy").
@@ -2927,6 +2932,10 @@ fn handle_content(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "adversarial_tests.rs"]
+mod adversarial_tests;
 
 #[cfg(test)]
 mod tests {
