@@ -696,6 +696,20 @@ pub fn messages(conn: &Connection, groups: &[Vec<u8>], limit: u32) -> Result<Vec
     Ok(out)
 }
 
+/// Every message there is something to search in: not deleted, understood,
+/// in a conversation the user can see (not the self group), with its
+/// latest text; newest first. Optionally only one sender's.
+pub fn searchable(conn: &Connection, sender: Option<&[u8]>) -> Result<Vec<MessageRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "{MSG_SELECT} JOIN conversations c ON c.group_id = m.group_id
+         WHERE c.kind != {KIND_SELF} AND m.deleted_at IS NULL AND m.unsupported = 0
+           AND (?1 IS NULL OR m.sender_account = ?1)
+         ORDER BY m.sent_at DESC, m.pk DESC"
+    ))?;
+    let rows = stmt.query_map(params![sender], msg_row)?.collect::<rusqlite::Result<_>>()?;
+    Ok(rows)
+}
+
 /// Messages from others in `groups` past each group's read position, not
 /// deleted.
 pub fn unread(conn: &Connection, groups: &[Vec<u8>]) -> Result<u32> {

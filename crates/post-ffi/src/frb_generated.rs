@@ -41,7 +41,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1998187965;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 727708913;
 
 // Section: executor
 
@@ -1933,6 +1933,72 @@ fn wire__crate__api__client__Client_safety_number_impl(
         },
     )
 }
+fn wire__crate__api__client__Client_search_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "Client_search",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<
+                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
+            >>::sse_decode(&mut deserializer);
+            let api_text = <String>::sse_decode(&mut deserializer);
+            let api_conversation = <Option<String>>::sse_decode(&mut deserializer);
+            let api_from = <Option<String>>::sse_decode(&mut deserializer);
+            let api_limit = <u32>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::api::error::PostError>(
+                    (move || async move {
+                        let mut api_that_guard = None;
+                        let decode_indices_ =
+                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
+                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
+                                    &api_that, 0, false,
+                                )],
+                            );
+                        for i in decode_indices_ {
+                            match i {
+                                0 => {
+                                    api_that_guard =
+                                        Some(api_that.lockable_decode_async_ref().await)
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                        let api_that_guard = api_that_guard.unwrap();
+                        let output_ok = crate::api::client::Client::search(
+                            &*api_that_guard,
+                            api_text,
+                            api_conversation,
+                            api_from,
+                            api_limit,
+                        )
+                        .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__client__Client_send_text_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -3780,34 +3846,35 @@ fn pde_ffi_dispatcher_primary_impl(
         32 => {
             wire__crate__api__client__Client_safety_number_impl(port, ptr, rust_vec_len, data_len)
         }
-        33 => wire__crate__api__client__Client_send_text_impl(port, ptr, rust_vec_len, data_len),
-        34 => wire__crate__api__client__Client_send_typing_impl(port, ptr, rust_vec_len, data_len),
-        35 => wire__crate__api__client__Client_set_admin_impl(port, ptr, rust_vec_len, data_len),
-        36 => wire__crate__api__client__Client_set_conversation_name_impl(
+        33 => wire__crate__api__client__Client_search_impl(port, ptr, rust_vec_len, data_len),
+        34 => wire__crate__api__client__Client_send_text_impl(port, ptr, rust_vec_len, data_len),
+        35 => wire__crate__api__client__Client_send_typing_impl(port, ptr, rust_vec_len, data_len),
+        36 => wire__crate__api__client__Client_set_admin_impl(port, ptr, rust_vec_len, data_len),
+        37 => wire__crate__api__client__Client_set_conversation_name_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        37 => wire__crate__api__client__Client_set_nickname_impl(port, ptr, rust_vec_len, data_len),
-        38 => wire__crate__api__client__Client_set_presence_impl(port, ptr, rust_vec_len, data_len),
-        39 => wire__crate__api__client__Client_set_profile_impl(port, ptr, rust_vec_len, data_len),
-        40 => wire__crate__api__client__Client_set_setting_impl(port, ptr, rust_vec_len, data_len),
-        41 => wire__crate__api__client__Client_set_verified_impl(port, ptr, rust_vec_len, data_len),
-        42 => wire__crate__api__client__Client_setting_impl(port, ptr, rust_vec_len, data_len),
-        43 => wire__crate__api__client__Client_start_dm_impl(port, ptr, rust_vec_len, data_len),
-        44 => wire__crate__api__client__Client_sync_impl(port, ptr, rust_vec_len, data_len),
-        45 => wire__crate__api__spell__Speller_add_word_impl(port, ptr, rust_vec_len, data_len),
-        46 => wire__crate__api__spell__Speller_check_impl(port, ptr, rust_vec_len, data_len),
-        47 => wire__crate__api__spell__Speller_languages_impl(port, ptr, rust_vec_len, data_len),
-        48 => wire__crate__api__spell__Speller_load_impl(port, ptr, rust_vec_len, data_len),
-        49 => wire__crate__api__spell__Speller_remove_word_impl(port, ptr, rust_vec_len, data_len),
-        50 => wire__crate__api__spell__Speller_suggest_impl(port, ptr, rust_vec_len, data_len),
-        51 => wire__crate__api__client__init_app_impl(port, ptr, rust_vec_len, data_len),
-        52 => wire__crate__api__spell__spell_install_impl(port, ptr, rust_vec_len, data_len),
-        53 => wire__crate__api__spell__spell_languages_impl(port, ptr, rust_vec_len, data_len),
-        54 => wire__crate__api__spell__spell_remove_impl(port, ptr, rust_vec_len, data_len),
-        55 => wire__crate__api__spell__spell_urls_impl(port, ptr, rust_vec_len, data_len),
+        38 => wire__crate__api__client__Client_set_nickname_impl(port, ptr, rust_vec_len, data_len),
+        39 => wire__crate__api__client__Client_set_presence_impl(port, ptr, rust_vec_len, data_len),
+        40 => wire__crate__api__client__Client_set_profile_impl(port, ptr, rust_vec_len, data_len),
+        41 => wire__crate__api__client__Client_set_setting_impl(port, ptr, rust_vec_len, data_len),
+        42 => wire__crate__api__client__Client_set_verified_impl(port, ptr, rust_vec_len, data_len),
+        43 => wire__crate__api__client__Client_setting_impl(port, ptr, rust_vec_len, data_len),
+        44 => wire__crate__api__client__Client_start_dm_impl(port, ptr, rust_vec_len, data_len),
+        45 => wire__crate__api__client__Client_sync_impl(port, ptr, rust_vec_len, data_len),
+        46 => wire__crate__api__spell__Speller_add_word_impl(port, ptr, rust_vec_len, data_len),
+        47 => wire__crate__api__spell__Speller_check_impl(port, ptr, rust_vec_len, data_len),
+        48 => wire__crate__api__spell__Speller_languages_impl(port, ptr, rust_vec_len, data_len),
+        49 => wire__crate__api__spell__Speller_load_impl(port, ptr, rust_vec_len, data_len),
+        50 => wire__crate__api__spell__Speller_remove_word_impl(port, ptr, rust_vec_len, data_len),
+        51 => wire__crate__api__spell__Speller_suggest_impl(port, ptr, rust_vec_len, data_len),
+        52 => wire__crate__api__client__init_app_impl(port, ptr, rust_vec_len, data_len),
+        53 => wire__crate__api__spell__spell_install_impl(port, ptr, rust_vec_len, data_len),
+        54 => wire__crate__api__spell__spell_languages_impl(port, ptr, rust_vec_len, data_len),
+        55 => wire__crate__api__spell__spell_remove_impl(port, ptr, rust_vec_len, data_len),
+        56 => wire__crate__api__spell__spell_urls_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }

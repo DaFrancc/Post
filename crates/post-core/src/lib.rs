@@ -356,6 +356,19 @@ pub struct Device {
     pub this_device: bool,
 }
 
+/// What to search messages for. See [`Client::search`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SearchQuery {
+    /// Words that must all appear, in any order and case.
+    pub text: String,
+    /// Only in this conversation.
+    pub conversation: Option<ConversationId>,
+    /// Only sent by this username.
+    pub from: Option<String>,
+    /// At most this many, newest first.
+    pub limit: u32,
+}
+
 /// A change to this account's profile. `None` leaves a field unchanged.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProfileUpdate {
@@ -864,6 +877,46 @@ impl Core {
                 return Err(Error::NotFound("conversation"));
             }
             store::messages(c, &groups, limit)?.iter().map(|m| message_from_row(c, m)).collect()
+        })
+    }
+
+    /// Messages whose current text contains every word of `query.text`
+    /// (ignoring case, in any script), newest first. Searches this device's
+    /// copy only: nothing is asked of the server. Deleted messages are
+    /// never found, and an edited one is found by its latest text.
+    pub fn search(&self, query: &SearchQuery) -> Result<Vec<Message>> {
+        let words: Vec<String> = query.text.split_whitespace().map(str::to_lowercase).collect();
+        if words.is_empty() && query.from.is_none() {
+            return Ok(Vec::new());
+        }
+        self.read(|c| {
+            let groups = match query.conversation {
+                Some(id) => Some(store::conversation_groups(c, &id.0)?),
+                None => None,
+            };
+            let sender = match &query.from {
+                // Someone this device has never heard of sent nothing here.
+                Some(u) => match store::account_by_username(c, u)? {
+                    Some((account, _)) => Some(account),
+                    None => return Ok(Vec::new()),
+                },
+                None => None,
+            };
+            let mut found = Vec::new();
+            for m in store::searchable(c, sender.as_ref().map(|a| a.0.as_slice()))? {
+                if found.len() >= query.limit as usize {
+                    break;
+                }
+                if groups.as_ref().is_some_and(|g| !g.contains(&m.group_id)) {
+                    continue;
+                }
+                let Some(body) = &m.body else { continue };
+                let body = body.to_lowercase();
+                if words.iter().all(|w| body.contains(w.as_str())) {
+                    found.push(message_from_row(c, &m)?);
+                }
+            }
+            Ok(found)
         })
     }
 

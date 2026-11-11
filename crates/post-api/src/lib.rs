@@ -485,6 +485,25 @@ pub struct MessagesParams {
     pub limit: Option<u32>,
 }
 
+/// `search`: messages containing every word of `text`, ignoring case,
+/// newest first. Searches this device's copy only.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SearchParams {
+    /// Words that must all appear.
+    #[serde(default)]
+    pub text: String,
+    /// Only in this conversation (ID, hex).
+    #[serde(default)]
+    pub conversation: Option<String>,
+    /// Only sent by this username.
+    #[serde(default)]
+    pub from: Option<String>,
+    /// At most this many. Default 50.
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
 /// `send`: send a text message to a conversation, or to a user's DM.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -635,6 +654,7 @@ methods! {
     "leave_group", Connection, ConversationParams, Done, "Leave a group, with all your devices.";
     "conversations", Local, NoParams, Vec<Conversation>, "Your conversations, most recent first.";
     "messages", Local, MessagesParams, Vec<Message>, "The newest messages of a conversation, oldest first.";
+    "search", Local, SearchParams, Vec<Message>, "Messages containing every word given, newest first, from this device's copy.";
     "send", Connection, SendParams, Message, "Send a text message.";
     "edit", Connection, EditParams, Message, "Edit one of your messages; earlier versions stay visible.";
     "delete", Connection, MessageParams, Done, "Delete one of your messages, with every version, for everyone.";
@@ -805,6 +825,16 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
         "messages" => {
             let p: MessagesParams = params(p)?;
             ok(core.messages(id(&p.conversation)?, p.limit.unwrap_or(50))?.into_iter().map(message).collect::<Vec<_>>())
+        }
+        "search" => {
+            let p: SearchParams = params(p)?;
+            let query = core::SearchQuery {
+                text: p.text,
+                conversation: p.conversation.as_deref().map(id).transpose()?,
+                from: p.from,
+                limit: p.limit.unwrap_or(50),
+            };
+            ok(core.search(&query)?.into_iter().map(message).collect::<Vec<_>>())
         }
         "send" => {
             let p: SendParams = params(p)?;

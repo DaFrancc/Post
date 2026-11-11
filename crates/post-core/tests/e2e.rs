@@ -174,6 +174,45 @@ async fn dm_messages_edits_deletes_and_profiles() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn search_finds_messages() {
+    use post_core::SearchQuery;
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let _carol = server.client(dir.path(), "carol").await;
+
+    let dm = alice.start_dm("bob").await.expect("dm");
+    alice.send_text(dm.id, "Meet at the École at noon").await.expect("send");
+    let typo = alice.send_text(dm.id, "bring the rope").await.expect("send");
+    alice.edit_message(dm.id, typo.id, "bring the quickdraws").await.expect("edit");
+    let gone = alice.send_text(dm.id, "secret rope plan").await.expect("send");
+    alice.delete_message(dm.id, gone.id).await.expect("delete");
+    let group = alice.create_group("climbing", &["bob".into(), "carol".into()]).await.expect("group");
+    alice.send_text(group.id, "rope check at noon").await.expect("send");
+    bob.sync().await.expect("sync");
+    bob.send_text(dm.id, "noon works").await.expect("reply");
+    alice.sync().await.expect("sync");
+
+    let q = |text: &str| SearchQuery { text: text.into(), conversation: None, from: None, limit: 50 };
+    let bodies = |found: Vec<post_core::Message>| found.into_iter().filter_map(|m| m.body).collect::<Vec<_>>();
+    // Every word, any case, any script; newest first, across conversations.
+    assert_eq!(bodies(alice.search(&q("NOON")).expect("search")), vec!["noon works", "rope check at noon", "Meet at the École at noon"]);
+    assert_eq!(bodies(alice.search(&q("école noon")).expect("search")), vec!["Meet at the École at noon"]);
+    // An edit is found by its new text only; a deleted message not at all.
+    assert_eq!(bodies(alice.search(&q("quickdraws")).expect("search")), vec!["bring the quickdraws"]);
+    assert_eq!(bodies(alice.search(&q("rope")).expect("search")), vec!["rope check at noon"]);
+    // Narrowed to one conversation, or one sender.
+    let in_dm = SearchQuery { conversation: Some(dm.id), ..q("noon") };
+    assert_eq!(bodies(alice.search(&in_dm).expect("search")), vec!["noon works", "Meet at the École at noon"]);
+    let from_bob = SearchQuery { from: Some("bob".into()), ..q("") };
+    assert_eq!(bodies(alice.search(&from_bob).expect("search")), vec!["noon works"]);
+    let from_nobody = SearchQuery { from: Some("nobody".into()), ..q("noon") };
+    assert!(alice.search(&from_nobody).expect("search").is_empty());
+    assert!(alice.search(&q("   ")).expect("search").is_empty(), "nothing to look for finds nothing");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn unread_counts_and_previews() {
     let server = Server::start().await;
     let dir = tempfile::tempdir().expect("tempdir");

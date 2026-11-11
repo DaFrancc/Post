@@ -154,6 +154,16 @@ abstract class Client implements RustOpaqueInterface {
   /// digits, separated by spaces.
   Future<String> safetyNumber({required String username});
 
+  /// Messages containing every word of `text` (any case), newest first:
+  /// in one conversation, or all; from one username, or anyone. From this
+  /// device's copy only.
+  Future<List<MessageInfo>> search({
+    required String text,
+    String? conversation,
+    String? from,
+    required int limit,
+  });
+
   /// Send a text message.
   Future<MessageInfo> sendText({
     required String conversation,

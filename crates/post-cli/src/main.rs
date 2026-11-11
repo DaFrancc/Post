@@ -78,6 +78,19 @@ enum Command {
         #[arg(long, default_value_t = 50)]
         limit: u32,
     },
+    /// Find messages containing every word given, newest first.
+    Search {
+        /// Words to look for (all of them, any case).
+        text: Option<String>,
+        /// Only in this conversation.
+        #[arg(long)]
+        conversation: Option<String>,
+        /// Only sent by this username.
+        #[arg(long)]
+        from: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+    },
     /// Send a message to a conversation, or to a user's DM.
     Send {
         /// Username to DM.
@@ -320,6 +333,10 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         }
         Command::Conversations => ("conversations", json!({})),
         Command::Messages { conversation, limit } => ("messages", json!({ "conversation": conversation, "limit": limit })),
+        Command::Search { text, conversation, from, limit } => (
+            "search",
+            json!({ "text": text.as_deref().unwrap_or_default(), "conversation": conversation, "from": from, "limit": limit }),
+        ),
         Command::Send { to, conversation, text } => ("send", json!({ "to": to, "conversation": conversation, "text": text })),
         Command::Edit { conversation, message, text } => {
             ("edit", json!({ "conversation": conversation, "message": message, "text": text }))
@@ -402,7 +419,7 @@ fn print_human(method: &str, v: &Value) {
                 println!("{}  {:5}  {}{unread}{gone}", s(c, "id"), s(c, "kind"), s(c, "title"));
             }
         }
-        "messages" => {
+        "messages" | "search" => {
             for m in v.as_array().into_iter().flatten() {
                 let body = if m["deleted"] == true {
                     "[message deleted]".to_string()

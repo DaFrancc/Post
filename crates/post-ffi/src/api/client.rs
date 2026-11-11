@@ -466,6 +466,15 @@ impl Client {
         Ok(self.core.messages(id, limit)?.into_iter().map(message).collect())
     }
 
+    /// Messages containing every word of `text` (any case), newest first:
+    /// in one conversation, or all; from one username, or anyone. From this
+    /// device's copy only.
+    pub async fn search(&self, text: String, conversation: Option<String>, from: Option<String>, limit: u32) -> Result<Vec<MessageInfo>, PostError> {
+        let conversation = conversation.map(|c| c.parse::<ConversationId>()).transpose()?;
+        let query = core::SearchQuery { text, conversation, from, limit };
+        Ok(self.core.search(&query)?.into_iter().map(message).collect())
+    }
+
     /// Send a text message.
     pub async fn send_text(&self, conversation: String, text: String) -> Result<MessageInfo, PostError> {
         let id: ConversationId = conversation.parse()?;
