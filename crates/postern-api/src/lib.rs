@@ -49,6 +49,8 @@ pub struct Conversation {
     pub last_activity_ms: u64,
     /// False once this device was removed from it.
     pub following: bool,
+    /// Messages from others since you last marked it read.
+    pub unread: u32,
 }
 
 /// A message.
@@ -108,6 +110,8 @@ pub struct Person {
     pub typing_template: String,
     /// Their current note, if any.
     pub note: Option<String>,
+    /// You compared safety numbers with them.
+    pub verified: bool,
 }
 
 /// A safety number.
@@ -248,6 +252,7 @@ fn conversation(c: core::Conversation) -> Conversation {
         peer: c.peer,
         last_activity_ms: c.last_activity_ms,
         following: c.following,
+        unread: c.unread,
     }
 }
 
@@ -551,6 +556,16 @@ pub struct NicknameParams {
     pub nickname: String,
 }
 
+/// `set_verified`: record that you compared safety numbers with someone.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VerifiedParams {
+    /// Their username.
+    pub username: String,
+    /// True to mark them verified, false to withdraw it.
+    pub verified: bool,
+}
+
 // ---------------------------------------------------------------- methods
 
 /// Whether a method needs a server connection.
@@ -624,6 +639,8 @@ methods! {
     "set_presence", Connection, SetPresenceParams, Done, "Choose the presence others see.";
     "presence", Local, UserParams, PresenceResult, "Someone's presence, as last heard by this device.";
     "safety_number", Local, UserParams, SafetyNumber, "The safety number between you and a user.";
+    "set_verified", Connection, VerifiedParams, Done, "Record that you compared safety numbers with a user, or withdraw it.";
+    "mark_read", Connection, ConversationParams, Done, "Mark a conversation read, on all your devices.";
 }
 
 /// Find a method by name.
@@ -838,7 +855,18 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 nickname: x.nickname,
                 typing_template: x.typing_template,
                 note: x.note,
+                verified: x.verified,
             })
+        }
+        "set_verified" => {
+            let p: VerifiedParams = params(p)?;
+            core.set_verified(&p.username, p.verified).await?;
+            ok(Done {})
+        }
+        "mark_read" => {
+            let p: ConversationParams = params(p)?;
+            core.mark_read(id(&p.conversation)?).await?;
+            ok(Done {})
         }
         "send_typing" => {
             let p: ConversationParams = params(p)?;

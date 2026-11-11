@@ -344,8 +344,8 @@ chain as an offline device able to sign `AddDevice`.
 - Each **device** is one leaf. Members at the application level are accounts.
 - Invariant: a group's leaves are exactly the current devices of its member accounts.
 - Each account also has a **self group** of only its own devices. It carries the
-  account's profile, private nicknames and device names now; read markers, verified
-  contacts, pinned usernames, settings and history-transfer keys later. The account's
+  account's profile, private nicknames, device names, verified contacts and read
+  positions now; pinned usernames, settings and history-transfer keys later. The account's
   oldest device creates it; the others wait to be added, so an account does not end
   up with one per device. If two ever exist, the lower group ID wins. It is never
   listed as a conversation, takes no messages, and clients refuse any Welcome or
@@ -356,6 +356,10 @@ chain as an offline device able to sign `AddDevice`.
   everything already logged; clearing leaves a marker so an older value cannot
   return. A device joining the self group gets a snapshot that fills in only values
   it lacks, so a stale snapshot never undoes a newer change.
+- A read position is a position in a group's server log, the same on every device;
+  later messages from others are unread. Positions only move forward, so they merge
+  by taking the larger, in any order. A device sends them only when the account has
+  another device to read them.
 
 Your other devices are ordinary members of each conversation, so they receive what
 you send with no special self-sync path.

@@ -218,6 +218,14 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE conversations ADD COLUMN read_seq INTEGER NOT NULL DEFAULT 0;
      UPDATE conversations SET read_seq =
          (SELECT COALESCE(MAX(seq), 0) FROM messages WHERE messages.group_id = conversations.group_id);",
+    // 7: people whose safety number the user verified, synced between their
+    // devices like nicknames. `name` is '1' for verified, '' for withdrawn.
+    "CREATE TABLE verified (
+         account_id  BLOB PRIMARY KEY,
+         name        TEXT NOT NULL,
+         msg_id      BLOB,
+         seq         INTEGER
+     );",
 ];
 
 /// Create tables, both ours and OpenMLS's, and bring old databases up to date.
@@ -700,17 +708,35 @@ pub fn unread(conn: &Connection, groups: &[Vec<u8>]) -> Result<u32> {
 }
 
 /// Mark everything in `groups` read, up to the newest message each has.
-/// Returns whether anything changed. Positions only move forward.
-pub fn mark_read(conn: &Connection, groups: &[Vec<u8>]) -> Result<bool> {
-    let mut stmt = conn.prepare(
-        "UPDATE conversations SET read_seq = (SELECT MAX(seq) FROM messages WHERE group_id = ?1)
-         WHERE group_id = ?1 AND read_seq < (SELECT COALESCE(MAX(seq), 0) FROM messages WHERE group_id = ?1)",
-    )?;
-    let mut changed = false;
+/// Returns the groups whose position moved, with the new position.
+pub fn mark_read(conn: &Connection, groups: &[Vec<u8>]) -> Result<Vec<(Vec<u8>, u64)>> {
+    let mut newest = conn.prepare("SELECT COALESCE(MAX(seq), 0) FROM messages WHERE group_id = ?1")?;
+    let mut moved = Vec::new();
     for g in groups {
-        changed |= stmt.execute([g])? > 0;
+        let seq: i64 = newest.query_row([g], |r| r.get(0))?;
+        let seq = u64::try_from(seq).unwrap_or(0);
+        if raise_read(conn, g, seq)? {
+            moved.push((g.clone(), seq));
+        }
     }
-    Ok(changed)
+    Ok(moved)
+}
+
+/// Move a group's read position forward to `seq`. Returns whether it moved.
+pub fn raise_read(conn: &Connection, group: &[u8], seq: u64) -> Result<bool> {
+    let n = conn.execute(
+        "UPDATE conversations SET read_seq = ?2 WHERE group_id = ?1 AND read_seq < ?2",
+        params![group, i64_of(seq)],
+    )?;
+    Ok(n > 0)
+}
+
+/// Every group's read position, for a self-group snapshot.
+pub fn read_positions(conn: &Connection) -> Result<Vec<(Vec<u8>, u64)>> {
+    let mut stmt = conn.prepare("SELECT group_id, read_seq FROM conversations WHERE kind != 3 AND read_seq > 0")?;
+    Ok(stmt
+        .query_map([], |r| Ok((r.get(0)?, u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0))))?
+        .collect::<rusqlite::Result<_>>()?)
 }
 
 /// A notice, as stored.
@@ -980,15 +1006,28 @@ pub enum Synced {
     Nickname,
     /// Device names, keyed by device.
     DeviceName,
+    /// Verified safety numbers, keyed by account: [`VERIFIED`] or empty.
+    Verified,
 }
 
+/// The value [`Synced::Verified`] holds for a verified account.
+pub const VERIFIED: &str = "1";
+
 impl Synced {
+    const ALL: [Synced; 3] = [Synced::Nickname, Synced::DeviceName, Synced::Verified];
+
     fn table(self) -> (&'static str, &'static str) {
         match self {
             Synced::Nickname => ("nicknames", "account_id"),
             Synced::DeviceName => ("device_names", "device_id"),
+            Synced::Verified => ("verified", "account_id"),
         }
     }
+}
+
+/// Whether the user verified this account's safety number.
+pub fn is_verified(conn: &Connection, account: &[u8]) -> Result<bool> {
+    Ok(synced_get(conn, Synced::Verified, account)?.is_some())
 }
 
 /// Set a value on this device. With `msg_id`, the message carrying it to the
@@ -1043,7 +1082,7 @@ pub fn synced_all(conn: &Connection, kind: Synced) -> Result<Vec<(Vec<u8>, Strin
 /// The message carrying our own values landed at `seq`, or (`None`) failed for
 /// good and stays local.
 fn synced_placed(conn: &Connection, msg_id: &[u8], seq: Option<u64>) -> Result<()> {
-    for kind in [Synced::Nickname, Synced::DeviceName] {
+    for kind in Synced::ALL {
         let (t, _) = kind.table();
         conn.execute(
             &format!("UPDATE {t} SET seq = ?1 WHERE msg_id = ?2 AND seq IS NULL"),

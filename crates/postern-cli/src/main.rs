@@ -124,6 +124,15 @@ enum Command {
     Typing { conversation: String },
     /// Show the safety number between you and someone.
     SafetyNumber { username: String },
+    /// Record that you compared safety numbers with someone.
+    Verify {
+        username: String,
+        /// Withdraw it instead.
+        #[arg(long)]
+        undo: bool,
+    },
+    /// Mark a conversation read on all your devices.
+    Read { conversation: String },
     /// Serve the local API as JSON-RPC for bots and scripts.
     Daemon {
         /// Talk over stdin and stdout.
@@ -321,6 +330,8 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         Command::Nickname { username, nickname } => ("set_nickname", json!({ "username": username, "nickname": nickname })),
         Command::Person { username } => ("person", json!({ "username": username })),
         Command::SafetyNumber { username } => ("safety_number", json!({ "username": username })),
+        Command::Verify { username, undo } => ("set_verified", json!({ "username": username, "verified": !undo })),
+        Command::Read { conversation } => ("mark_read", json!({ "conversation": conversation })),
         Command::Presence { presence } => ("set_presence", json!({ "presence": presence })),
         Command::Typing { conversation } => ("send_typing", json!({ "conversation": conversation })),
         Command::Keygen { .. } | Command::Daemon { .. } | Command::Schema | Command::Link { .. } => return None,
@@ -374,7 +385,11 @@ fn print_human(method: &str, v: &Value) {
         "conversations" => {
             for c in v.as_array().into_iter().flatten() {
                 let gone = if c["following"] == false { "  (left)" } else { "" };
-                println!("{}  {:5}  {}{gone}", s(c, "id"), s(c, "kind"), s(c, "title"));
+                let unread = match c["unread"].as_u64() {
+                    Some(n) if n > 0 => format!("  ({n} unread)"),
+                    _ => String::new(),
+                };
+                println!("{}  {:5}  {}{unread}{gone}", s(c, "id"), s(c, "kind"), s(c, "title"));
             }
         }
         "messages" => {
@@ -414,6 +429,7 @@ fn print_human(method: &str, v: &Value) {
             if let Some(n) = v["note"].as_str() {
                 println!("note: {n}");
             }
+            println!("safety number: {}", if v["verified"] == true { "verified" } else { "not verified" });
         }
         "safety_number" => println!("{}", s(v, "safety_number")),
         "devices" => {

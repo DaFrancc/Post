@@ -60,6 +60,32 @@ pub struct SelfSync {
     /// from it only values they lack, so it never undoes a newer change.
     #[prost(bool, tag = "3")]
     pub snapshot: bool,
+    /// People whose safety number the user compared, or stopped trusting.
+    #[prost(message, repeated, tag = "4")]
+    pub verified: Vec<VerifiedEntry>,
+    /// How far the user has read conversations. Positions only move forward,
+    /// so these merge by taking the larger, in any order.
+    #[prost(message, repeated, tag = "5")]
+    pub read: Vec<ReadEntry>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct VerifiedEntry {
+    /// 32-byte account ID.
+    #[prost(bytes = "vec", tag = "1")]
+    pub account: Vec<u8>,
+    #[prost(bool, tag = "2")]
+    pub verified: bool,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct ReadEntry {
+    /// 16-byte group ID.
+    #[prost(bytes = "vec", tag = "1")]
+    pub group: Vec<u8>,
+    /// Read up to and including this position in the group's log.
+    #[prost(uint64, tag = "2")]
+    pub seq: u64,
 }
 
 #[derive(Clone, PartialEq, Message)]

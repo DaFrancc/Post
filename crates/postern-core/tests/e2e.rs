@@ -351,6 +351,46 @@ async fn linked_device_joins_conversations() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn verification_and_reading_follow_the_account() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let dm = bob.start_dm("alice").await.expect("dm");
+    bob.send_text(dm.id, "hello").await.expect("send");
+    alice.sync().await.expect("alice sync");
+
+    // Verified before the phone existed: the phone learns it on joining.
+    alice.set_verified("bob", true).await.expect("verify");
+    assert!(alice.person("bob").await.expect("bob").verified);
+    let phone = link(&server, dir.path(), &alice, "phone").await;
+    phone.sync().await.expect("phone sync");
+    assert!(phone.person("bob").await.expect("bob").verified, "from the snapshot");
+    // It is private to Alice.
+    bob.sync().await.expect("bob sync");
+    assert!(!bob.person("alice").await.expect("alice").verified);
+
+    // Reading on one device clears the count on the other.
+    bob.send_text(dm.id, "one").await.expect("send");
+    bob.send_text(dm.id, "two").await.expect("send");
+    alice.sync().await.expect("alice sync");
+    phone.sync().await.expect("phone sync");
+    assert_eq!(phone.conversation(dm.id).expect("conversation").unread, 2);
+    assert_eq!(alice.conversation(dm.id).expect("conversation").unread, 3, "hello was never read here");
+    let mut alice_events = alice.subscribe();
+    phone.mark_read(dm.id).await.expect("read on the phone");
+    alice.sync().await.expect("alice sync");
+    let e = next_event(&mut alice_events, |e| matches!(e, Event::ConversationChanged(c) if c.id == dm.id)).await;
+    let Event::ConversationChanged(c) = e else { unreachable!() };
+    assert_eq!(c.unread, 0);
+
+    // Withdrawing on the laptop reaches the phone.
+    alice.set_verified("bob", false).await.expect("unverify");
+    phone.sync().await.expect("phone sync");
+    assert!(!phone.person("bob").await.expect("bob").verified);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn removed_device_is_cut_off() {
     let server = Server::start().await;
     let dir = tempfile::tempdir().expect("tempdir");

@@ -275,6 +275,8 @@ pub struct Person {
     pub typing_template: String,
     /// Their note, if set and not expired.
     pub note: Option<String>,
+    /// You compared safety numbers with them.
+    pub verified: bool,
 }
 
 /// A device asking to join this account, as shown before approving it.
@@ -785,19 +787,17 @@ impl Core {
         self.read(|c| store::conversations(c)?.iter().map(|r| conversation_from_row(c, r)).collect())
     }
 
-    /// Mark a conversation read up to its newest message. Emits
-    /// [`Event::ConversationChanged`] if its unread count changed.
+    /// Mark a conversation read up to its newest message, on every one of
+    /// this account's devices. Emits [`Event::ConversationChanged`] if its
+    /// unread count changed.
     pub async fn mark_read(&self, conversation: ConversationId) -> Result<()> {
-        let engine = self.engine.lock().await;
-        let groups = store::conversation_groups(&engine.conn, &conversation.0)?;
-        if groups.is_empty() {
-            return Err(Error::NotFound("conversation"));
-        }
-        if store::mark_read(&engine.conn, &groups)? {
-            let row = store::conversation(&engine.conn, &conversation.0)?.ok_or(Error::NotFound("conversation"))?;
-            let _ = self.events.send(Event::ConversationChanged(conversation_from_row(&engine.conn, &row)?));
-        }
-        Ok(())
+        self.engine.lock().await.mark_read(conversation.0).await
+    }
+
+    /// Record that you compared safety numbers with `username` (or, with
+    /// `false`, withdraw it). Shared with your other devices only.
+    pub async fn set_verified(&self, username: &str, verified: bool) -> Result<()> {
+        self.engine.lock().await.set_verified(username, verified).await
     }
 
     /// The newest `limit` notices about a conversation, or with `None` about
@@ -934,6 +934,7 @@ impl Core {
                 display_name: p.as_ref().map(|p| p.display_name.clone()).unwrap_or_default(),
                 nickname: store::nickname(c, &account.0)?.unwrap_or_default(),
                 typing_template: p.as_ref().map(|p| p.typing_template.clone()).unwrap_or_default(),
+                verified: store::is_verified(c, &account.0)?,
                 note: p.filter(|p| !p.note_text.is_empty() && (p.note_expires_at == 0 || p.note_expires_at > now)).map(|p| p.note_text),
             })
         })
@@ -984,6 +985,7 @@ fn core_futures_are_send(c: &Core, conv: ConversationId, msg: MessageId) {
     send(c.presence(""));
     send(c.send_text(conv, ""));
     send(c.mark_read(conv));
+    send(c.set_verified("", true));
     send(c.edit_message(conv, msg, ""));
     send(c.delete_message(conv, msg));
     send(c.set_profile(ProfileUpdate::default()));

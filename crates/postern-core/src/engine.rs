@@ -219,8 +219,8 @@ enum Outcome {
     Changed([u8; 16]),
     Deleted([u8; 16]),
     Profile(AccountId),
-    /// Nicknames for these accounts changed.
-    Nicknames(Vec<AccountId>),
+    /// Values synced between this account's devices changed.
+    SelfSync(SyncChanges),
     Conversation,
     /// A commit added accounts that were not members: they need our profile.
     NewMembers,
@@ -1816,15 +1816,7 @@ impl Engine {
             Body::Profile(_) => Outcome::Nothing,
             // A snapshot only repeats what this device already holds.
             Body::SelfSync(s) if s.snapshot => Outcome::Nothing,
-            Body::SelfSync(s) => {
-                for n in &s.nicknames {
-                    store::synced_set_local(&tx, store::Synced::Nickname, &n.account, &n.name, Some(&id))?;
-                }
-                for d in &s.device_names {
-                    store::synced_set_local(&tx, store::Synced::DeviceName, &d.device, &d.name, Some(&id))?;
-                }
-                Outcome::Nicknames(s.nicknames.iter().filter_map(|n| store::account_id(&n.account).ok()).collect())
-            }
+            Body::SelfSync(s) => Outcome::SelfSync(apply_self_sync(&tx, s, SyncSource::Local(Some(&id)))?),
         };
         tx.commit()?;
         self.emit_outcome(gid, outcome)?;
@@ -2172,11 +2164,14 @@ impl Engine {
                     self.emit(Event::ProfileChanged { username });
                 }
             }
-            Outcome::Nicknames(accounts) => {
-                for a in accounts {
+            Outcome::SelfSync(changes) => {
+                for a in changes.people {
                     if let Some(username) = store::username_of(&self.conn, &a.0)? {
                         self.emit(Event::ProfileChanged { username });
                     }
+                }
+                for g in changes.read {
+                    self.emit_conversation_of(&g)?;
                 }
             }
             Outcome::Conversation | Outcome::NewMembers => {
@@ -2187,6 +2182,50 @@ impl Engine {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Emit [`Event::ConversationChanged`] for the conversation a group is
+    /// shown in: itself, or for a retired duplicate DM, the live one.
+    fn emit_conversation_of(&self, gid: &[u8]) -> Result<()> {
+        let Some(c) = store::conversation(&self.conn, gid)? else { return Ok(()) };
+        let shown = match (&c.peer_account, c.kind, c.active) {
+            (Some(peer), KIND_DM, false) => store::dm_with(&self.conn, &store::account_id(peer)?)?,
+            (_, KIND_SELF, _) => None,
+            _ => Some(c),
+        };
+        if let Some(c) = shown {
+            self.emit(Event::ConversationChanged(crate::conversation_from_row(&self.conn, &c)?));
+        }
+        Ok(())
+    }
+
+    /// Mark a conversation read, and tell this account's other devices.
+    pub async fn mark_read(&mut self, gid: [u8; 16]) -> Result<()> {
+        let groups = store::conversation_groups(&self.conn, &gid)?;
+        if groups.is_empty() {
+            return Err(Error::NotFound("conversation"));
+        }
+        let moved = store::mark_read(&self.conn, &groups)?;
+        if moved.is_empty() {
+            return Ok(());
+        }
+        self.emit_conversation_of(&gid)?;
+        // Only worth a message when another device would read it.
+        if self.devices()?.len() > 1 {
+            let read = moved.into_iter().map(|(group, seq)| content::ReadEntry { group, seq }).collect();
+            self.sync_to_own_devices(content::SelfSync { read, ..Default::default() }).await?;
+        }
+        Ok(())
+    }
+
+    /// Mark (or unmark) someone's safety number as verified, on every one of
+    /// this account's devices.
+    pub async fn set_verified(&mut self, username: &str, verified: bool) -> Result<()> {
+        let account = self.resolve(username).await?;
+        let entry = content::VerifiedEntry { account: account.0.to_vec(), verified };
+        self.sync_to_own_devices(content::SelfSync { verified: vec![entry], ..Default::default() }).await?;
+        self.emit(Event::ProfileChanged { username: username.into() });
         Ok(())
     }
 
@@ -2417,12 +2456,7 @@ impl Engine {
             None => {
                 check_self_sync(&change).map_err(Error::InvalidInput)?;
                 let tx = self.conn.transaction()?;
-                for n in &change.nicknames {
-                    store::synced_set_local(&tx, store::Synced::Nickname, &n.account, &n.name, None)?;
-                }
-                for d in &change.device_names {
-                    store::synced_set_local(&tx, store::Synced::DeviceName, &d.device, &d.name, None)?;
-                }
+                apply_self_sync(&tx, &change, SyncSource::Local(None))?;
                 tx.commit()?;
                 Ok(())
             }
@@ -2506,7 +2540,62 @@ fn check_self_sync(s: &content::SelfSync) -> std::result::Result<(), String> {
         }
         content::check_display_name(&d.name).map_err(|e| e.to_string())?;
     }
+    if s.verified.iter().any(|v| v.account.len() != 32) {
+        return Err("a verification names an invalid account".into());
+    }
+    if s.read.iter().any(|r| r.group.len() != 16) {
+        return Err("a read position names an invalid group".into());
+    }
     Ok(())
+}
+
+/// Where a self-group sync being applied came from.
+enum SyncSource<'a> {
+    /// This device made it; `Some` is the self-group message carrying it.
+    Local(Option<&'a [u8]>),
+    /// The self group's log, at `seq`.
+    Log { seq: u64, snapshot: bool },
+}
+
+/// What applying a self-group sync changed.
+#[derive(Debug, Default)]
+struct SyncChanges {
+    /// Accounts whose nickname or verification changed.
+    people: Vec<AccountId>,
+    /// Groups whose read position moved.
+    read: Vec<Vec<u8>>,
+}
+
+/// Apply a checked self-group sync (see [`store::Synced`] for the ordering
+/// rules). Read positions merge by taking the larger.
+fn apply_self_sync(tx: &Connection, s: &content::SelfSync, from: SyncSource<'_>) -> Result<SyncChanges> {
+    let set = |kind, key: &[u8], value: &str| -> Result<bool> {
+        match from {
+            SyncSource::Local(msg_id) => store::synced_set_local(tx, kind, key, value, msg_id).map(|()| true),
+            SyncSource::Log { seq, snapshot: true } => store::synced_fill(tx, kind, key, value, seq),
+            SyncSource::Log { seq, snapshot: false } => store::synced_apply(tx, kind, key, value, seq),
+        }
+    };
+    let mut changes = SyncChanges::default();
+    for n in &s.nicknames {
+        if set(store::Synced::Nickname, &n.account, &n.name)? {
+            changes.people.extend(store::account_id(&n.account).ok());
+        }
+    }
+    for d in &s.device_names {
+        set(store::Synced::DeviceName, &d.device, &d.name)?;
+    }
+    for v in &s.verified {
+        if set(store::Synced::Verified, &v.account, if v.verified { store::VERIFIED } else { "" })? {
+            changes.people.extend(store::account_id(&v.account).ok());
+        }
+    }
+    for r in &s.read {
+        if store::raise_read(tx, &r.group, r.seq)? {
+            changes.read.push(r.group.clone());
+        }
+    }
+    Ok(changes)
 }
 
 /// The full self-group snapshot for a device joining it.
@@ -2520,6 +2609,11 @@ fn self_snapshot(conn: &Connection) -> Result<content::SelfSync> {
             .into_iter()
             .map(|(device, name)| content::DeviceNameEntry { device, name })
             .collect(),
+        verified: store::synced_all(conn, store::Synced::Verified)?
+            .into_iter()
+            .map(|(account, _)| content::VerifiedEntry { account, verified: true })
+            .collect(),
+        read: store::read_positions(conn)?.into_iter().map(|(group, seq)| content::ReadEntry { group, seq }).collect(),
         snapshot: true,
     })
 }
@@ -2912,19 +3006,7 @@ fn handle_content(
                 return Err(reject("another account wrote to this account's device group"));
             }
             check_self_sync(s).map_err(reject)?;
-            let set = |kind, key: &[u8], name: &str| -> Result<bool> {
-                if s.snapshot { store::synced_fill(tx, kind, key, name, e.seq) } else { store::synced_apply(tx, kind, key, name, e.seq) }
-            };
-            let mut changed = Vec::new();
-            for n in &s.nicknames {
-                if set(store::Synced::Nickname, &n.account, &n.name)? {
-                    changed.extend(store::account_id(&n.account).ok());
-                }
-            }
-            for d in &s.device_names {
-                set(store::Synced::DeviceName, &d.device, &d.name)?;
-            }
-            Ok(Outcome::Nicknames(changed))
+            Ok(Outcome::SelfSync(apply_self_sync(tx, s, SyncSource::Log { seq: e.seq, snapshot: s.snapshot })?))
         }
         None => {
             let added = store::insert_message(tx, &new_message(None))?;
