@@ -63,6 +63,11 @@ enum Command {
     Sync,
     /// Open a DM with a user.
     Dm { username: String },
+    /// Create and manage group chats.
+    Group {
+        #[command(subcommand)]
+        cmd: GroupCommand,
+    },
     /// List your conversations.
     Conversations,
     /// Show the newest messages of a conversation.
@@ -121,6 +126,19 @@ enum Command {
     },
     /// Print the OpenRPC description of the local API.
     Schema,
+}
+
+#[derive(Subcommand)]
+enum GroupCommand {
+    /// Create a group with you as admin.
+    Create {
+        name: String,
+        /// Usernames of the other members.
+        #[arg(required = true)]
+        members: Vec<String>,
+    },
+    /// List the members of a conversation.
+    Members { conversation: String },
 }
 
 #[derive(Subcommand)]
@@ -216,6 +234,10 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         Command::Whoami => ("whoami", json!({})),
         Command::Sync => ("sync", json!({})),
         Command::Dm { username } => ("start_dm", json!({ "username": username })),
+        Command::Group { cmd: GroupCommand::Create { name, members } } => {
+            ("create_group", json!({ "name": name, "members": members }))
+        }
+        Command::Group { cmd: GroupCommand::Members { conversation } } => ("members", json!({ "conversation": conversation })),
         Command::Conversations => ("conversations", json!({})),
         Command::Messages { conversation, limit } => ("messages", json!({ "conversation": conversation, "limit": limit })),
         Command::Send { to, conversation, text } => ("send", json!({ "to": to, "conversation": conversation, "text": text })),
@@ -265,7 +287,21 @@ fn print_human(method: &str, v: &Value) {
             println!("account {}", s(v, "account_id"));
             println!("device  {}", s(v, "device_id"));
         }
-        "start_dm" => println!("{}  {}", s(v, "id"), s(v, "title")),
+        "start_dm" | "create_group" => println!("{}  {}", s(v, "id"), s(v, "title")),
+        "members" => {
+            for m in v.as_array().into_iter().flatten() {
+                let mut tags = Vec::new();
+                if m["you"] == true {
+                    tags.push("you".to_string());
+                }
+                if m["admin"] == true {
+                    tags.push("admin".to_string());
+                }
+                let devices = m["devices"].as_u64().unwrap_or(0);
+                tags.push(format!("{devices} device{}", if devices == 1 { "" } else { "s" }));
+                println!("{} (@{})  {}", s(m, "shown_name"), s(m, "username"), tags.join(", "));
+            }
+        }
         "conversations" => {
             for c in v.as_array().into_iter().flatten() {
                 let gone = if c["following"] == false { "  (left)" } else { "" };
@@ -482,6 +518,8 @@ mod tests {
             Command::SafetyNumber { username: "a".into() },
             Command::Nickname { username: "a".into(), nickname: "b".into() },
             Command::Devices { cmd: None },
+            Command::Group { cmd: GroupCommand::Create { name: "g".into(), members: vec!["a".into()] } },
+            Command::Group { cmd: GroupCommand::Members { conversation: "00".into() } },
             Command::Devices { cmd: Some(DevicesCommand::Rename { device: "abcd".into(), name: "x".into() }) },
             Command::Devices { cmd: Some(DevicesCommand::Remove { device: "abcd".into(), yes: true }) },
         ];

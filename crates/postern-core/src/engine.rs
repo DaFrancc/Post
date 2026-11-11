@@ -47,6 +47,8 @@ const MAX_FETCH_ROUNDS: usize = 10_000;
 /// After a claim finds no KeyPackages for a device, wait this long before
 /// spending another token on it.
 const KP_BACKOFF: std::time::Duration = std::time::Duration::from_secs(600);
+/// Most accounts in one group. Postern serves a community of about 100.
+const MAX_GROUP_ACCOUNTS: usize = 150;
 /// Most KeyPackages the server holds for a device (its `MAX_KEY_PACKAGES`).
 const KP_MAX: u32 = 100;
 /// How long a new device waits for the user to enter its code on another
@@ -175,6 +177,8 @@ enum Outcome {
     /// Nicknames for these accounts changed.
     Nicknames(Vec<AccountId>),
     Conversation,
+    /// A commit added accounts that were not members: they need our profile.
+    NewMembers,
 }
 
 fn random16() -> Result<[u8; 16]> {
@@ -980,13 +984,50 @@ impl Engine {
         // The account's other devices join too. The server cannot know who is
         // asking, so this also consumes one of this device's own KeyPackages.
         kps.extend(self.claim(mine).await?);
+        let gid = self.create_conversation(GroupMeta::dm(&mine, &peer), kps).await?;
+        Ok(ConversationId(store::dm_with(&self.conn, &peer)?.map_or(gid, |c| c.group_id)))
+    }
 
+    /// Create a named group with this account as its admin and `usernames`
+    /// as members, each with all of their devices.
+    pub async fn create_group(&mut self, name: &str, usernames: &[String]) -> Result<ConversationId> {
+        check_group_name(name)?;
+        let mine = self.me()?.account;
+        let mut accounts = Vec::new();
+        for u in usernames {
+            let a = self.resolve(u).await?;
+            if a != mine && !accounts.iter().any(|(x, _)| *x == a) {
+                accounts.push((a, u.clone()));
+            }
+        }
+        if accounts.is_empty() {
+            return Err(Error::InvalidInput("a group needs at least one other member".into()));
+        }
+        if accounts.len() >= MAX_GROUP_ACCOUNTS {
+            return Err(Error::InvalidInput(format!("a group can have at most {MAX_GROUP_ACCOUNTS} members")));
+        }
+        let mut kps = Vec::new();
+        for (account, username) in &accounts {
+            let theirs = self.claim(*account).await?;
+            if theirs.is_empty() {
+                return Err(Error::PeerUnavailable(username.clone()));
+            }
+            kps.extend(theirs);
+        }
+        kps.extend(self.claim(mine).await?);
+        // New members see past messages, shared a week at a time on request
+        // (design section 6, "History for new members"); admins can change it.
+        let meta = GroupMeta::group(name, &mine, postern_mls::HistoryVisibility::Shared, 0);
+        Ok(ConversationId(self.create_conversation(meta, kps).await?))
+    }
+
+    /// Build a group with `meta` and the devices behind `kps`, and register it.
+    async fn create_conversation(&mut self, meta: GroupMeta, kps: Vec<KeyPackage>) -> Result<[u8; 16]> {
         let gid = random16()?;
         let request = {
             let me = self.me.as_ref().ok_or(Error::NotRegistered)?;
             let tx = self.conn.transaction()?;
             let provider = Provider::on(&tx);
-            let meta = GroupMeta::dm(&me.account, &peer);
             let mut group = postern_mls::group_builder(&meta)
                 .map_err(mls)?
                 .with_group_id(GroupId::from_slice(&gid))
@@ -1009,7 +1050,7 @@ impl Engine {
             req
         };
         self.finish_create(gid, request).await?;
-        Ok(ConversationId(store::dm_with(&self.conn, &peer)?.map_or(gid, |c| c.group_id)))
+        Ok(gid)
     }
 
     /// Register a created group with the server, then merge it locally.
@@ -1626,12 +1667,11 @@ impl Engine {
             if conv.kind == KIND_SELF && !req.welcome_to.is_empty() {
                 // A new device of ours joined: give it our profile and
                 // everything the self group keeps in step.
-                let mine = self.me()?.account;
-                if let Some(p) = store::profile(&self.conn, &mine.0)? {
-                    self.queue_body(gid, Body::Profile(profile_body(&p)))?;
-                }
+                self.share_profile(gid)?;
                 let snapshot = self_snapshot(&self.conn)?;
                 self.queue_body(gid, Body::SelfSync(snapshot))?;
+            } else if self.welcomes_another_account(&req)? {
+                self.share_profile(gid)?;
             }
             return self.emit_outcome(gid, Outcome::Conversation);
         }
@@ -1660,7 +1700,11 @@ impl Engine {
             };
             match step {
                 Step::Done((outcome, gossip)) => {
+                    let new_members = matches!(outcome, Outcome::NewMembers);
                     self.emit_outcome(gid, outcome)?;
+                    if new_members {
+                        self.share_profile(gid)?;
+                    }
                     if let Some((account, head)) = gossip {
                         self.check_gossip(account, &head).await?;
                     }
@@ -1676,6 +1720,22 @@ impl Engine {
             }
         }
         Ok(())
+    }
+
+    /// Queue this account's profile into a group, for members who lack it.
+    fn share_profile(&mut self, gid: [u8; 16]) -> Result<()> {
+        let mine = self.me()?.account;
+        match store::profile(&self.conn, &mine.0)? {
+            Some(p) => self.queue_body(gid, Body::Profile(profile_body(&p))).map(|_| ()),
+            None => Ok(()),
+        }
+    }
+
+    /// Whether a commit of ours welcomed a device of some other account.
+    fn welcomes_another_account(&self, req: &proto::Commit) -> Result<bool> {
+        let me = self.me()?;
+        let mine = self.chains.get(&me.account).ok_or(Error::Corrupt("own chain"))?;
+        Ok(req.welcome_to.iter().any(|d| DeviceId::from_slice(d).is_ok_and(|d| mine.device(&d).is_none())))
     }
 
     /// Every message carries its sender's chain head (design section 5,
@@ -1733,7 +1793,7 @@ impl Engine {
                     }
                 }
             }
-            Outcome::Conversation => {
+            Outcome::Conversation | Outcome::NewMembers => {
                 if let Some(c) = store::conversation(&self.conn, &gid)?
                     && c.kind != KIND_SELF
                 {
@@ -1835,6 +1895,31 @@ fn compare_gossip(chain: &Chain, head: &content::ChainHead) -> Gossip {
         Some(_) => Gossip::Conflicts,
         None => Gossip::Ahead,
     }
+}
+
+/// A group's metadata and its member accounts, each with its number of
+/// devices, as this device's MLS state has them.
+pub(crate) fn group_members(conn: &Connection, gid: &[u8]) -> Result<(GroupMeta, Vec<(AccountId, u32)>)> {
+    let provider = Provider::on(conn);
+    let group = load_group(&provider, gid)?;
+    let meta = GroupMeta::from_extensions(group.extensions()).map_err(mls)?;
+    let mut counts: Vec<(AccountId, u32)> = Vec::new();
+    for m in group.members() {
+        let Ok(leaf) = leaf_of_member(&m) else { continue };
+        match counts.iter_mut().find(|(a, _)| *a == leaf.account) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((leaf.account, 1)),
+        }
+    }
+    Ok((meta, counts))
+}
+
+/// Group names follow the display-name rules and may not be empty.
+fn check_group_name(name: &str) -> Result<()> {
+    if name.trim().is_empty() {
+        return Err(Error::InvalidInput("give the group a name".into()));
+    }
+    content::check_display_name(name).map_err(|e| Error::InvalidInput(e.to_string().replace("display name", "group name")))
 }
 
 /// Device names follow the display-name rules and may not be empty.
@@ -2021,13 +2106,19 @@ fn process_in_tx(
             }
             let removed = staged.self_removed();
             let new_meta = GroupMeta::from_extensions(staged.group_context().extensions()).map_err(fatal)?;
+            let members: HashSet<AccountId> = group.members().filter_map(|m| leaf_of_member(&m).ok()).map(|l| l.account).collect();
+            let adds_accounts = staged
+                .add_proposals()
+                .filter_map(|a| postern_mls::leaf_identity(a.add_proposal().key_package().leaf_node()).ok())
+                .any(|l| !members.contains(&l.account));
             group.merge_staged_commit(&provider, *staged).map_err(fatal)?;
             if removed {
                 store::stop_following(tx, gid)?;
             } else if new_meta.conversation_kind() == Some(MlsKind::Group) {
                 store::set_name(tx, gid, &new_meta.name)?;
             }
-            Ok((Outcome::Conversation, None))
+            let outcome = if adds_accounts && !removed { Outcome::NewMembers } else { Outcome::Conversation };
+            Ok((outcome, None))
         }
         _ => Err(reject("an unsupported proposal was skipped")),
     }

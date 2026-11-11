@@ -340,6 +340,58 @@ async fn removed_device_is_cut_off() {
     assert!(told, "Bob is told Alice removed a device");
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn group_chat() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let carol = server.client(dir.path(), "carol").await;
+    let bob_phone = link(&server, dir.path(), &bob, "bob-phone").await;
+    for (c, name) in [(&alice, "Alice A"), (&bob, "Bob B"), (&carol, "Carol C")] {
+        c.set_profile(ProfileUpdate { display_name: Some(name.into()), ..Default::default() }).await.expect("profile");
+    }
+
+    // Names are checked, and a group needs someone else in it.
+    assert!(alice.create_group("", &["bob".into()]).await.is_err());
+    assert!(alice.create_group("solo", &["alice".into()]).await.is_err());
+    assert!(alice.create_group("x", &["nobody".into()]).await.is_err());
+
+    let g = alice.create_group("climbing", &["bob".into(), "carol".into(), "bob".into()]).await.expect("create");
+    assert_eq!(g.title, "climbing");
+    alice.send_text(g.id, "saturday?").await.expect("send");
+    for c in [&bob, &bob_phone, &carol] {
+        c.sync().await.expect("sync");
+        assert!(c.conversations().expect("conversations").iter().any(|x| x.id == g.id && x.title == "climbing"));
+        assert_eq!(last_in(c, g.id).as_deref(), Some("saturday?"));
+    }
+
+    // Everyone learned everyone's profile from joining, even though Bob and
+    // Carol never shared a conversation before.
+    carol.send_text(g.id, "in").await.expect("send");
+    for c in [&alice, &bob, &bob_phone] {
+        c.sync().await.expect("sync");
+    }
+    bob.sync().await.expect("sync");
+    let msgs = bob.messages(g.id, 10).expect("messages");
+    assert_eq!(msgs.last().map(|m| (m.sender.as_str(), m.body.as_deref())), Some(("Carol C", Some("in"))));
+    carol.sync().await.expect("sync");
+    assert_eq!(carol.person("bob").await.expect("bob").display_name, "Bob B");
+
+    // Members: Alice is admin; Bob is there with both devices.
+    let members = carol.members(g.id).await.expect("members");
+    let summary: Vec<(String, bool, u32, bool)> =
+        members.iter().map(|m| (m.username.clone(), m.admin, m.devices, m.you)).collect();
+    assert_eq!(
+        summary,
+        vec![
+            ("carol".into(), false, 1, true),
+            ("alice".into(), true, 1, false),
+            ("bob".into(), false, 2, false),
+        ]
+    );
+}
+
 fn last_in(c: &Core, conv: postern_core::ConversationId) -> Option<String> {
     c.messages(conv, 10).expect("messages").last().and_then(|m| m.body.clone())
 }

@@ -117,6 +117,21 @@ pub struct SafetyNumber {
     pub safety_number: String,
 }
 
+/// A member of a conversation.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct Member {
+    /// Their username.
+    pub username: String,
+    /// The name you see for them here.
+    pub shown_name: String,
+    /// They may add and remove people and change the group's details.
+    pub admin: bool,
+    /// How many of their devices are in the conversation.
+    pub devices: u32,
+    /// It is you.
+    pub you: bool,
+}
+
 /// A link code to enter on another device.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct LinkCode {
@@ -277,6 +292,24 @@ pub struct RegisterParams {
     /// Register a bot account (needs a bot invite).
     #[serde(default)]
     pub bot: bool,
+}
+
+/// `create_group`: a named group with you as admin.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreateGroupParams {
+    /// The group's name.
+    pub name: String,
+    /// Usernames of the other members.
+    pub members: Vec<String>,
+}
+
+/// A conversation.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConversationParams {
+    /// Conversation ID, hex.
+    pub conversation: String,
 }
 
 /// `link_begin`: offer this new device for linking to an existing account.
@@ -466,6 +499,8 @@ methods! {
     "whoami", Local, NoParams, Option<Identity>, "The account on this device, if any.";
     "sync", Connection, NoParams, Done, "Fetch everything new and send what is queued.";
     "start_dm", Connection, UserParams, Conversation, "Open a DM with a user, creating it if needed.";
+    "create_group", Connection, CreateGroupParams, Conversation, "Create a named group with you as admin.";
+    "members", Local, ConversationParams, Vec<Member>, "The members of a conversation.";
     "conversations", Local, NoParams, Vec<Conversation>, "Your conversations, most recent first.";
     "messages", Local, MessagesParams, Vec<Message>, "The newest messages of a conversation, oldest first.";
     "send", Connection, SendParams, Message, "Send a text message.";
@@ -582,6 +617,18 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
         "start_dm" => {
             let p: UserParams = params(p)?;
             ok(conversation(core.start_dm(&p.username).await?))
+        }
+        "create_group" => {
+            let p: CreateGroupParams = params(p)?;
+            ok(conversation(core.create_group(&p.name, &p.members).await?))
+        }
+        "members" => {
+            let p: ConversationParams = params(p)?;
+            let ms = core.members(id(&p.conversation)?).await?;
+            ok(ms
+                .into_iter()
+                .map(|m| Member { username: m.username, shown_name: m.shown_name, admin: m.admin, devices: m.devices, you: m.you })
+                .collect::<Vec<_>>())
         }
         "conversations" => {
             params::<NoParams>(p)?;

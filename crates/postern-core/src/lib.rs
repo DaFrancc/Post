@@ -272,6 +272,21 @@ pub struct LinkRequest {
     pub name: String,
 }
 
+/// A member of a conversation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Member {
+    /// Their username.
+    pub username: String,
+    /// The name you see for them in this conversation.
+    pub shown_name: String,
+    /// They may add and remove people and change the group's details.
+    pub admin: bool,
+    /// How many of their devices are in the conversation.
+    pub devices: u32,
+    /// It is you.
+    pub you: bool,
+}
+
 /// One of this account's devices.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Device {
@@ -523,11 +538,41 @@ impl Core {
         self.conversation(id)
     }
 
+    /// Create a named group with you as admin and these users as members.
+    pub async fn create_group(&self, name: &str, usernames: &[String]) -> Result<Conversation> {
+        let id = self.engine.lock().await.create_group(name, usernames).await?;
+        self.conversation(id)
+    }
+
     /// A conversation by ID.
     pub fn conversation(&self, id: ConversationId) -> Result<Conversation> {
         self.read(|c| {
             let row = store::conversation(c, &id.0)?.filter(|r| r.kind != store::KIND_SELF).ok_or(Error::NotFound("conversation"))?;
             conversation_from_row(c, &row)
+        })
+    }
+
+    /// The members of a conversation, by the name you see for them.
+    pub async fn members(&self, conversation: ConversationId) -> Result<Vec<Member>> {
+        let me = self.engine.lock().await.me.as_ref().ok_or(Error::NotRegistered)?.account;
+        self.read(|c| {
+            store::conversation(c, &conversation.0)?.filter(|r| r.kind != store::KIND_SELF).ok_or(Error::NotFound("conversation"))?;
+            let (meta, accounts) = engine::group_members(c, &conversation.0)?;
+            let mut out = accounts
+                .into_iter()
+                .map(|(account, devices)| {
+                    Ok(Member {
+                        username: store::username_of(c, &account.0)?.unwrap_or_default(),
+                        shown_name: store::shown_name(c, Some(&conversation.0), &account.0)?,
+                        admin: meta.admins.iter().any(|a| a[..] == account.0),
+                        devices,
+                        you: account == me,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            // You first, then everyone by the name you see.
+            out.sort_by_key(|m| (!m.you, m.shown_name.to_lowercase()));
+            Ok(out)
         })
     }
 
@@ -685,6 +730,8 @@ fn core_futures_are_send(c: &Core, conv: ConversationId, msg: MessageId) {
     send(c.sync());
     send(c.listen());
     send(c.start_dm(""));
+    send(c.create_group("", &[]));
+    send(c.members(conv));
     send(c.send_text(conv, ""));
     send(c.edit_message(conv, msg, ""));
     send(c.delete_message(conv, msg));
