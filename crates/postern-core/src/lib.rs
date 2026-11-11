@@ -319,6 +319,18 @@ pub enum Event {
         /// Their username.
         username: String,
     },
+    /// An account added or removed devices. Contacts stay verified through
+    /// this (the safety number does not change), but a device added to your
+    /// own account by another of your devices deserves a look: if it was not
+    /// you, remove it.
+    DevicesChanged {
+        /// Whose devices, possibly your own.
+        username: String,
+        /// How many devices were added.
+        added: u32,
+        /// How many were removed.
+        removed: u32,
+    },
     /// Something the user should know about, usually a security warning.
     Notice {
         /// The conversation it concerns, if any.

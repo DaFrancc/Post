@@ -763,8 +763,10 @@ impl Engine {
         let domain = self.me()?.domain.clone();
         for a in upd.accounts {
             let Ok(account) = store::account_id(&a.account_id) else { continue };
+            let mut before = None;
             let verified = match self.chains.get(&account) {
                 Some(c) => {
+                    before = Some(c.active_devices().map(|d| d.id).collect::<HashSet<_>>());
                     let mut c = c.clone();
                     match c.extend_from(0, &a.chain) {
                         Ok(_) => c,
@@ -798,6 +800,13 @@ impl Engine {
             }
             store::save_chain(&tx, &verified)?;
             tx.commit()?;
+            if let Some(before) = before {
+                let after: HashSet<DeviceId> = verified.active_devices().map(|d| d.id).collect();
+                let (added, removed) = (after.difference(&before).count() as u32, before.difference(&after).count() as u32);
+                if added + removed > 0 {
+                    self.emit(Event::DevicesChanged { username: a.username.clone(), added, removed });
+                }
+            }
             self.chains.insert(account, verified);
         }
         store::meta_put_u64(&self.conn, "dir_version", upd.version)?;

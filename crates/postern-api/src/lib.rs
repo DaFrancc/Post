@@ -158,6 +158,16 @@ pub enum Event {
         /// Their username.
         username: String,
     },
+    /// An account added or removed devices. If it is your own account and the
+    /// change was not yours, remove the device from another of your devices.
+    DevicesChanged {
+        /// Whose devices, possibly yours.
+        username: String,
+        /// Devices added.
+        added: u32,
+        /// Devices removed.
+        removed: u32,
+    },
     /// Something you should know, usually a security warning.
     Notice {
         /// Conversation ID, if it concerns one.
@@ -220,6 +230,7 @@ pub fn event(e: core::Event) -> Event {
             Event::MessageDeleted { conversation: conversation.to_string(), message: id.to_string() }
         }
         core::Event::ProfileChanged { username } => Event::ProfileChanged { username },
+        core::Event::DevicesChanged { username, added, removed } => Event::DevicesChanged { username, added, removed },
         core::Event::Notice { conversation, text } => Event::Notice { conversation: conversation.map(|c| c.to_string()), text },
     }
 }

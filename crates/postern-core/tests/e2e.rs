@@ -272,11 +272,18 @@ async fn linked_device_joins_conversations() {
     phone.sync().await.expect("phone sync");
     assert_eq!(last_in(&phone, dm2.id).as_deref(), Some("hello alice"));
 
-    for rx in [&mut alice_events, &mut bob_events] {
+    let mut bob_saw_device_added = false;
+    for (who, rx) in [("alice", &mut alice_events), ("bob", &mut bob_events)] {
         while let Ok(e) = rx.try_recv() {
-            assert!(!matches!(e, Event::Notice { .. }), "unexpected notice: {e:?}");
+            assert!(!matches!(e, Event::Notice { .. }), "unexpected notice for {who}: {e:?}");
+            if who == "bob" && e == (Event::DevicesChanged { username: "alice".into(), added: 1, removed: 0 }) {
+                bob_saw_device_added = true;
+            }
+            // The laptop made the change itself, so it is not told about it.
+            assert!(who == "bob" || !matches!(e, Event::DevicesChanged { .. }), "laptop told of its own change: {e:?}");
         }
     }
+    assert!(bob_saw_device_added, "Bob is told Alice added a device");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -321,9 +328,16 @@ async fn removed_device_is_cut_off() {
     bob.send_text(dm.id, "just you now").await.expect("send");
     alice.sync().await.expect("alice sync");
     assert_eq!(last_in(&alice, dm.id).as_deref(), Some("just you now"));
+    // Alice's next message carries her new chain head, so Bob fetches the
+    // removal and is told.
+    alice.send_text(dm.id, "yes").await.expect("reply");
+    bob.sync().await.expect("bob sync");
+    let mut told = false;
     while let Ok(e) = bob_events.try_recv() {
         assert!(!matches!(e, Event::Notice { .. }), "bob refused something: {e:?}");
+        told |= e == (Event::DevicesChanged { username: "alice".into(), added: 0, removed: 1 });
     }
+    assert!(told, "Bob is told Alice removed a device");
 }
 
 fn last_in(c: &Core, conv: postern_core::ConversationId) -> Option<String> {
