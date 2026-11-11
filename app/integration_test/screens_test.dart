@@ -206,8 +206,13 @@ void main() {
     await _tap(t, find.textContaining('versions'));
     await _shot(t, '04-versions');
 
-    // A message's own menu, on a right-click.
-    await t.tapAt(t.getCenter(find.text('count me in. who has the quickdraws?')), buttons: kSecondaryButton);
+    // A message's own menu, on a right-click after dragging across its text.
+    // (A right-click with a real selection once crashed the selection's own
+    // menu; test input does not make a selection, so this cannot catch that.)
+    final quickdraws = t.getRect(find.text('count me in. who has the quickdraws?'));
+    await t.dragFrom(quickdraws.centerLeft + const Offset(4, 0), const Offset(120, 0), kind: PointerDeviceKind.mouse);
+    await _settle(t, 300);
+    await t.tapAt(quickdraws.centerLeft + const Offset(40, 0), buttons: kSecondaryButton);
     await _wait(t, find.text('Delete message'));
     await _shot(t, '04b-message-menu');
     await t.sendKeyEvent(LogicalKeyboardKey.escape);

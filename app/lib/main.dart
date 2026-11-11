@@ -2,6 +2,7 @@
 
 import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:postern/src/rust/api/client.dart';
@@ -18,6 +19,10 @@ import 'ui/window_frame.dart';
 /// for running a second account, or a test profile, beside your own.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // A widget that fails to build is drawn as a grey box in release builds,
+  // which over an overlay covers the whole window. Draw nothing instead;
+  // the error is still printed (and reaches the system log).
+  if (kReleaseMode) ErrorWidget.builder = (_) => const SizedBox.shrink();
   await RustLib.init();
   final env = Platform.environment;
   runApp(PosternApp(profileDir: env['POSTERN_PROFILE'], keyFile: env['POSTERN_DB_KEY_FILE']));

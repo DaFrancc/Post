@@ -398,9 +398,12 @@ class _ChatViewState extends State<ChatView> {
                         onNotification: _onScroll,
                         // Text can be selected and copied with Ctrl+C; a
                         // right-click opens the message's own menu instead
-                        // of the selection's.
+                        // of the selection's. The selection still asks for
+                        // its menu on a right-click and requires a builder
+                        // (null crashes it), so it gets one that draws
+                        // nothing.
                         child: SelectionArea(
-                          contextMenuBuilder: null,
+                          contextMenuBuilder: (context, selection) => const SizedBox.shrink(),
                           child: ListView.builder(
                             controller: _scroll,
                             reverse: true,
