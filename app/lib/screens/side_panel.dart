@@ -23,9 +23,7 @@ class SidePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Panel(
-      child: conversation.isGroup
-          ? _Members(state: state, conversation: conversation)
-          : _Profile(state: state, username: conversation.peer ?? ''),
+      child: conversation.isGroup ? _Members(state: state, conversation: conversation) : _Profile(state: state, username: conversation.peer ?? ''),
     );
   }
 }
@@ -93,7 +91,11 @@ class _MembersState extends State<_Members> {
         if (_amAdmin) const PopupMenuItem(value: 'add', child: Text('Add people')),
         if (_amAdmin) const PopupMenuItem(value: 'rename', child: Text('Rename group')),
         const PopupMenuItem(value: 'myname', child: Text('Your name in this group')),
-        if (_c.following) const PopupMenuItem(value: 'leave', child: Text('Leave group', style: TextStyle(color: PColors.danger))),
+        if (_c.following)
+          const PopupMenuItem(
+            value: 'leave',
+            child: Text('Leave group', style: TextStyle(color: PColors.danger)),
+          ),
       ],
     );
     if (!mounted) return;
@@ -121,7 +123,11 @@ class _MembersState extends State<_Members> {
         if (m.you) const PopupMenuItem(value: 'myname', child: Text('Your name in this group')),
         if (_amAdmin && !m.admin) const PopupMenuItem(value: 'admin', child: Text('Make admin')),
         if (_amAdmin && m.admin) const PopupMenuItem(value: 'unadmin', child: Text('Remove as admin')),
-        if (_amAdmin && !m.you) PopupMenuItem(value: 'remove', child: Text('Remove from ${_c.title}', style: const TextStyle(color: PColors.danger))),
+        if (_amAdmin && !m.you)
+          PopupMenuItem(
+            value: 'remove',
+            child: Text('Remove from ${_c.title}', style: const TextStyle(color: PColors.danger)),
+          ),
       ],
     );
     if (!mounted) return;
@@ -186,13 +192,7 @@ class _MembersState extends State<_Members> {
                         padding: const EdgeInsets.fromLTRB(10, 12, 10, 4),
                         child: Text('${presenceLabel(s).toUpperCase()} · ${sections[s]!.length}', style: PType.label),
                       ),
-                      for (final m in sections[s]!)
-                        _MemberRow(
-                          state: _state,
-                          m: m,
-                          presence: s,
-                          onMenu: (at) => _memberMenu(m, at),
-                        ),
+                      for (final m in sections[s]!) _MemberRow(state: _state, m: m, presence: s, onMenu: (at) => _memberMenu(m, at)),
                     ],
                   if (_amAdmin && _c.following)
                     Padding(
@@ -268,12 +268,20 @@ class _MemberRowState extends State<_MemberRow> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                               decoration: BoxDecoration(color: PColors.adminSoft, borderRadius: BorderRadius.circular(6)),
-                              child: const Text('admin', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: PColors.adminText)),
+                              child: const Text(
+                                'admin',
+                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: PColors.adminText),
+                              ),
                             ),
                           ],
                         ],
                       ),
-                      Text(note ?? '@${m.username}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: PColors.textFaint)),
+                      Text(
+                        note ?? '@${m.username}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12, color: PColors.textFaint),
+                      ),
                     ],
                   ),
                 ),
@@ -340,14 +348,24 @@ class _ProfileState extends State<_Profile> {
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 26, 16, 16),
           children: [
-            Center(child: PAvatar(name: name, colorKey: widget.username, size: 80, presence: presence)),
+            Center(
+              child: PAvatar(name: name, colorKey: widget.username, size: 80, presence: presence),
+            ),
             const SizedBox(height: 12),
             Text(name, textAlign: TextAlign.center, style: PType.heading),
             const SizedBox(height: 2),
-            Text('@${widget.username} · ${presenceLabel(presence)}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, color: PColors.textFaint)),
+            Text(
+              '@${widget.username} · ${presenceLabel(presence)}',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 13, color: PColors.textFaint),
+            ),
             if (p != null && p.nickname.isNotEmpty && p.displayName.isNotEmpty && p.displayName != p.nickname) ...[
               const SizedBox(height: 2),
-              Text('calls themselves ${p.displayName}', textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: PColors.textFaint)),
+              Text(
+                'calls themselves ${p.displayName}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, color: PColors.textFaint),
+              ),
             ],
             if (p?.note != null) ...[
               const SizedBox(height: 12),
@@ -355,7 +373,11 @@ class _ProfileState extends State<_Profile> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(color: PColors.panelRaised, borderRadius: BorderRadius.circular(12)),
-                  child: Text(p!.note!, textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, color: PColors.textBody)),
+                  child: Text(
+                    p!.note!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 13, color: PColors.textBody),
+                  ),
                 ),
               ),
             ],
@@ -368,13 +390,7 @@ class _ProfileState extends State<_Profile> {
               ),
             ),
             const SizedBox(height: 10),
-            _SafetyCard(
-              firstName: name.split(' ').first,
-              number: _safetyNumber,
-              verified: verified,
-              busy: _busy,
-              onSetVerified: _setVerified,
-            ),
+            _SafetyCard(firstName: name.split(' ').first, number: _safetyNumber, verified: verified, busy: _busy, onSetVerified: _setVerified),
           ],
         );
       },
@@ -406,7 +422,11 @@ class _SafetyCard extends StatelessWidget {
     final color = verified ? PColors.verified : PColors.unverified;
     return Container(
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: PColors.sunken, border: Border.all(color: PColors.selected), borderRadius: BorderRadius.circular(16)),
+      decoration: BoxDecoration(
+        color: PColors.sunken,
+        border: Border.all(color: PColors.selected),
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -414,7 +434,10 @@ class _SafetyCard extends StatelessWidget {
             children: [
               Icon(verified ? Icons.verified_user_outlined : Icons.shield_outlined, size: 16, color: color),
               const SizedBox(width: 8),
-              Text(verified ? 'Safety number verified' : 'Not verified yet', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: color)),
+              Text(
+                verified ? 'Safety number verified' : 'Not verified yet',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: color),
+              ),
             ],
           ),
           const SizedBox(height: 8),

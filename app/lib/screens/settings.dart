@@ -13,8 +13,10 @@ import 'dialogs.dart';
 
 enum SettingsSection { profile, devices, security, about }
 
-Future<void> showSettings(BuildContext context, AppState state, {SettingsSection section = SettingsSection.profile}) =>
-    showDialog(context: context, builder: (_) => _Settings(state: state, initial: section));
+Future<void> showSettings(BuildContext context, AppState state, {SettingsSection section = SettingsSection.profile}) => showDialog(
+  context: context,
+  builder: (_) => _Settings(state: state, initial: section),
+);
 
 class _Settings extends StatefulWidget {
   const _Settings({required this.state, required this.initial});
@@ -32,10 +34,17 @@ class _SettingsState extends State<_Settings> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
+    return PDialogEntrance(child: _dialog(size));
+  }
+
+  Widget _dialog(Size size) {
     return Dialog(
       backgroundColor: PColors.dialog,
       insetPadding: const EdgeInsets.all(32),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22), side: const BorderSide(color: PColors.borderStrong)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(22),
+        side: const BorderSide(color: PColors.borderStrong),
+      ),
       clipBehavior: Clip.antiAlias,
       child: SizedBox(
         width: 820,
@@ -50,7 +59,10 @@ class _SettingsState extends State<_Settings> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Padding(padding: EdgeInsets.fromLTRB(10, 0, 10, 14), child: Text('Settings', style: PType.title)),
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(10, 0, 10, 14),
+                    child: Text('Settings', style: PType.title),
+                  ),
                   for (final s in SettingsSection.values) _NavItem(section: s, selected: s == _section, onTap: () => setState(() => _section = s)),
                 ],
               ),
@@ -86,11 +98,11 @@ class _SettingsState extends State<_Settings> {
   }
 
   static String _title(SettingsSection s) => switch (s) {
-        SettingsSection.profile => 'Profile',
-        SettingsSection.devices => 'Devices',
-        SettingsSection.security => 'Security',
-        SettingsSection.about => 'Account',
-      };
+    SettingsSection.profile => 'Profile',
+    SettingsSection.devices => 'Devices',
+    SettingsSection.security => 'Security',
+    SettingsSection.about => 'Account',
+  };
 }
 
 class _NavItem extends StatefulWidget {
@@ -125,14 +137,17 @@ class _NavItemState extends State<_NavItem> {
           margin: const EdgeInsets.only(bottom: 2),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: widget.selected ? PColors.selected : (_hover ? PColors.hover : Colors.transparent),
+            color: widget.selected ? PColors.active : (_hover ? PColors.hover : Colors.transparent),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
             children: [
               Icon(icon, size: 18, color: widget.selected ? PColors.text : PColors.textMuted),
               const SizedBox(width: 10),
-              Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: widget.selected ? PColors.textStrong : PColors.textMuted)),
+              Text(
+                label,
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: widget.selected ? PColors.textStrong : PColors.textMuted),
+              ),
             ],
           ),
         ),
@@ -284,11 +299,28 @@ class _ProfileSettingsState extends State<_ProfileSettings> {
           enabled: !_busy,
         ),
         const SizedBox(height: 6),
-        Row(
-          children: [
-            Checkbox(value: _keepNote, onChanged: _busy ? null : (v) => setState(() => _keepNote = v ?? false)),
-            const Text('Keep the note until I change it', style: TextStyle(fontSize: 13.5, color: PColors.textMuted)),
-          ],
+        // Aligned with the fields' edge: no tap-target padding on the box.
+        MouseRegion(
+          cursor: _busy ? SystemMouseCursors.basic : SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: _busy ? null : () => setState(() => _keepNote = !_keepNote),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: Checkbox(
+                    value: _keepNote,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                    onChanged: _busy ? null : (v) => setState(() => _keepNote = v ?? false),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Text('Keep the note until I change it', style: TextStyle(fontSize: 13.5, color: PColors.textMuted)),
+              ],
+            ),
+          ),
         ),
         if (_error != null) ...[const SizedBox(height: 12), PErrorBox(_error!)],
         const SizedBox(height: 16),
@@ -356,10 +388,12 @@ class _DeviceSettingsState extends State<_DeviceSettings> {
               help: 'Shown only on your own devices.',
               onSubmitted: (v) => Navigator.of(context).pop(v),
             ),
-            PDialogActions(children: [
-              OutlinedButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-              FilledButton(onPressed: () => Navigator.of(context).pop(controller.text), child: const Text('Save')),
-            ]),
+            PDialogActions(
+              children: [
+                OutlinedButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+                FilledButton(onPressed: () => Navigator.of(context).pop(controller.text), child: const Text('Save')),
+              ],
+            ),
           ],
         ),
       ),
@@ -435,7 +469,11 @@ class _DeviceRow extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
-      decoration: BoxDecoration(color: PColors.sunken, border: Border.all(color: PColors.selected), borderRadius: BorderRadius.circular(16)),
+      decoration: BoxDecoration(
+        color: PColors.sunken,
+        border: Border.all(color: PColors.selected),
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Row(
         children: [
           Container(
@@ -451,24 +489,33 @@ class _DeviceRow extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Flexible(child: Text(device.name.isEmpty ? 'Unnamed device' : device.name, style: PType.name, overflow: TextOverflow.ellipsis)),
+                    Flexible(
+                      child: Text(device.name.isEmpty ? 'Unnamed device' : device.name, style: PType.name, overflow: TextOverflow.ellipsis),
+                    ),
                     if (device.thisDevice) ...[
                       const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
                         decoration: BoxDecoration(color: PColors.accentSoft, borderRadius: BorderRadius.circular(6)),
-                        child: const Text('this device', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: PColors.accentText)),
+                        child: const Text(
+                          'this device',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: PColors.accentText),
+                        ),
                       ),
                     ],
                   ],
                 ),
                 const SizedBox(height: 2),
-                Text(shortId(device.id), style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: PColors.textFaint)),
+                Text(
+                  shortId(device.id),
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: PColors.textFaint),
+                ),
               ],
             ),
           ),
           PIconButton(icon: Icons.edit_outlined, tooltip: 'Rename', onPressed: onRename),
-          if (onRemove != null) PIconButton(icon: Icons.delete_outline_rounded, tooltip: 'Remove from your account', color: PColors.danger, onPressed: onRemove),
+          if (onRemove != null)
+            PIconButton(icon: Icons.delete_outline_rounded, tooltip: 'Remove from your account', color: PColors.danger, onPressed: onRemove),
         ],
       ),
     );
@@ -543,7 +590,10 @@ class _SecuritySettingsState extends State<_SecuritySettings> {
         if (notices == null)
           const PSpinner()
         else if (notices.isEmpty)
-          const Text('Nothing to report. Warnings about your account or the server would show here.', style: TextStyle(fontSize: 13.5, color: PColors.textFaint))
+          const Text(
+            'Nothing to report. Warnings about your account or the server would show here.',
+            style: TextStyle(fontSize: 13.5, color: PColors.textFaint),
+          )
         else
           for (final n in notices)
             Padding(
@@ -551,9 +601,14 @@ class _SecuritySettingsState extends State<_SecuritySettings> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Padding(padding: EdgeInsets.only(top: 2), child: Icon(Icons.shield_outlined, size: 15, color: PColors.unverified)),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 2),
+                    child: Icon(Icons.shield_outlined, size: 15, color: PColors.unverified),
+                  ),
                   const SizedBox(width: 10),
-                  Expanded(child: Text(n.text, style: const TextStyle(fontSize: 13.5, height: 1.45, color: PColors.textBody))),
+                  Expanded(
+                    child: Text(n.text, style: const TextStyle(fontSize: 13.5, height: 1.45, color: PColors.textBody)),
+                  ),
                   const SizedBox(width: 10),
                   Text(messageTime(n.atMs), style: PType.small),
                 ],

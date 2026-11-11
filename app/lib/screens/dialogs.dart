@@ -14,11 +14,7 @@ import '../ui/controls.dart';
 /// without a leading @.
 List<String> parseUsernames(String text) {
   final seen = <String>{};
-  return text
-      .split(RegExp(r'[\s,;]+'))
-      .map((u) => u.trim().replaceFirst(RegExp(r'^@'), '').toLowerCase())
-      .where((u) => u.isNotEmpty && seen.add(u))
-      .toList();
+  return text.split(RegExp(r'[\s,;]+')).map((u) => u.trim().replaceFirst(RegExp(r'^@'), '').toLowerCase()).where((u) => u.isNotEmpty && seen.add(u)).toList();
 }
 
 /// A field in a [_FormDialog].
@@ -87,10 +83,7 @@ class _FormDialogState extends State<_FormDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (widget.intro != null) ...[
-            Text(widget.intro!, style: PType.text.copyWith(color: PColors.textMuted)),
-            const SizedBox(height: 16),
-          ],
+          if (widget.intro != null) ...[Text(widget.intro!, style: PType.text.copyWith(color: PColors.textMuted)), const SizedBox(height: 16)],
           for (final (i, input) in widget.inputs.indexed) ...[
             if (i > 0) const SizedBox(height: 14),
             PField(
@@ -105,10 +98,12 @@ class _FormDialogState extends State<_FormDialog> {
             ),
           ],
           if (_error != null) ...[const SizedBox(height: 16), PErrorBox(_error!)],
-          PDialogActions(children: [
-            OutlinedButton(onPressed: _busy ? null : () => Navigator.of(context).pop(), child: const Text('Cancel')),
-            FilledButton(onPressed: _busy ? null : _go, child: _busy ? const PSpinner() : Text(widget.action)),
-          ]),
+          PDialogActions(
+            children: [
+              OutlinedButton(onPressed: _busy ? null : () => Navigator.of(context).pop(), child: const Text('Cancel')),
+              FilledButton(onPressed: _busy ? null : _go, child: _busy ? const PSpinner() : Text(widget.action)),
+            ],
+          ),
         ],
       ),
     );
@@ -238,8 +233,10 @@ Future<void> leaveGroup(BuildContext context, AppState state, ConversationInfo c
 
 // ---------------------------------------------------------------- linking
 
-Future<void> linkDevice(BuildContext context, AppState state) =>
-    showDialog(context: context, builder: (_) => _LinkDialog(state: state));
+Future<void> linkDevice(BuildContext context, AppState state) => showDialog(
+  context: context,
+  builder: (_) => _LinkDialog(state: state),
+);
 
 enum _LinkStep { enter, confirm, done }
 
@@ -281,19 +278,19 @@ class _LinkDialogState extends State<_LinkDialog> {
   }
 
   Future<void> _inspect() => _run(() async {
-        final code = _code.text.trim();
-        if (code.isEmpty) throw ArgumentError('Enter the code your new device shows.');
-        final r = await widget.state.client.linkInspect(code: code);
-        setState(() {
-          _request = r;
-          _step = _LinkStep.confirm;
-        });
-      });
+    final code = _code.text.trim();
+    if (code.isEmpty) throw ArgumentError('Enter the code your new device shows.');
+    final r = await widget.state.client.linkInspect(code: code);
+    setState(() {
+      _request = r;
+      _step = _LinkStep.confirm;
+    });
+  });
 
   Future<void> _approve() => _run(() async {
-        await widget.state.client.linkApprove(code: _code.text.trim());
-        setState(() => _step = _LinkStep.done);
-      });
+    await widget.state.client.linkApprove(code: _code.text.trim());
+    setState(() => _step = _LinkStep.done);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -306,90 +303,95 @@ class _LinkDialogState extends State<_LinkDialog> {
         children: [
           ...switch (_step) {
             _LinkStep.enter => [
-                Text.rich(
-                  TextSpan(children: [
-                    const TextSpan(text: 'On your new device, choose '),
-                    TextSpan(text: 'Link to my account', style: PType.text.copyWith(color: PColors.text, fontWeight: FontWeight.w600)),
-                    const TextSpan(text: ', then enter the code it shows.'),
-                  ]),
-                  style: PType.text.copyWith(color: PColors.textMuted),
-                ),
-                const SizedBox(height: 16),
-                PField(
-                  label: 'Link code',
-                  controller: _code,
-                  hint: 'XXXXX-XXXXX-XXXXX-XXXXX-XXXXX',
-                  mono: true,
-                  autofocus: true,
-                  enabled: !_busy,
-                  onSubmitted: (_) => _inspect(),
-                ),
-              ],
-            _LinkStep.confirm => [
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: PColors.sunken,
-                    border: Border.all(color: PColors.selected),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(color: const Color(0xFF1A1D30), borderRadius: BorderRadius.circular(14)),
-                        child: const Icon(Icons.devices_outlined, size: 20, color: PColors.adminText),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(name, style: PType.name),
-                            const SizedBox(height: 2),
-                            Text(shortId(r?.deviceId ?? ''), style: const TextStyle(fontFamily: 'monospace', fontSize: 12.5, color: PColors.textFaint)),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Add this device to your account? It will get new messages in every conversation you are in. Your contacts will see that you added a device.',
-                  style: PType.text.copyWith(color: PColors.textMuted),
-                ),
-              ],
-            _LinkStep.done => [
-                Row(
+              Text.rich(
+                TextSpan(
                   children: [
-                    const Icon(Icons.check_circle_outline_rounded, color: PColors.verified, size: 22),
-                    const SizedBox(width: 10),
-                    Expanded(child: Text('$name is linked', style: PType.name.copyWith(color: PColors.verified))),
+                    const TextSpan(text: 'On your new device, choose '),
+                    TextSpan(
+                      text: 'Link to my account',
+                      style: PType.text.copyWith(color: PColors.text, fontWeight: FontWeight.w600),
+                    ),
+                    const TextSpan(text: ', then enter the code it shows.'),
                   ],
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  'It is joining your conversations now. It sees messages sent from here on.',
-                  style: PType.text.copyWith(color: PColors.textMuted),
+                style: PType.text.copyWith(color: PColors.textMuted),
+              ),
+              const SizedBox(height: 16),
+              PField(
+                label: 'Link code',
+                controller: _code,
+                hint: 'XXXXX-XXXXX-XXXXX-XXXXX-XXXXX',
+                mono: true,
+                autofocus: true,
+                enabled: !_busy,
+                onSubmitted: (_) => _inspect(),
+              ),
+            ],
+            _LinkStep.confirm => [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: PColors.sunken,
+                  border: Border.all(color: PColors.selected),
+                  borderRadius: BorderRadius.circular(16),
                 ),
-              ],
+                child: Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(color: const Color(0xFF1A1D30), borderRadius: BorderRadius.circular(14)),
+                      child: const Icon(Icons.devices_outlined, size: 20, color: PColors.adminText),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(name, style: PType.name),
+                          const SizedBox(height: 2),
+                          Text(
+                            shortId(r?.deviceId ?? ''),
+                            style: const TextStyle(fontFamily: 'monospace', fontSize: 12.5, color: PColors.textFaint),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Add this device to your account? It will get new messages in every conversation you are in. Your contacts will see that you added a device.',
+                style: PType.text.copyWith(color: PColors.textMuted),
+              ),
+            ],
+            _LinkStep.done => [
+              Row(
+                children: [
+                  const Icon(Icons.check_circle_outline_rounded, color: PColors.verified, size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text('$name is linked', style: PType.name.copyWith(color: PColors.verified)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text('It is joining your conversations now. It sees messages sent from here on.', style: PType.text.copyWith(color: PColors.textMuted)),
+            ],
           },
           if (_error != null) ...[const SizedBox(height: 16), PErrorBox(_error!)],
           PDialogActions(
             children: switch (_step) {
               _LinkStep.enter => [
-                  OutlinedButton(onPressed: _busy ? null : () => Navigator.of(context).pop(), child: const Text('Cancel')),
-                  FilledButton(onPressed: _busy ? null : _inspect, child: _busy ? const PSpinner() : const Text('Continue')),
-                ],
+                OutlinedButton(onPressed: _busy ? null : () => Navigator.of(context).pop(), child: const Text('Cancel')),
+                FilledButton(onPressed: _busy ? null : _inspect, child: _busy ? const PSpinner() : const Text('Continue')),
+              ],
               _LinkStep.confirm => [
-                  OutlinedButton(onPressed: _busy ? null : () => Navigator.of(context).pop(), child: const Text('Not my device')),
-                  FilledButton(onPressed: _busy ? null : _approve, child: _busy ? const PSpinner() : const Text('Add device')),
-                ],
-              _LinkStep.done => [
-                  FilledButton(autofocus: true, onPressed: () => Navigator.of(context).pop(), child: const Text('Done')),
-                ],
+                OutlinedButton(onPressed: _busy ? null : () => Navigator.of(context).pop(), child: const Text('Not my device')),
+                FilledButton(onPressed: _busy ? null : _approve, child: _busy ? const PSpinner() : const Text('Add device')),
+              ],
+              _LinkStep.done => [FilledButton(autofocus: true, onPressed: () => Navigator.of(context).pop(), child: const Text('Done'))],
             },
           ),
         ],

@@ -59,8 +59,8 @@ String messageTime(int ms) {
 
 /// What others see of someone, as a label.
 String presenceLabel(String word) => switch (word) {
-      'online' => 'Online',
-      'away' => 'Away',
-      'dnd' => 'Do not disturb',
-      _ => 'Offline',
-    };
+  'online' => 'Online',
+  'away' => 'Away',
+  'dnd' => 'Do not disturb',
+  _ => 'Offline',
+};

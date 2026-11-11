@@ -75,14 +75,17 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   }
 
   void _go(_Step step) => setState(() {
-        _step = step;
-        _error = null;
-        _fieldErrors = const {};
-      });
+    _step = step;
+    _error = null;
+    _fieldErrors = const {};
+  });
 
   /// Show field problems if there are any; true if all is well.
   bool _validate(Map<String, String?> checks) {
-    final problems = {for (final e in checks.entries) if (e.value != null) e.key: e.value!};
+    final problems = {
+      for (final e in checks.entries)
+        if (e.value != null) e.key: e.value!,
+    };
     setState(() {
       _fieldErrors = problems;
       _error = null;
@@ -118,6 +121,12 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     setState(() => _busy = true);
     try {
       final me = await widget.client.register(server: server, invite: invite, username: username);
+      // Name the device after the computer, as linking does, so it is
+      // recognisable in the device list. Only a convenience: carry on if
+      // it fails.
+      try {
+        await widget.client.renameDevice(device: me.deviceId, name: Platform.localHostname);
+      } catch (_) {}
       widget.onSignedIn(me);
     } catch (e) {
       _showError(e);
@@ -173,11 +182,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   }
 
   Widget _body() => switch (_step) {
-        _Step.choose => _choose(),
-        _Step.register => _registerForm(),
-        _Step.link => _linkForm(),
-        _Step.linkWaiting => _linkWaiting(),
-      };
+    _Step.choose => _choose(),
+    _Step.register => _registerForm(),
+    _Step.link => _linkForm(),
+    _Step.linkWaiting => _linkWaiting(),
+  };
 
   Widget _choose() {
     return Column(
@@ -190,7 +199,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           ),
         ),
         const SizedBox(height: 20),
-        const Text('Welcome to Postern', textAlign: TextAlign.center, style: TextStyle(fontFamily: PType.display, fontWeight: FontWeight.w600, fontSize: 26)),
+        const Text(
+          'Welcome to Postern',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontFamily: PType.display, fontWeight: FontWeight.w600, fontSize: 26),
+        ),
         const SizedBox(height: 8),
         const Text(
           'Private messaging for your community. Everything is end-to-end encrypted, and the server never learns who talks to whom.',
@@ -205,12 +218,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           onTap: () => _go(_Step.register),
         ),
         const SizedBox(height: 12),
-        _Choice(
-          icon: Icons.devices_outlined,
-          title: 'Link to my account',
-          detail: 'You already use Postern on another device.',
-          onTap: () => _go(_Step.link),
-        ),
+        _Choice(icon: Icons.devices_outlined, title: 'Link to my account', detail: 'You already use Postern on another device.', onTap: () => _go(_Step.link)),
       ],
     );
   }
@@ -223,14 +231,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       action: FilledButton(onPressed: _busy ? null : _register, child: _busy ? const PSpinner() : const Text('Create account')),
       children: [
         PField(label: 'Server', controller: _server, hint: 'wss://chat.example.org/v1/ws', enabled: !_busy, error: _fieldErrors['server']),
-        PField(
-          label: 'Invite code',
-          controller: _invite,
-          hint: 'From your server’s admin',
-          enabled: !_busy,
-          mono: true,
-          error: _fieldErrors['invite'],
-        ),
+        PField(label: 'Invite code', controller: _invite, hint: 'From your server’s admin', enabled: !_busy, mono: true, error: _fieldErrors['invite']),
         PField(
           label: 'Username',
           controller: _username,
@@ -276,7 +277,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         ),
         Container(
           padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
-          decoration: BoxDecoration(color: PColors.sunken, border: Border.all(color: PColors.borderStrong), borderRadius: BorderRadius.circular(16)),
+          decoration: BoxDecoration(
+            color: PColors.sunken,
+            border: Border.all(color: PColors.borderStrong),
+            borderRadius: BorderRadius.circular(16),
+          ),
           child: Row(
             children: [
               Expanded(
@@ -318,7 +323,10 @@ class _Choice extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: PColors.panelRaised,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: PColors.borderStrong)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: PColors.borderStrong),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
@@ -370,7 +378,11 @@ class _Form extends StatelessWidget {
         Row(
           children: [
             if (onBack != null) ...[
-              IconButton(tooltip: 'Back', onPressed: onBack, icon: const Icon(Icons.arrow_back_rounded, color: PColors.textMuted)),
+              IconButton(
+                tooltip: 'Back',
+                onPressed: onBack,
+                icon: const Icon(Icons.arrow_back_rounded, color: PColors.textMuted),
+              ),
               const SizedBox(width: 4),
             ],
             Expanded(child: Text(title, style: PType.title)),
@@ -378,13 +390,9 @@ class _Form extends StatelessWidget {
         ),
         const SizedBox(height: 20),
         for (final c in children) ...[c, const SizedBox(height: 16)],
-        if (error != null) ...[
-          PErrorBox(error!),
-          const SizedBox(height: 16),
-        ],
+        if (error != null) ...[PErrorBox(error!), const SizedBox(height: 16)],
         if (action != null) Align(alignment: Alignment.centerRight, child: action!),
       ],
     );
   }
 }
-

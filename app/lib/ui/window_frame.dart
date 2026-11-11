@@ -77,11 +77,16 @@ class _WindowFrameState extends State<WindowFrame> {
       ),
       child: ClipRRect(
         borderRadius: radius,
-        child: Column(
-          children: [
-            _TitleBar(maximized: _maximized),
-            Expanded(child: widget.child),
-          ],
+        child: DecoratedBox(
+          // A faint glow of the brand colours from the top left, seen in the
+          // gaps between panels.
+          decoration: const BoxDecoration(gradient: PColors.groundGlow),
+          child: Column(
+            children: [
+              _TitleBar(maximized: _maximized),
+              Expanded(child: widget.child),
+            ],
+          ),
         ),
       ),
     );
@@ -162,7 +167,10 @@ class _TitleBar extends StatelessWidget {
                         child: Image.asset('assets/brand/logo.png', width: 18, height: 18, filterQuality: FilterQuality.medium),
                       ),
                       const SizedBox(width: 10),
-                      const Text('Postern', style: TextStyle(fontFamily: PType.display, fontWeight: FontWeight.w600, fontSize: 13.5, color: PColors.textMuted)),
+                      const Text(
+                        'Postern',
+                        style: TextStyle(fontFamily: PType.display, fontWeight: FontWeight.w600, fontSize: 13.5, color: PColors.textMuted),
+                      ),
                     ],
                   ),
                 ),

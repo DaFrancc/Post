@@ -38,6 +38,7 @@ class _ChatViewState extends State<ChatView> {
   final _composer = TextEditingController();
   final _composerFocus = FocusNode();
   final _editor = TextEditingController();
+  final _editorFocus = FocusNode();
   final _scroll = ScrollController();
   late final StreamSubscription<AppEvent> _events;
 
@@ -47,6 +48,10 @@ class _ChatViewState extends State<ChatView> {
   final _versions = <String, List<MessageVersionInfo>>{};
   int _limit = _page;
   bool _loaded = false;
+
+  /// Messages already here when the conversation opened. Others arrived
+  /// while it was open, and animate in.
+  Set<String>? _initial;
   bool _loadingMore = false;
   String? _editing;
   DateTime _lastTyping = DateTime.fromMillisecondsSinceEpoch(0);
@@ -58,6 +63,7 @@ class _ChatViewState extends State<ChatView> {
   void initState() {
     super.initState();
     _events = _state.events.listen(_onEvent);
+    HardwareKeyboard.instance.addHandler(_typeToCompose);
     unawaited(_load());
     unawaited(_loadMembers());
     _composerFocus.requestFocus();
@@ -66,9 +72,11 @@ class _ChatViewState extends State<ChatView> {
   @override
   void dispose() {
     _events.cancel();
+    HardwareKeyboard.instance.removeHandler(_typeToCompose);
     _composer.dispose();
     _composerFocus.dispose();
     _editor.dispose();
+    _editorFocus.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -104,6 +112,7 @@ class _ChatViewState extends State<ChatView> {
       setState(() {
         _messages = messages;
         _notices = notices;
+        _initial ??= {for (final m in messages) m.id};
         _loaded = true;
         _loadingMore = false;
       });
@@ -166,6 +175,31 @@ class _ChatViewState extends State<ChatView> {
     unawaited(_state.client.sendTyping(conversation: _id).catchError((_) {}));
   }
 
+  /// Typing anywhere in the conversation types into the composer, as it
+  /// would in other chat apps, unless something else holds the keyboard.
+  /// Sees every key press (a keyboard handler, since with nothing focused
+  /// no widget would); acts only when no text field holds the keyboard and
+  /// nothing (a dialog, a menu) is open over the conversation.
+  bool _typeToCompose(KeyEvent e) {
+    if (e is! KeyDownEvent || _editing != null || !widget.conversation.following) return false;
+    if (!(ModalRoute.of(context)?.isCurrent ?? false)) return false;
+    final primary = FocusManager.instance.primaryFocus?.context;
+    if (primary != null && (primary.widget is EditableText || primary.findAncestorStateOfType<EditableTextState>() != null)) return false;
+    final keys = HardwareKeyboard.instance;
+    final ch = e.character;
+    if (ch == null || ch.isEmpty || keys.isControlPressed || keys.isAltPressed || keys.isMetaPressed) return false;
+    final code = ch.codeUnitAt(0);
+    if (code < 0x20 || code == 0x7f) return false;
+    final text = _composer.text + ch;
+    _composer.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    _composerFocus.requestFocus();
+    _typed(text);
+    return true;
+  }
+
   KeyEventResult _composerKey(FocusNode _, KeyEvent e) {
     if (e is! KeyDownEvent) return KeyEventResult.ignored;
     final composing = _composer.value.composing.isValid;
@@ -191,6 +225,10 @@ class _ChatViewState extends State<ChatView> {
       _editing = m.id;
       _editor.text = m.body ?? '';
       _editor.selection = TextSelection.collapsed(offset: _editor.text.length);
+    });
+    // Take the keyboard from the composer once the editor is built.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _editing == m.id) _editorFocus.requestFocus();
     });
   }
 
@@ -266,10 +304,7 @@ class _ChatViewState extends State<ChatView> {
         add(_Notice(notices[n++]));
       }
       final prev = items.isEmpty ? null : items.last;
-      final joins = prev is _Msg &&
-          prev.m.senderUsername == m.senderUsername &&
-          sameDay(prev.at, at) &&
-          Duration(milliseconds: at - prev.at) < _groupWithin;
+      final joins = prev is _Msg && prev.m.senderUsername == m.senderUsername && sameDay(prev.at, at) && Duration(milliseconds: at - prev.at) < _groupWithin;
       add(_Msg(m, startsGroup: !joins));
     }
     while (n < notices.length) {
@@ -287,13 +322,7 @@ class _ChatViewState extends State<ChatView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _Header(
-            state: _state,
-            conversation: c,
-            memberCount: _members.length,
-            panelOpen: widget.panelOpen,
-            onTogglePanel: widget.onTogglePanel,
-          ),
+          _Header(state: _state, conversation: c, memberCount: _members.length, panelOpen: widget.panelOpen, onTogglePanel: widget.onTogglePanel),
           Expanded(
             child: !_loaded
                 ? const Center(child: PSpinner())
@@ -308,7 +337,10 @@ class _ChatViewState extends State<ChatView> {
                         itemBuilder: (context, i) {
                           if (i == items.length) {
                             return _hasMore
-                                ? const Padding(padding: EdgeInsets.all(16), child: Center(child: PSpinner()))
+                                ? const Padding(
+                                    padding: EdgeInsets.all(16),
+                                    child: Center(child: PSpinner()),
+                                  )
                                 : _Beginning(conversation: c);
                           }
                           return _itemView(items[items.length - 1 - i]);
@@ -321,7 +353,7 @@ class _ChatViewState extends State<ChatView> {
             _Composer(
               controller: _composer,
               focus: _composerFocus,
-              placeholder: 'Message ${c.isGroup ? c.title : c.title}',
+              placeholder: 'Message ${c.title}',
               typing: typing,
               onKey: _composerKey,
               onChanged: _typed,
@@ -335,22 +367,24 @@ class _ChatViewState extends State<ChatView> {
   }
 
   Widget _itemView(_Item item) => switch (item) {
-        _Day(:final at) => _DaySeparator(dayLabel(at)),
-        _Notice(:final n) => _NoticeLine(n),
-        _Msg(:final m, :final startsGroup) => _MessageTile(
-            key: ValueKey(m.id),
-            m: m,
-            startsGroup: startsGroup,
-            versions: _versions[m.id],
-            editing: _editing == m.id,
-            editor: _editor,
-            onEdit: () => _startEdit(m),
-            onDelete: () => _delete(m),
-            onToggleVersions: () => _toggleVersions(m),
-            onSaveEdit: () => _saveEdit(m),
-            onCancelEdit: _cancelEdit,
-          ),
-      };
+    _Day(:final at) => _DaySeparator(dayLabel(at)),
+    _Notice(:final n) => _NoticeLine(n),
+    _Msg(:final m, :final startsGroup) => _MessageTile(
+      key: ValueKey(m.id),
+      arrived: !(_initial?.contains(m.id) ?? true),
+      m: m,
+      startsGroup: startsGroup,
+      versions: _versions[m.id],
+      editing: _editing == m.id,
+      editor: _editor,
+      editorFocus: _editorFocus,
+      onEdit: () => _startEdit(m),
+      onDelete: () => _delete(m),
+      onToggleVersions: () => _toggleVersions(m),
+      onSaveEdit: () => _saveEdit(m),
+      onCancelEdit: _cancelEdit,
+    ),
+  };
 }
 
 extension<T> on List<T> {
@@ -413,24 +447,37 @@ class _Header extends StatelessWidget {
         ? (memberCount == 0 ? 'Group' : '$memberCount ${memberCount == 1 ? 'member' : 'members'}')
         : '@$peer · ${presenceLabel(state.presenceOf(peer ?? ''))}';
     return Container(
-      padding: const EdgeInsets.fromLTRB(22, 12, 14, 12),
-      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: PColors.border))),
+      constraints: const BoxConstraints(minHeight: PShape.header),
+      padding: const EdgeInsets.fromLTRB(22, 8, 12, 8),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: PColors.border)),
+      ),
       child: Row(
         children: [
-          Flexible(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
+          Expanded(
+            child: Row(
               children: [
-                Text(c.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: PType.heading),
-                const SizedBox(height: 2),
-                Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: PType.small),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(c.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: PType.heading),
+                      const SizedBox(height: 1),
+                      AnimatedSwitcher(
+                        duration: PMotion.normal,
+                        layoutBuilder: (current, previous) => Stack(alignment: Alignment.centerLeft, children: [...previous, ?current]),
+                        child: Text(subtitle, key: ValueKey(subtitle), maxLines: 1, overflow: TextOverflow.ellipsis, style: PType.small),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const _EncryptedBadge(),
               ],
             ),
           ),
           const SizedBox(width: 12),
-          const _EncryptedBadge(),
-          const Spacer(),
           if (onTogglePanel != null)
             PIconButton(
               icon: c.isGroup ? Icons.people_alt_outlined : Icons.person_outline_rounded,
@@ -461,7 +508,10 @@ class _EncryptedBadge extends StatelessWidget {
           children: [
             Icon(Icons.lock_outline_rounded, size: 13, color: PColors.accentText),
             SizedBox(width: 6),
-            Text('End-to-end encrypted', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: PColors.accentText)),
+            Text(
+              'End-to-end encrypted',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: PColors.accentText),
+            ),
           ],
         ),
       ),
@@ -514,7 +564,10 @@ class _DaySeparator extends StatelessWidget {
           const Expanded(child: Divider(color: PColors.selected, height: 1)),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: PColors.textFaint)),
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: PColors.textFaint),
+            ),
           ),
           const Expanded(child: Divider(color: PColors.selected, height: 1)),
         ],
@@ -542,10 +595,15 @@ class _NoticeLine extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text.rich(
-              TextSpan(children: [
-                TextSpan(text: n.text),
-                TextSpan(text: '  ${clockTime(n.atMs)}', style: const TextStyle(fontSize: 11.5, color: PColors.textFaint)),
-              ]),
+              TextSpan(
+                children: [
+                  TextSpan(text: n.text),
+                  TextSpan(
+                    text: '  ${clockTime(n.atMs)}',
+                    style: const TextStyle(fontSize: 11.5, color: PColors.textFaint),
+                  ),
+                ],
+              ),
               style: const TextStyle(fontSize: 13, height: 1.45, color: PColors.textMuted),
             ),
           ),
@@ -558,11 +616,13 @@ class _NoticeLine extends StatelessWidget {
 class _MessageTile extends StatefulWidget {
   const _MessageTile({
     super.key,
+    required this.arrived,
     required this.m,
     required this.startsGroup,
     required this.versions,
     required this.editing,
     required this.editor,
+    required this.editorFocus,
     required this.onEdit,
     required this.onDelete,
     required this.onToggleVersions,
@@ -570,11 +630,14 @@ class _MessageTile extends StatefulWidget {
     required this.onCancelEdit,
   });
 
+  /// It came in while the conversation was open: slide it in.
+  final bool arrived;
   final MessageInfo m;
   final bool startsGroup;
   final List<MessageVersionInfo>? versions;
   final bool editing;
   final TextEditingController editor;
+  final FocusNode editorFocus;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onToggleVersions;
@@ -585,11 +648,35 @@ class _MessageTile extends StatefulWidget {
   State<_MessageTile> createState() => _MessageTileState();
 }
 
-class _MessageTileState extends State<_MessageTile> {
+class _MessageTileState extends State<_MessageTile> with SingleTickerProviderStateMixin {
   bool _hover = false;
+  late final AnimationController _in = AnimationController(vsync: this, duration: PMotion.slow, value: widget.arrived ? 0 : 1);
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.arrived) _in.forward();
+  }
+
+  @override
+  void dispose() {
+    _in.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final a = CurvedAnimation(parent: _in, curve: PMotion.curve);
+    return FadeTransition(
+      opacity: a,
+      child: SlideTransition(
+        position: Tween(begin: const Offset(0, 0.25), end: Offset.zero).animate(a),
+        child: _tile(context),
+      ),
+    );
+  }
+
+  Widget _tile(BuildContext context) {
     final m = widget.m;
     final mine = m.outgoing && !m.deleted && !m.unsupported;
     final actions = <Widget>[
@@ -603,8 +690,22 @@ class _MessageTileState extends State<_MessageTile> {
           onPressed: widget.onToggleVersions,
         ),
       if (m.body != null)
-        PIconButton(icon: Icons.copy_rounded, tooltip: 'Copy text', size: 30, iconSize: 15, onPressed: () => copyText(context, m.body!, what: 'Message copied')),
-      if (mine) PIconButton(icon: Icons.delete_outline_rounded, tooltip: 'Delete for everyone', size: 30, iconSize: 16, color: PColors.danger, onPressed: widget.onDelete),
+        PIconButton(
+          icon: Icons.copy_rounded,
+          tooltip: 'Copy text',
+          size: 30,
+          iconSize: 15,
+          onPressed: () => copyText(context, m.body!, what: 'Message copied'),
+        ),
+      if (mine)
+        PIconButton(
+          icon: Icons.delete_outline_rounded,
+          tooltip: 'Delete for everyone',
+          size: 30,
+          iconSize: 16,
+          color: PColors.danger,
+          onPressed: widget.onDelete,
+        ),
     ];
 
     final body = Column(
@@ -617,13 +718,18 @@ class _MessageTileState extends State<_MessageTile> {
               crossAxisAlignment: CrossAxisAlignment.baseline,
               textBaseline: TextBaseline.alphabetic,
               children: [
-                Flexible(child: Text(m.sender, maxLines: 1, overflow: TextOverflow.ellipsis, style: PType.name)),
+                Flexible(
+                  child: Text(m.sender, maxLines: 1, overflow: TextOverflow.ellipsis, style: PType.name),
+                ),
                 const SizedBox(width: 8),
                 Text(messageTime(m.sentAtMs), style: const TextStyle(fontSize: 12, color: Color(0xFF7C829A))),
               ],
             ),
           ),
-        if (widget.editing) _InlineEditor(controller: widget.editor, onSave: widget.onSaveEdit, onCancel: widget.onCancelEdit) else _bodyText(m),
+        if (widget.editing)
+          _InlineEditor(controller: widget.editor, focus: widget.editorFocus, onSave: widget.onSaveEdit, onCancel: widget.onCancelEdit)
+        else
+          _bodyText(m),
         if (m.failed)
           const Padding(
             padding: EdgeInsets.only(top: 3),
@@ -641,13 +747,11 @@ class _MessageTileState extends State<_MessageTile> {
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: Container(
+      child: AnimatedContainer(
+        duration: PMotion.fast,
         margin: EdgeInsets.only(top: widget.startsGroup ? 10 : 0),
         padding: const EdgeInsets.fromLTRB(10, 3, 10, 3),
-        decoration: BoxDecoration(
-          color: _hover || widget.editing ? const Color(0xFF131522) : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-        ),
+        decoration: BoxDecoration(color: _hover || widget.editing ? PColors.messageHover : PColors.panel, borderRadius: BorderRadius.circular(12)),
         child: Stack(
           clipBehavior: Clip.none,
           children: [
@@ -659,32 +763,51 @@ class _MessageTileState extends State<_MessageTile> {
                   SizedBox(
                     width: 40,
                     child: widget.startsGroup
-                        ? Padding(padding: const EdgeInsets.only(top: 2), child: PAvatar(name: m.sender, colorKey: m.senderUsername, size: 40))
+                        ? Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: PAvatar(name: m.sender, colorKey: m.senderUsername, size: 40),
+                          )
                         : (_hover
-                            ? Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Text(clockTime(m.sentAtMs), textAlign: TextAlign.center, style: const TextStyle(fontSize: 10.5, color: PColors.textFaint)),
-                              )
-                            : null),
+                              ? Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    clockTime(m.sentAtMs),
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(fontSize: 10.5, color: PColors.textFaint),
+                                  ),
+                                )
+                              : null),
                   ),
                   const SizedBox(width: 14),
                   Expanded(child: body),
                 ],
               ),
             ),
-            if (_hover && actions.isNotEmpty && !widget.editing)
+            if (actions.isNotEmpty && !widget.editing)
               Positioned(
                 right: 4,
                 top: widget.startsGroup ? -14 : -18,
-                child: Container(
-                  padding: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                    color: PColors.panelRaised,
-                    border: Border.all(color: PColors.borderStrong),
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 12, offset: Offset(0, 4))],
+                child: IgnorePointer(
+                  ignoring: !_hover,
+                  child: AnimatedOpacity(
+                    opacity: _hover ? 1 : 0,
+                    duration: PMotion.fast,
+                    child: AnimatedSlide(
+                      offset: _hover ? Offset.zero : const Offset(0, 0.15),
+                      duration: PMotion.fast,
+                      curve: PMotion.curve,
+                      child: Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(
+                          color: PColors.panelRaised,
+                          border: Border.all(color: PColors.borderStrong),
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 12, offset: Offset(0, 4))],
+                        ),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: actions),
+                      ),
+                    ),
                   ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: actions),
                 ),
               ),
           ],
@@ -695,7 +818,10 @@ class _MessageTileState extends State<_MessageTile> {
 
   Widget _bodyText(MessageInfo m) {
     if (m.deleted) {
-      return const Text('Message deleted', style: TextStyle(fontSize: 14, height: 1.5, fontStyle: FontStyle.italic, color: PColors.textFaint));
+      return const Text(
+        'Message deleted',
+        style: TextStyle(fontSize: 14, height: 1.5, fontStyle: FontStyle.italic, color: PColors.textFaint),
+      );
     }
     if (m.unsupported) {
       return const Text(
@@ -740,7 +866,11 @@ class _VersionList extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(top: 6),
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-      decoration: BoxDecoration(color: PColors.sunken, border: Border.all(color: PColors.selected), borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(
+        color: PColors.sunken,
+        border: Border.all(color: PColors.selected),
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -757,7 +887,9 @@ class _VersionList extends StatelessWidget {
                       style: const TextStyle(fontSize: 12, height: 1.5, color: Color(0xFF7C829A)),
                     ),
                   ),
-                  Expanded(child: Text(v.body, style: const TextStyle(fontSize: 13, height: 1.5, color: Color(0xFFB9BDCE)))),
+                  Expanded(
+                    child: Text(v.body, style: const TextStyle(fontSize: 13, height: 1.5, color: Color(0xFFB9BDCE))),
+                  ),
                 ],
               ),
             ),
@@ -768,9 +900,10 @@ class _VersionList extends StatelessWidget {
 }
 
 class _InlineEditor extends StatelessWidget {
-  const _InlineEditor({required this.controller, required this.onSave, required this.onCancel});
+  const _InlineEditor({required this.controller, required this.focus, required this.onSave, required this.onCancel});
 
   final TextEditingController controller;
+  final FocusNode focus;
   final VoidCallback onSave;
   final VoidCallback onCancel;
 
@@ -795,7 +928,7 @@ class _InlineEditor extends StatelessWidget {
           },
           child: TextField(
             controller: controller,
-            autofocus: true,
+            focusNode: focus,
             minLines: 1,
             maxLines: 10,
             style: PType.text.copyWith(color: PColors.text),
@@ -803,7 +936,10 @@ class _InlineEditor extends StatelessWidget {
               isDense: true,
               fillColor: PColors.panelRaised,
               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: PColors.borderStrong)),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: PColors.borderStrong),
+              ),
             ),
           ),
         ),
@@ -835,12 +971,17 @@ class _Link extends StatelessWidget {
   Widget build(BuildContext context) {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
-      child: GestureDetector(onTap: onTap, child: Text(text, style: const TextStyle(color: PColors.accentText))),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Text(text, style: const TextStyle(color: PColors.accentText)),
+      ),
     );
   }
 }
 
 // ---------------------------------------------------------------- composer
+
+const _composerText = TextStyle(fontFamily: PType.body, fontSize: 14.5, height: 20 / 14.5, color: PColors.text);
 
 class _Composer extends StatelessWidget {
   const _Composer({
@@ -868,35 +1009,53 @@ class _Composer extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            height: 24,
-            child: typing.isEmpty
-                ? null
-                : Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    child: Row(
-                      children: [
-                        const _TypingDots(),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            typing.join(' · '),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12.5, color: PColors.textMuted),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 26),
+            child: AnimatedSwitcher(
+              duration: PMotion.normal,
+              transitionBuilder: (child, a) => FadeTransition(
+                opacity: a,
+                child: SlideTransition(
+                  position: Tween(begin: const Offset(0, 0.3), end: Offset.zero).animate(a),
+                  child: child,
+                ),
+              ),
+              child: typing.isEmpty
+                  ? const SizedBox(key: ValueKey('quiet'), width: double.infinity)
+                  : Padding(
+                      key: const ValueKey('typing'),
+                      padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
+                      child: Row(
+                        children: [
+                          const _TypingDots(),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              typing.join(' · '),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12.5, color: PColors.textMuted),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
+            ),
           ),
-          Container(
-            constraints: const BoxConstraints(minHeight: 52),
-            padding: const EdgeInsets.fromLTRB(16, 6, 6, 6),
-            decoration: BoxDecoration(
-              color: PColors.panelRaised,
-              border: Border.all(color: const Color(0xFF23263A)),
-              borderRadius: BorderRadius.circular(18),
+          ListenableBuilder(
+            listenable: focus,
+            builder: (context, child) => AnimatedContainer(
+              duration: PMotion.normal,
+              curve: PMotion.curve,
+              constraints: const BoxConstraints(minHeight: 52),
+              padding: const EdgeInsets.fromLTRB(16, 6, 6, 6),
+              decoration: BoxDecoration(
+                color: PColors.panelRaised,
+                border: Border.all(color: focus.hasFocus ? PColors.focusEdge : const Color(0xFF23263A)),
+                borderRadius: BorderRadius.circular(18),
+                boxShadow: [BoxShadow(color: PColors.accent.withValues(alpha: focus.hasFocus ? 0.10 : 0), blurRadius: 20, spreadRadius: 1)],
+              ),
+              child: child,
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -911,9 +1070,14 @@ class _Composer extends StatelessWidget {
                       maxLines: 8,
                       onChanged: onChanged,
                       textCapitalization: TextCapitalization.sentences,
-                      style: const TextStyle(fontSize: 14.5, height: 1.45, color: PColors.text),
+                      textAlignVertical: TextAlignVertical.center,
+                      // One line is 20px of text in 10px of padding: as tall
+                      // as the send button, so both centre in the box. The
+                      // hint takes the same metrics, or it sits high.
+                      style: _composerText,
                       decoration: InputDecoration(
                         hintText: placeholder,
+                        hintStyle: _composerText.copyWith(color: PColors.textFaint),
                         isDense: true,
                         filled: false,
                         contentPadding: const EdgeInsets.symmetric(vertical: 10),
@@ -937,11 +1101,28 @@ class _Composer extends StatelessWidget {
                         child: GestureDetector(
                           onTap: ready ? onSend : null,
                           child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 120),
+                            duration: PMotion.normal,
+                            curve: PMotion.curve,
                             width: 40,
                             height: 40,
-                            decoration: BoxDecoration(color: ready ? PColors.accent : PColors.selected, borderRadius: BorderRadius.circular(14)),
-                            child: Icon(Icons.arrow_upward_rounded, size: 20, color: ready ? PColors.onAccent : PColors.textFaint),
+                            decoration: BoxDecoration(
+                              color: ready ? null : PColors.selected,
+                              gradient: ready ? PColors.brand : null,
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: PColors.accent.withValues(alpha: ready ? 0.35 : 0),
+                                  blurRadius: 14,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: AnimatedScale(
+                              scale: ready ? 1 : 0.85,
+                              duration: PMotion.normal,
+                              curve: ready ? Curves.easeOutBack : PMotion.curve,
+                              child: Icon(Icons.arrow_upward_rounded, size: 20, color: ready ? PColors.onAccent : PColors.textFaint),
+                            ),
                           ),
                         ),
                       ),
@@ -982,18 +1163,24 @@ class _TypingDotsState extends State<_TypingDots> with SingleTickerProviderState
         children: [
           for (var i = 0; i < 3; i++) ...[
             if (i > 0) const SizedBox(width: 3),
-            Builder(builder: (context) {
-              // Each dot rises in turn.
-              final t = ((_c.value - i * 0.12) % 1.0);
-              final up = t < 0.4 ? (t < 0.2 ? t / 0.2 : (0.4 - t) / 0.2) : 0.0;
-              return Transform.translate(
-                offset: Offset(0, -3 * up),
-                child: Opacity(
-                  opacity: 0.5 + 0.5 * up,
-                  child: Container(width: 6, height: 6, decoration: const BoxDecoration(color: PColors.textMuted, shape: BoxShape.circle)),
-                ),
-              );
-            }),
+            Builder(
+              builder: (context) {
+                // Each dot rises in turn.
+                final t = ((_c.value - i * 0.12) % 1.0);
+                final up = t < 0.4 ? (t < 0.2 ? t / 0.2 : (0.4 - t) / 0.2) : 0.0;
+                return Transform.translate(
+                  offset: Offset(0, -3 * up),
+                  child: Opacity(
+                    opacity: 0.5 + 0.5 * up,
+                    child: Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(color: PColors.textMuted, shape: BoxShape.circle),
+                    ),
+                  ),
+                );
+              },
+            ),
           ],
         ],
       ),
@@ -1011,7 +1198,11 @@ class _LeftBanner extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.fromLTRB(18, 8, 18, 16),
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: PColors.sunken, border: Border.all(color: PColors.border), borderRadius: BorderRadius.circular(16)),
+      decoration: BoxDecoration(
+        color: PColors.sunken,
+        border: Border.all(color: PColors.border),
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Text(
         group
             ? 'You are no longer in this group. What was sent while you were stays here; someone in it can add you back.'

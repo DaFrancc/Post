@@ -1,6 +1,8 @@
 // Controls shared by every screen: fields, icon buttons, avatars, dialogs
 // and toasts, all drawn from the theme.
 
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -58,7 +60,10 @@ class PField extends StatelessWidget {
             counterText: '',
             enabledBorder: error == null
                 ? null
-                : OutlineInputBorder(borderRadius: BorderRadius.circular(PShape.controlRadius), borderSide: const BorderSide(color: PColors.danger)),
+                : OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(PShape.controlRadius),
+                    borderSide: const BorderSide(color: PColors.danger),
+                  ),
           ),
         ),
         if (error != null) ...[
@@ -80,8 +85,11 @@ class PSpinner extends StatelessWidget {
   final double size;
 
   @override
-  Widget build(BuildContext context) =>
-      SizedBox(width: size, height: size, child: const CircularProgressIndicator(strokeWidth: 2, color: PColors.accentText));
+  Widget build(BuildContext context) => SizedBox(
+    width: size,
+    height: size,
+    child: const CircularProgressIndicator(strokeWidth: 2, color: PColors.accentText),
+  );
 }
 
 /// An error, said plainly, in a tinted box.
@@ -150,13 +158,13 @@ class _PIconButtonState extends State<PIconButton> {
               width: widget.size,
               height: widget.size,
               decoration: BoxDecoration(
-                color: widget.selected ? PColors.selected : (lit ? PColors.hoverStrong : Colors.transparent),
+                color: widget.selected ? PColors.active : (lit ? PColors.hoverStrong : Colors.transparent),
                 borderRadius: BorderRadius.circular(PShape.controlRadius),
               ),
               child: Icon(
                 widget.icon,
                 size: widget.iconSize,
-                color: widget.color ?? (!enabled ? PColors.textFaint : (lit ? PColors.text : PColors.textMuted)),
+                color: widget.color ?? (!enabled ? PColors.textFaint : (widget.selected ? PColors.accentText : (lit ? PColors.text : PColors.textMuted))),
               ),
             ),
           ),
@@ -169,15 +177,7 @@ class _PIconButtonState extends State<PIconButton> {
 /// Someone's (or a group's) initials on their colour, optionally with a
 /// presence dot. Groups are rounded squares, people are circles.
 class PAvatar extends StatelessWidget {
-  const PAvatar({
-    super.key,
-    required this.name,
-    required this.colorKey,
-    this.size = 36,
-    this.square = false,
-    this.presence,
-    this.ringColor = PColors.panel,
-  });
+  const PAvatar({super.key, required this.name, required this.colorKey, this.size = 36, this.square = false, this.presence, this.ringColor = PColors.panel});
 
   final String name;
   final String colorKey;
@@ -196,22 +196,16 @@ class PAvatar extends StatelessWidget {
       width: size,
       height: size,
       alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: PColors.avatarFor(colorKey),
-        borderRadius: BorderRadius.circular(square ? size * 0.33 : size / 2),
-      ),
+      decoration: BoxDecoration(color: PColors.avatarFor(colorKey), borderRadius: BorderRadius.circular(square ? size * 0.33 : size / 2)),
       child: Text(
         initials(name),
-        style: TextStyle(
-          fontFamily: square ? PType.display : PType.body,
-          fontWeight: FontWeight.w600,
-          fontSize: size * 0.36,
-          color: PColors.onAvatar,
-        ),
+        style: TextStyle(fontFamily: square ? PType.display : PType.body, fontWeight: FontWeight.w600, fontSize: size * 0.36, color: PColors.onAvatar),
       ),
     );
     final p = presence;
     if (p == null) return face;
+    // Fixed sizes for a fixed-size avatar: the dot belongs to the picture,
+    // not the text.
     final dot = (size * 0.28).clamp(9.0, 16.0);
     final ring = (size * 0.075).clamp(2.5, 4.0);
     return SizedBox(
@@ -249,7 +243,8 @@ class PresenceDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final offline = word != 'online' && word != 'away' && word != 'dnd';
-    return Container(
+    return AnimatedContainer(
+      duration: PMotion.slow,
       width: size,
       height: size,
       decoration: BoxDecoration(
@@ -257,6 +252,37 @@ class PresenceDot extends StatelessWidget {
         color: offline ? Colors.transparent : PColors.presence(word),
         border: offline ? Border.all(color: PColors.offline, width: size * 0.25) : null,
       ),
+    );
+  }
+}
+
+/// Around a dialog: blurs what is behind it, and lets it settle into place
+/// as it fades in.
+class PDialogEntrance extends StatelessWidget {
+  const PDialogEntrance({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Taps pass through to the barrier, which closes the dialog. Clipped,
+        // or the blur would reach past the content to the title bar.
+        IgnorePointer(
+          child: ClipRect(
+            child: BackdropFilter(filter: ui.ImageFilter.blur(sigmaX: 6, sigmaY: 6), child: const SizedBox.expand()),
+          ),
+        ),
+        TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0.96, end: 1),
+          duration: PMotion.normal,
+          curve: PMotion.curve,
+          builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+          child: child,
+        ),
+      ],
     );
   }
 }
@@ -271,6 +297,10 @@ class PDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return PDialogEntrance(child: _dialog(context));
+  }
+
+  Widget _dialog(BuildContext context) {
     return Dialog(
       backgroundColor: PColors.dialog,
       insetPadding: const EdgeInsets.all(24),
@@ -318,13 +348,7 @@ class PDialogActions extends StatelessWidget {
 }
 
 /// Ask before something that cannot be undone. Returns true to go ahead.
-Future<bool> confirm(
-  BuildContext context, {
-  required String title,
-  required String body,
-  required String action,
-  bool danger = false,
-}) async {
+Future<bool> confirm(BuildContext context, {required String title, required String body, required String action, bool danger = false}) async {
   final ok = await showDialog<bool>(
     context: context,
     builder: (context) => PDialog(
@@ -333,15 +357,17 @@ Future<bool> confirm(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(body, style: PType.text.copyWith(color: PColors.textMuted)),
-          PDialogActions(children: [
-            OutlinedButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
-            FilledButton(
-              autofocus: true,
-              style: danger ? FilledButton.styleFrom(backgroundColor: PColors.danger, foregroundColor: PColors.onAccent) : null,
-              onPressed: () => Navigator.of(context).pop(true),
-              child: Text(action),
-            ),
-          ]),
+          PDialogActions(
+            children: [
+              OutlinedButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+              FilledButton(
+                autofocus: true,
+                style: danger ? FilledButton.styleFrom(backgroundColor: PColors.danger, foregroundColor: PColors.onAccent) : null,
+                onPressed: () => Navigator.of(context).pop(true),
+                child: Text(action),
+              ),
+            ],
+          ),
         ],
       ),
     ),

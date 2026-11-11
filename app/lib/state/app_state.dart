@@ -11,10 +11,10 @@ import 'package:postern/src/rust/api/error.dart';
 /// One sentence to show for a failed call. Screens throw [ArgumentError]
 /// for their own checks, with the sentence as its message.
 String errorText(Object e) => switch (e) {
-      PosternError(:final message) => message,
-      ArgumentError(:final message) => '$message',
-      _ => 'Something went wrong. Try again.',
-    };
+  PosternError(:final message) => message,
+  ArgumentError(:final message) => '$message',
+  _ => 'Something went wrong. Try again.',
+};
 
 /// How long a typing notice shows without a new one (design section 7).
 const typingShownFor = Duration(seconds: 6);
@@ -170,8 +170,7 @@ class AppState extends ChangeNotifier {
   }
 
   /// The typing notices showing in a conversation.
-  List<String> typingIn(String conversation) =>
-      _typing[conversation]?.values.map((v) => v.text).toList() ?? const [];
+  List<String> typingIn(String conversation) => _typing[conversation]?.values.map((v) => v.text).toList() ?? const [];
 
   /// Someone sent a message, so they have stopped typing.
   void stoppedTyping(String conversation, String username) {
@@ -233,11 +232,11 @@ class AppState extends ChangeNotifier {
   }
 
   String get ownPresenceWord => switch (ownPresence) {
-        PresenceChoice.online => 'online',
-        PresenceChoice.away => 'away',
-        PresenceChoice.doNotDisturb => 'dnd',
-        PresenceChoice.invisible => 'offline',
-      };
+    PresenceChoice.online => 'online',
+    PresenceChoice.away => 'away',
+    PresenceChoice.doNotDisturb => 'dnd',
+    PresenceChoice.invisible => 'offline',
+  };
 
   Future<void> _loadOwnPresence() async {
     try {

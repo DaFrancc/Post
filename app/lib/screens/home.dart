@@ -9,6 +9,7 @@ import 'package:postern/src/rust/api/client.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../ui/controls.dart';
+import '../ui/format.dart';
 import 'chat.dart';
 import 'dialogs.dart';
 import 'settings.dart';
@@ -68,20 +69,49 @@ class _HomeScreenState extends State<HomeScreen> {
                 SizedBox(width: 272, child: _ConversationList(state: state)),
                 const SizedBox(width: PShape.gap),
                 Expanded(
-                  child: c == null
-                      ? _Start(state: state)
-                      : ChatView(
-                          key: ValueKey(c.id),
-                          state: state,
-                          conversation: c,
-                          panelOpen: showPanel,
-                          onTogglePanel: roomForPanel ? () => setState(() => _panel = !_panel) : null,
-                        ),
+                  child: AnimatedSwitcher(
+                    duration: PMotion.normal,
+                    switchInCurve: PMotion.curve,
+                    switchOutCurve: Curves.easeIn,
+                    transitionBuilder: _fadeRise,
+                    child: c == null
+                        ? _Start(key: const ValueKey('start'), state: state)
+                        : ChatView(
+                            key: ValueKey(c.id),
+                            state: state,
+                            conversation: c,
+                            panelOpen: showPanel,
+                            onTogglePanel: roomForPanel ? () => setState(() => _panel = !_panel) : null,
+                          ),
+                  ),
                 ),
-                if (showPanel) ...[
-                  const SizedBox(width: PShape.gap),
-                  SizedBox(width: 268, child: SidePanel(key: ValueKey('panel-${c.id}'), state: state, conversation: c)),
-                ],
+                // Slides open and shut; within it, conversations cross-fade.
+                AnimatedSwitcher(
+                  duration: PMotion.slow,
+                  switchInCurve: PMotion.curve,
+                  switchOutCurve: PMotion.curve,
+                  transitionBuilder: (child, a) => SizeTransition(
+                    axis: Axis.horizontal,
+                    alignment: Alignment.centerLeft,
+                    sizeFactor: a,
+                    child: FadeTransition(opacity: a, child: child),
+                  ),
+                  child: showPanel
+                      ? Row(
+                          key: const ValueKey('panel'),
+                          children: [
+                            const SizedBox(width: PShape.gap),
+                            SizedBox(
+                              width: 268,
+                              child: AnimatedSwitcher(
+                                duration: PMotion.normal,
+                                child: SidePanel(key: ValueKey('panel-${c.id}'), state: state, conversation: c),
+                              ),
+                            ),
+                          ],
+                        )
+                      : const SizedBox(key: ValueKey('none')),
+                ),
               ],
             ),
           );
@@ -90,6 +120,15 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
+
+/// Fade in while rising a few pixels: how a new view arrives.
+Widget _fadeRise(Widget child, Animation<double> a) => FadeTransition(
+  opacity: a,
+  child: SlideTransition(
+    position: Tween(begin: const Offset(0, 0.012), end: Offset.zero).animate(a),
+    child: child,
+  ),
+);
 
 /// A rounded panel, the unit the layout is built from.
 class Panel extends StatelessWidget {
@@ -127,7 +166,6 @@ class _Rail extends StatelessWidget {
       width: 64,
       child: Column(
         children: [
-          const SizedBox(height: 6),
           _RailButton(
             label: 'Home',
             selected: state.selected == null,
@@ -135,7 +173,11 @@ class _Rail extends StatelessWidget {
             child: Image.asset('assets/brand/logo.png', width: 48, height: 48, filterQuality: FilterQuality.medium),
           ),
           const SizedBox(height: 10),
-          Container(width: 28, height: 2, decoration: BoxDecoration(color: PColors.selected, borderRadius: BorderRadius.circular(2))),
+          Container(
+            width: 28,
+            height: 2,
+            decoration: BoxDecoration(color: PColors.selected, borderRadius: BorderRadius.circular(2)),
+          ),
           const SizedBox(height: 10),
           Expanded(
             child: ScrollConfiguration(
@@ -153,7 +195,7 @@ class _Rail extends StatelessWidget {
                         color: PColors.avatarFor(g.id),
                         onTap: () => state.select(g.id),
                         child: Text(
-                          _mono(g.title),
+                          initials(g.title),
                           style: const TextStyle(fontFamily: PType.display, fontWeight: FontWeight.w600, fontSize: 15, color: PColors.onAvatar),
                         ),
                       ),
@@ -171,15 +213,11 @@ class _Rail extends StatelessWidget {
             iconSize: 20,
             onPressed: () => showSettings(context, state, section: SettingsSection.devices),
           ),
-          const SizedBox(height: 4),
+          // Centred on the card with your name, across the gap.
+          const SizedBox(height: 13),
         ],
       ),
     );
-  }
-
-  static String _mono(String title) {
-    final letters = title.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).map((w) => w.characters.first).take(2).join();
-    return letters.isEmpty ? '#' : letters.toUpperCase();
   }
 }
 
@@ -201,11 +239,13 @@ class _RailButton extends StatefulWidget {
 
 class _RailButtonState extends State<_RailButton> {
   bool _hover = false;
+  bool _down = false;
 
   @override
   Widget build(BuildContext context) {
     final square = widget.selected || _hover;
     final pill = widget.selected ? 36.0 : (_hover ? 18.0 : (widget.unread ? 8.0 : 0.0));
+    final glow = widget.color ?? PColors.accent;
     return Tooltip(
       message: widget.label,
       preferBelow: false,
@@ -215,6 +255,9 @@ class _RailButtonState extends State<_RailButton> {
         onEnter: (_) => setState(() => _hover = true),
         onExit: (_) => setState(() => _hover = false),
         child: GestureDetector(
+          onTapDown: (_) => setState(() => _down = true),
+          onTapUp: (_) => setState(() => _down = false),
+          onTapCancel: () => setState(() => _down = false),
           onTap: widget.onTap,
           child: SizedBox(
             width: 64,
@@ -225,20 +268,40 @@ class _RailButtonState extends State<_RailButton> {
                 Positioned(
                   left: 0,
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
+                    duration: PMotion.normal,
+                    curve: PMotion.curve,
                     width: 4,
                     height: pill,
-                    decoration: const BoxDecoration(color: PColors.text, borderRadius: BorderRadius.horizontal(right: Radius.circular(4))),
+                    decoration: BoxDecoration(
+                      gradient: widget.selected ? PColors.brand : null,
+                      color: widget.selected ? null : PColors.text,
+                      borderRadius: const BorderRadius.horizontal(right: Radius.circular(4)),
+                    ),
                   ),
                 ),
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  width: 48,
-                  height: 48,
-                  clipBehavior: Clip.antiAlias,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(color: widget.color, borderRadius: BorderRadius.circular(square ? 15 : 24)),
-                  child: widget.child,
+                AnimatedScale(
+                  scale: _down ? 0.94 : 1,
+                  duration: PMotion.fast,
+                  child: AnimatedContainer(
+                    duration: PMotion.normal,
+                    curve: PMotion.curve,
+                    width: 48,
+                    height: 48,
+                    clipBehavior: Clip.antiAlias,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: widget.color,
+                      borderRadius: BorderRadius.circular(square ? 15 : 24),
+                      boxShadow: [
+                        BoxShadow(
+                          color: glow.withValues(alpha: widget.selected ? 0.35 : (_hover ? 0.22 : 0)),
+                          blurRadius: 16,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: widget.child,
+                  ),
                 ),
               ],
             ),
@@ -321,56 +384,62 @@ class _ConversationListState extends State<_ConversationList> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 14, 4),
-            child: Row(
-              children: [
-                const Expanded(child: Text('Messages', style: PType.title)),
-                PIconButton(icon: Icons.edit_outlined, tooltip: 'New message', onPressed: () => startDm(context, state)),
-              ],
-            ),
-          ),
-          if (!state.connected)
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 0, 16, 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: PShape.header),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 14, 8),
               child: Row(
                 children: [
-                  PSpinner(size: 11),
-                  SizedBox(width: 8),
-                  Text('Connecting to the server…', style: TextStyle(fontSize: 12, color: PColors.away)),
+                  const Expanded(child: Text('Messages', style: PType.title)),
+                  PIconButton(icon: Icons.edit_outlined, tooltip: 'New message', onPressed: () => startDm(context, state)),
                 ],
               ),
             ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 6, 14, 8),
-            child: SizedBox(
-              height: 40,
-              child: TextField(
-                controller: _search,
-                onChanged: (v) => setState(() => _query = v),
-                style: const TextStyle(fontSize: 14, color: PColors.text),
-                decoration: InputDecoration(
-                  hintText: 'Search',
-                  isDense: true,
-                  contentPadding: EdgeInsets.zero,
-                  prefixIcon: const Icon(Icons.search_rounded, size: 18, color: PColors.textFaint),
-                  prefixIconConstraints: const BoxConstraints(minWidth: 38),
-                  suffixIcon: _query.isEmpty
-                      ? null
-                      : PIconButton(
-                          icon: Icons.close_rounded,
-                          tooltip: 'Clear',
-                          size: 28,
-                          iconSize: 15,
-                          onPressed: () => setState(() {
-                            _search.clear();
-                            _query = '';
-                          }),
-                        ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(PShape.controlRadius),
-                    borderSide: const BorderSide(color: PColors.selected),
+          ),
+          AnimatedSize(
+            duration: PMotion.normal,
+            curve: PMotion.curve,
+            child: state.connected
+                ? const SizedBox(width: double.infinity)
+                : const Padding(
+                    padding: EdgeInsets.fromLTRB(20, 0, 16, 8),
+                    child: Row(
+                      children: [
+                        PSpinner(size: 11),
+                        SizedBox(width: 8),
+                        Text('Connecting to the server…', style: TextStyle(fontSize: 12, color: PColors.away)),
+                      ],
+                    ),
                   ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 6),
+            child: TextField(
+              controller: _search,
+              onChanged: (v) => setState(() => _query = v),
+              style: const TextStyle(fontSize: 14, color: PColors.text),
+              decoration: InputDecoration(
+                hintText: 'Search',
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 11),
+                prefixIcon: const Icon(Icons.search_rounded, size: 18, color: PColors.textFaint),
+                prefixIconConstraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                suffixIconConstraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : PIconButton(
+                        icon: Icons.close_rounded,
+                        tooltip: 'Clear',
+                        size: 28,
+                        iconSize: 15,
+                        onPressed: () => setState(() {
+                          _search.clear();
+                          _query = '';
+                        }),
+                      ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(PShape.controlRadius),
+                  borderSide: const BorderSide(color: PColors.selected),
                 ),
               ),
             ),
@@ -381,14 +450,8 @@ class _ConversationListState extends State<_ConversationList> {
                 : ListView(
                     padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
                     children: [
-                      if (dms.isNotEmpty) ...[
-                        const _SectionLabel('Direct messages'),
-                        for (final c in dms) _ConversationRow(state: state, c: c),
-                      ],
-                      if (groups.isNotEmpty) ...[
-                        const _SectionLabel('Groups'),
-                        for (final c in groups) _ConversationRow(state: state, c: c),
-                      ],
+                      if (dms.isNotEmpty) ...[const _SectionLabel('Direct messages'), for (final c in dms) _ConversationRow(state: state, c: c)],
+                      if (groups.isNotEmpty) ...[const _SectionLabel('Groups'), for (final c in groups) _ConversationRow(state: state, c: c)],
                       if (dms.isEmpty && groups.isEmpty)
                         const Padding(
                           padding: EdgeInsets.all(20),
@@ -441,8 +504,8 @@ String _preview(ConversationInfo c) {
   final body = m.deleted
       ? 'Message deleted'
       : m.unsupported
-          ? 'A message this version cannot show'
-          : (m.body ?? '').replaceAll('\n', ' ');
+      ? 'A message this version cannot show'
+      : (m.body ?? '').replaceAll('\n', ' ');
   final who = m.outgoing ? 'You: ' : (c.isGroup ? '${m.sender}: ' : '');
   return '$who$body';
 }
@@ -470,7 +533,11 @@ class _ConversationRowState extends State<_ConversationRow> {
       items: [
         if (c.unread > 0) const PopupMenuItem(value: 'read', child: Text('Mark as read')),
         if (!c.isGroup && c.peer != null) const PopupMenuItem(value: 'nickname', child: Text('Set nickname')),
-        if (c.isGroup && c.following) const PopupMenuItem(value: 'leave', child: Text('Leave group', style: TextStyle(color: PColors.danger))),
+        if (c.isGroup && c.following)
+          const PopupMenuItem(
+            value: 'leave',
+            child: Text('Leave group', style: TextStyle(color: PColors.danger)),
+          ),
       ],
     );
     if (!mounted) return;
@@ -491,7 +558,7 @@ class _ConversationRowState extends State<_ConversationRow> {
     final selected = state.selected == c.id;
     final unread = c.unread > 0 && !selected;
     final typing = state.typingIn(c.id);
-    final bg = selected ? PColors.selected : (_hover ? PColors.hover : Colors.transparent);
+    final bg = selected ? PColors.active : (_hover ? PColors.hover : PColors.panel);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
@@ -500,17 +567,22 @@ class _ConversationRowState extends State<_ConversationRow> {
         onTap: () => state.select(c.id),
         onSecondaryTapUp: (d) => _menu(d.globalPosition),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 100),
+          duration: PMotion.fast,
           constraints: const BoxConstraints(minHeight: 52),
+          margin: const EdgeInsets.only(bottom: 2),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(PShape.rowRadius)),
+          decoration: BoxDecoration(
+            color: bg,
+            border: Border.all(color: selected ? PColors.activeEdge : bg),
+            borderRadius: BorderRadius.circular(PShape.rowRadius),
+          ),
           child: Opacity(
             opacity: c.following ? 1 : 0.55,
             child: Row(
               children: [
                 c.isGroup
                     ? PAvatar(name: c.title, colorKey: c.id, square: true)
-                    : PAvatar(name: c.title, colorKey: c.peer ?? c.id, presence: state.presenceOf(c.peer ?? ''), ringColor: _ringFor(bg)),
+                    : PAvatar(name: c.title, colorKey: c.peer ?? c.id, presence: state.presenceOf(c.peer ?? ''), ringColor: bg),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -527,19 +599,26 @@ class _ConversationRowState extends State<_ConversationRow> {
                         ),
                       ),
                       const SizedBox(height: 2),
-                      Text(
-                        typing.isNotEmpty ? typing.first : (c.following ? _preview(c) : (c.isGroup ? 'You left this group' : 'No longer updated')),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 12.5, color: typing.isNotEmpty ? PColors.accentText : PColors.textFaint),
+                      AnimatedSwitcher(
+                        duration: PMotion.fast,
+                        layoutBuilder: (current, previous) => Stack(alignment: Alignment.centerLeft, children: [...previous, ?current]),
+                        child: Text(
+                          typing.isNotEmpty ? typing.first : (c.following ? _preview(c) : (c.isGroup ? 'You left this group' : 'No longer updated')),
+                          key: ValueKey(typing.isNotEmpty),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12.5, color: typing.isNotEmpty ? PColors.accentText : PColors.textFaint),
+                        ),
                       ),
                     ],
                   ),
                 ),
-                if (unread) ...[
-                  const SizedBox(width: 8),
-                  _Badge(c.unread),
-                ],
+                AnimatedScale(
+                  scale: unread ? 1 : 0,
+                  duration: PMotion.normal,
+                  curve: unread ? Curves.easeOutBack : Curves.easeIn,
+                  child: unread ? Padding(padding: const EdgeInsets.only(left: 8), child: _Badge(c.unread)) : const SizedBox(),
+                ),
               ],
             ),
           ),
@@ -547,9 +626,6 @@ class _ConversationRowState extends State<_ConversationRow> {
       ),
     );
   }
-
-  /// The presence dot's ring matches whatever is behind the row.
-  static Color _ringFor(Color bg) => bg == Colors.transparent ? PColors.panel : bg;
 }
 
 class _Badge extends StatelessWidget {
@@ -564,10 +640,10 @@ class _Badge extends StatelessWidget {
       height: 20,
       padding: const EdgeInsets.symmetric(horizontal: 6),
       alignment: Alignment.center,
-      decoration: BoxDecoration(color: PColors.accent, borderRadius: BorderRadius.circular(10)),
+      decoration: BoxDecoration(gradient: PColors.brand, borderRadius: BorderRadius.circular(10)),
       child: Text(
         count > 99 ? '99+' : '$count',
-        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: PColors.onAccent),
+        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: PColors.onAccent),
       ),
     );
   }
@@ -655,11 +731,11 @@ class _YouCard extends StatelessWidget {
 }
 
 String presenceChoiceLabel(PresenceChoice p) => switch (p) {
-      PresenceChoice.online => 'Online',
-      PresenceChoice.away => 'Away',
-      PresenceChoice.doNotDisturb => 'Do not disturb',
-      PresenceChoice.invisible => 'Invisible',
-    };
+  PresenceChoice.online => 'Online',
+  PresenceChoice.away => 'Away',
+  PresenceChoice.doNotDisturb => 'Do not disturb',
+  PresenceChoice.invisible => 'Invisible',
+};
 
 class _PresenceOption extends StatelessWidget {
   const _PresenceOption({required this.choice, required this.checked});
@@ -677,7 +753,7 @@ class _PresenceOption extends StatelessWidget {
     };
     return Container(
       padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(color: checked ? PColors.selected : null, borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(color: checked ? PColors.active : null, borderRadius: BorderRadius.circular(12)),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -740,7 +816,7 @@ class _HoverRowState extends State<_HoverRow> {
 // ---------------------------------------------------------------- nothing open
 
 class _Start extends StatelessWidget {
-  const _Start({required this.state});
+  const _Start({super.key, required this.state});
 
   final AppState state;
 
@@ -749,20 +825,33 @@ class _Start extends StatelessWidget {
     return Panel(
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
+          constraints: const BoxConstraints(maxWidth: 580),
           child: Padding(
             padding: const EdgeInsets.all(28),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Image.asset('assets/brand/logo.png', width: 72, height: 72, filterQuality: FilterQuality.medium),
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [BoxShadow(color: PColors.accent.withValues(alpha: 0.28), blurRadius: 36, offset: const Offset(0, 8))],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: Image.asset('assets/brand/logo.png', width: 72, height: 72, filterQuality: FilterQuality.medium),
+                  ),
+                ),
                 const SizedBox(height: 18),
                 Text('Hello, ${state.myName}', style: PType.title.copyWith(fontSize: 24), textAlign: TextAlign.center),
                 const SizedBox(height: 8),
-                const Text(
-                  'Everything you send is end-to-end encrypted, with keys that resist quantum computers. Only the people in a conversation can read it.',
-                  style: TextStyle(fontSize: 14, height: 1.55, color: PColors.textMuted),
-                  textAlign: TextAlign.center,
+                // Narrower than the buttons, for an easy line length.
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 400),
+                  child: const Text(
+                    'Everything you send is end-to-end encrypted, with keys that resist quantum computers. Only the people in a conversation can read it.',
+                    style: TextStyle(fontSize: 14, height: 1.55, color: PColors.textMuted),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
                 const SizedBox(height: 24),
                 Wrap(

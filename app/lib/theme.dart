@@ -16,7 +16,14 @@ abstract final class PColors {
   static const hover = Color(0xFF181A29);
   static const hoverStrong = Color(0xFF1D2034);
   static const selected = Color(0xFF1E2134);
+
+  /// The chosen row in a list: a touch of the accent, so it reads as chosen
+  /// rather than hovered.
+  static const active = Color(0xFF1B2140);
+  static const activeEdge = Color(0xFF2B3463);
   static const dialog = Color(0xFF12131F);
+  static const messageHover = Color(0xFF141625);
+  static const focusEdge = Color(0xFF3A4A8C);
   static const border = Color(0xFF1A1C2B);
   static const borderStrong = Color(0xFF2A2D44);
 
@@ -25,6 +32,17 @@ abstract final class PColors {
   static const textBody = Color(0xFFD9DCE8);
   static const textMuted = Color(0xFFA3A8BD);
   static const textFaint = Color(0xFF8C92AA);
+
+  /// The icon's cyan, blue and violet, for the few places that carry the
+  /// brand: the send button, unread counts, the selected rail item.
+  static const brand = LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF52C8F5), Color(0xFF6E8BFF), Color(0xFF9B7BFF)]);
+
+  static const groundGlow = RadialGradient(
+    center: Alignment(-1.1, -1.2),
+    radius: 1.6,
+    colors: [Color(0xFF111833), Color(0xFF0A0C18), ground],
+    stops: [0, 0.45, 1],
+  );
 
   static const accent = Color(0xFF6E8BFF);
   static const onAccent = Color(0xFF070812);
@@ -67,11 +85,11 @@ abstract final class PColors {
   }
 
   static Color presence(String word) => switch (word) {
-        'online' => online,
-        'away' => away,
-        'dnd' => dnd,
-        _ => offline,
-      };
+    'online' => online,
+    'away' => away,
+    'dnd' => dnd,
+    _ => offline,
+  };
 }
 
 /// Corner radii and spacing.
@@ -80,9 +98,22 @@ abstract final class PShape {
   static const rowRadius = 14.0;
   static const controlRadius = 12.0;
   static const gap = 10.0;
+
+  /// Every panel's header is at least this tall, so their titles line up.
+  /// A minimum, not a fixed height: larger system text makes it taller
+  /// rather than clipping.
+  static const header = 64.0;
 }
 
 /// Type.
+/// Motion: short and eased, so the app feels quick rather than busy.
+abstract final class PMotion {
+  static const fast = Duration(milliseconds: 120);
+  static const normal = Duration(milliseconds: 200);
+  static const slow = Duration(milliseconds: 320);
+  static const curve = Curves.easeOutCubic;
+}
+
 abstract final class PType {
   static const body = 'Inter';
   static const display = 'SpaceGrotesk';
@@ -115,7 +146,10 @@ ThemeData posternTheme() {
       color: PColors.panelRaised,
       surfaceTintColor: Colors.transparent,
       elevation: 12,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: PColors.borderStrong)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: PColors.borderStrong),
+      ),
       textStyle: const TextStyle(fontFamily: PType.body, fontSize: 14, color: PColors.text),
     ),
     dialogTheme: const DialogThemeData(backgroundColor: PColors.dialog, surfaceTintColor: Colors.transparent),
@@ -144,9 +178,18 @@ ThemeData posternTheme() {
       fillColor: PColors.sunken,
       hintStyle: TextStyle(color: PColors.textFaint),
       contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(PShape.controlRadius)), borderSide: BorderSide(color: PColors.borderStrong)),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(PShape.controlRadius)), borderSide: BorderSide(color: PColors.borderStrong)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(PShape.controlRadius)), borderSide: BorderSide(color: PColors.accent)),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(PShape.controlRadius)),
+        borderSide: BorderSide(color: PColors.borderStrong),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(PShape.controlRadius)),
+        borderSide: BorderSide(color: PColors.borderStrong),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(PShape.controlRadius)),
+        borderSide: BorderSide(color: PColors.accent),
+      ),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
