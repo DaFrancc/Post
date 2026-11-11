@@ -5,6 +5,8 @@
 # wss:// behind Caddy (deploy/README.md).
 #
 #   scripts/dev-server.sh            run the server (Ctrl-C stops it)
+#   POST_RELEASES_FROM=DaFrancc/Post scripts/dev-server.sh
+#                                    ...also fetching app releases from GitHub
 #   scripts/dev-server.sh invite     print a new invite code
 #   scripts/dev-server.sh reset      delete the development server's data
 set -euo pipefail
@@ -26,8 +28,9 @@ case ${1:-serve} in
     build
     prepare
     echo "Post development server: ws://$addr/v1/ws  (scripts/dev-server.sh invite for an invite)"
-    # Releases only from its own folder, never fetched from GitHub.
-    exec "$bin" serve --domain "$addr" --listen "$addr" --releases-dir "$dir/releases" --releases-from ""
+    # Releases from its own folder; fetched from GitHub only when asked
+    # (POST_RELEASES_FROM=DaFrancc/Post scripts/dev-server.sh).
+    exec "$bin" serve --domain "$addr" --listen "$addr" --releases-dir "$dir/releases" --releases-from "${POST_RELEASES_FROM:-}"
     ;;
   invite)
     build
