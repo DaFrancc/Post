@@ -898,8 +898,8 @@ class UpdateInfo {
   final BigInt size;
 
   /// This app is too old to keep talking to the server once it updates:
-  /// show it prominently.
-  final bool required_;
+  /// show it prominently. (Not `required`, a word Dart keeps for itself.)
+  final bool mandatory;
 
   /// The app can install it itself: it runs from an install that updates
   /// can replace. Otherwise it can only say an update exists.
@@ -910,7 +910,7 @@ class UpdateInfo {
     required this.notes,
     required this.releasedAtMs,
     required this.size,
-    required this.required_,
+    required this.mandatory,
     required this.canInstall,
   });
 
@@ -920,7 +920,7 @@ class UpdateInfo {
       notes.hashCode ^
       releasedAtMs.hashCode ^
       size.hashCode ^
-      required_.hashCode ^
+      mandatory.hashCode ^
       canInstall.hashCode;
 
   @override
@@ -932,7 +932,7 @@ class UpdateInfo {
           notes == other.notes &&
           releasedAtMs == other.releasedAtMs &&
           size == other.size &&
-          required_ == other.required_ &&
+          mandatory == other.mandatory &&
           canInstall == other.canInstall;
 }
 

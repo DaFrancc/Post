@@ -8,6 +8,8 @@
 // body fills the window with square corners. Where the display cannot do
 // transparency, the frame is square and fills the window.
 
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,6 +17,20 @@ import 'package:flutter/services.dart';
 import '../theme.dart';
 
 const _channel = MethodChannel('post/window');
+
+/// Work to finish before the close button closes the app: installing a
+/// downloaded update, so the next start is the new version.
+Future<void> Function()? beforeWindowClose;
+
+/// Close the window, and with it the app, after [beforeWindowClose].
+Future<void> closeWindow() async {
+  try {
+    await beforeWindowClose?.call();
+  } catch (_) {
+    // Closing matters more than anything that wanted to happen first.
+  }
+  await _channel.invokeMethod('close');
+}
 
 /// Width of the transparent margin around the window body. Must match the
 /// runner's minimum-size padding.
@@ -183,7 +199,7 @@ class _TitleBar extends StatelessWidget {
             icon: maximized ? _Glyph.restore : _Glyph.maximize,
             onPressed: () => _channel.invokeMethod('toggleMaximize'),
           ),
-          _WindowButton(tooltip: 'Close', icon: _Glyph.close, onPressed: () => _channel.invokeMethod('close'), danger: true),
+          _WindowButton(tooltip: 'Close', icon: _Glyph.close, onPressed: () => unawaited(closeWindow()), danger: true),
           const SizedBox(width: 8),
         ],
       ),

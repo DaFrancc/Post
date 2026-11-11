@@ -3116,7 +3116,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       notes: dco_decode_String(arr[1]),
       releasedAtMs: dco_decode_i_64(arr[2]),
       size: dco_decode_u_64(arr[3]),
-      required_: dco_decode_bool(arr[4]),
+      mandatory: dco_decode_bool(arr[4]),
       canInstall: dco_decode_bool(arr[5]),
     );
   }
@@ -3801,14 +3801,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_notes = sse_decode_String(deserializer);
     var var_releasedAtMs = sse_decode_i_64(deserializer);
     var var_size = sse_decode_u_64(deserializer);
-    var var_required_ = sse_decode_bool(deserializer);
+    var var_mandatory = sse_decode_bool(deserializer);
     var var_canInstall = sse_decode_bool(deserializer);
     return UpdateInfo(
       version: var_version,
       notes: var_notes,
       releasedAtMs: var_releasedAtMs,
       size: var_size,
-      required_: var_required_,
+      mandatory: var_mandatory,
       canInstall: var_canInstall,
     );
   }
@@ -4435,7 +4435,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.notes, serializer);
     sse_encode_i_64(self.releasedAtMs, serializer);
     sse_encode_u_64(self.size, serializer);
-    sse_encode_bool(self.required_, serializer);
+    sse_encode_bool(self.mandatory, serializer);
     sse_encode_bool(self.canInstall, serializer);
   }
 

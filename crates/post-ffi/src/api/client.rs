@@ -39,8 +39,8 @@ pub struct UpdateInfo {
     /// How much there is to download, in bytes.
     pub size: u64,
     /// This app is too old to keep talking to the server once it updates:
-    /// show it prominently.
-    pub required: bool,
+    /// show it prominently. (Not `required`, a word Dart keeps for itself.)
+    pub mandatory: bool,
     /// The app can install it itself: it runs from an install that updates
     /// can replace. Otherwise it can only say an update exists.
     pub can_install: bool,
@@ -338,7 +338,7 @@ impl Client {
             notes: a.manifest.notes.clone(),
             released_at_ms: ms(a.manifest.released_at_ms),
             size: a.size,
-            required: a.required,
+            mandatory: a.required,
             can_install: core::update::install_root().is_some(),
         }))
     }

@@ -4040,14 +4040,14 @@ impl SseDecode for crate::api::client::UpdateInfo {
         let mut var_notes = <String>::sse_decode(deserializer);
         let mut var_releasedAtMs = <i64>::sse_decode(deserializer);
         let mut var_size = <u64>::sse_decode(deserializer);
-        let mut var_required_ = <bool>::sse_decode(deserializer);
+        let mut var_mandatory = <bool>::sse_decode(deserializer);
         let mut var_canInstall = <bool>::sse_decode(deserializer);
         return crate::api::client::UpdateInfo {
             version: var_version,
             notes: var_notes,
             released_at_ms: var_releasedAtMs,
             size: var_size,
-            required: var_required_,
+            mandatory: var_mandatory,
             can_install: var_canInstall,
         };
     }
@@ -4689,7 +4689,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::UpdateInfo {
             self.notes.into_into_dart().into_dart(),
             self.released_at_ms.into_into_dart().into_dart(),
             self.size.into_into_dart().into_dart(),
-            self.required.into_into_dart().into_dart(),
+            self.mandatory.into_into_dart().into_dart(),
             self.can_install.into_into_dart().into_dart(),
         ]
         .into_dart()
@@ -5252,7 +5252,7 @@ impl SseEncode for crate::api::client::UpdateInfo {
         <String>::sse_encode(self.notes, serializer);
         <i64>::sse_encode(self.released_at_ms, serializer);
         <u64>::sse_encode(self.size, serializer);
-        <bool>::sse_encode(self.required, serializer);
+        <bool>::sse_encode(self.mandatory, serializer);
         <bool>::sse_encode(self.can_install, serializer);
     }
 }

@@ -9,6 +9,7 @@ import 'package:post/src/rust/api/client.dart';
 import 'package:post/src/rust/api/error.dart';
 
 import '../ui/arrival.dart';
+import '../version.dart';
 import 'search_spec.dart';
 import 'spelling.dart';
 
@@ -23,6 +24,9 @@ String errorText(Object e) => switch (e) {
 /// How long a typing notice shows without a new one (design section 7).
 const typingShownFor = Duration(seconds: 6);
 
+/// Where an app update has got to.
+enum UpdateStage { idle, checking, downloading, ready, installing }
+
 class AppState extends ChangeNotifier {
   AppState(this.client, this.me, {required String dictionaries}) : spelling = Spelling(client, dictionaries) {
     unawaited(client.run());
@@ -33,6 +37,14 @@ class AppState extends ChangeNotifier {
     unawaited(_loadSettings());
     _connectionTimer = Timer.periodic(const Duration(seconds: 4), (_) => _checkConnection());
     unawaited(_checkConnection());
+    // Not the moment the app opens, when it has enough to do; then every
+    // few hours. Development builds only look when asked.
+    if (!isDevelopmentBuild) {
+      _updateTimer = Timer(const Duration(seconds: 30), () {
+        _updateTimer = Timer.periodic(const Duration(hours: 4), (_) => _autoCheck());
+        _autoCheck();
+      });
+    }
   }
 
   final Client client;
@@ -161,6 +173,100 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     } catch (_) {
       // The list stays as it was; the next event tries again.
+    }
+  }
+
+  // ---------------------------------------------------------------- updates
+
+  /// The newer release the last check found, if any.
+  UpdateInfo? update;
+  UpdateStage updateStage = UpdateStage.idle;
+
+  /// How much of the update has downloaded, 0 to 1.
+  double updateProgress = 0;
+
+  /// Why the last check, download or install failed.
+  String? updateError;
+
+  /// When the server was last asked.
+  DateTime? updateCheckedAt;
+
+  /// Look for updates, and download them, without being asked. Off, the
+  /// app asks the server only when told to.
+  bool autoUpdate = true;
+  static const _autoUpdateKey = 'update.auto';
+  Timer? _updateTimer;
+
+  void _autoCheck() {
+    if (autoUpdate) unawaited(checkForUpdate());
+  }
+
+  Future<void> setAutoUpdate(bool on) async {
+    autoUpdate = on;
+    notifyListeners();
+    await client.setSetting(key: _autoUpdateKey, value: on ? null : '0');
+  }
+
+  /// Ask the server for a newer release, and fetch it if this copy can
+  /// install it.
+  Future<void> checkForUpdate() async {
+    if (updateStage != UpdateStage.idle) return;
+    updateStage = UpdateStage.checking;
+    updateError = null;
+    notifyListeners();
+    try {
+      update = await client.checkUpdate(currentVersion: appVersion);
+      updateCheckedAt = DateTime.now();
+      updateStage = UpdateStage.idle;
+      notifyListeners();
+    } catch (e) {
+      updateStage = UpdateStage.idle;
+      updateError = errorText(e);
+      notifyListeners();
+      return;
+    }
+    if (update?.canInstall ?? false) await _downloadUpdate();
+  }
+
+  Future<void> _downloadUpdate() async {
+    updateStage = UpdateStage.downloading;
+    updateProgress = 0;
+    notifyListeners();
+    try {
+      var shown = 0.0;
+      await for (final p in client.downloadUpdate(currentVersion: appVersion)) {
+        updateProgress = p.total == BigInt.zero ? 1 : p.done.toDouble() / p.total.toDouble();
+        // Redraw in steps, not for every chunk.
+        if (updateProgress - shown >= 0.01 || updateProgress == 1) {
+          shown = updateProgress;
+          notifyListeners();
+        }
+      }
+      updateStage = UpdateStage.ready;
+    } catch (e) {
+      updateStage = UpdateStage.idle;
+      updateError = errorText(e);
+    }
+    notifyListeners();
+  }
+
+  /// Install the downloaded update. Gives the program to start in place of
+  /// this one, or null if it failed (see [updateError]).
+  Future<String?> installUpdate() async {
+    if (updateStage != UpdateStage.ready) return null;
+    updateStage = UpdateStage.installing;
+    notifyListeners();
+    try {
+      final program = await client.installUpdate(currentVersion: appVersion);
+      update = null;
+      updateStage = UpdateStage.idle;
+      notifyListeners();
+      return program;
+    } catch (e) {
+      updateStage = UpdateStage.ready;
+      updateError = errorText(e);
+      notifyListeners();
+      return null;
     }
   }
 
@@ -339,6 +445,7 @@ class AppState extends ChangeNotifier {
   Future<void> _loadSettings() async {
     try {
       showOthersArrivals = await client.setting(key: _othersArrivalsKey) != '0';
+      autoUpdate = await client.setting(key: _autoUpdateKey) != '0';
     } catch (_) {}
     await _loadSearchHistory();
     notifyListeners();
@@ -415,6 +522,7 @@ class AppState extends ChangeNotifier {
     _typingSweep?.cancel();
     _refreshSoon?.cancel();
     _connectionTimer.cancel();
+    _updateTimer?.cancel();
     super.dispose();
   }
 }

@@ -479,6 +479,13 @@ void main() {
     await _shot(t, '09d-settings-spelling');
     await tap(t, find.text('Devices'));
     await _shot(t, '10-settings-devices');
+    // Updates: this test build has no release key, so a check says so
+    // plainly instead of trusting anything.
+    await tap(t, find.text('Updates'));
+    expect(find.text('Development build'), findsOneWidget);
+    await tap(t, find.text('Check for updates'));
+    await waitFor(t, find.textContaining('cannot check for updates'));
+    await _shot(t, '10b-settings-updates');
     await t.sendKeyEvent(LogicalKeyboardKey.escape);
     await settle(t);
   });

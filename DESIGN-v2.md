@@ -1162,32 +1162,54 @@ livekit-server: UDP 7882 media, TCP 7881 fallback, TURN/TLS 5349
 
 ### App updates
 
-Apps find out about new releases from the Post server and download them from it,
-so a community's devices update without an app store. The server only distributes:
-it cannot make a build devices will accept. Planned after the app (build order,
-phase 5b); not built yet.
+Apps find out about new releases from their own Post server and download them from
+it. A community's devices update without an app store, and no third party learns who
+runs Post or when. The server only distributes: it cannot make a build devices will
+accept. Built in phase 5b for Linux (`crates/post-release`, `post-server/src/releases.rs`,
+`post-core/src/update.rs`).
 
-- **A release key held offline**, a hybrid Ed25519 + ML-DSA-65 key like a device
-  chain key, whose public half is built into every app. Each release has a manifest
+- **A release key held offline**: a hybrid Ed25519 + ML-DSA-65 key like a device
+  chain key. Its public half is built into every app (`post-release/release-key.pub`);
+  a build without one accepts no release. Its secret half is sealed with a passphrase
+  (Argon2id, then XChaCha20-Poly1305) on the maintainer's machine.
+- **Manifests.** Each release has, per platform, a JSON manifest
   `{ version, platform, files: [{ name, size, sha256 }], min_version, notes,
-  released_at }`, and the release key signs the manifest's exact bytes. Both
-  signatures must verify.
-- **Distribution.** The operator uploads a signed release to the server
-  (`postd release add`). Apps check the latest manifest for their platform on
-  connect and every few hours over the anonymous connection (so a check is not tied
-  to an account), and download over HTTPS with resume.
+  released_at_ms }`. The release key signs its exact bytes under the label
+  `post/release/v1`; both signatures must verify.
+- **Building and signing.** Pushing a `vX.Y.Z` tag makes CI build each platform's
+  files and an unsigned manifest, and leave them in a draft GitHub release. The
+  tag message is the notes; a `Min-Version:` line sets `min_version`. CI never
+  holds the key. The maintainer runs `scripts/release-sign.sh`: it downloads the
+  draft, checks every file against its manifest, signs each manifest, uploads the
+  signatures and publishes the release.
+- **Distribution.** Every hour `postd` asks GitHub for the latest published
+  release. It verifies the manifest, downloads and checks each file, and only
+  then serves the release from its releases directory. An operator can also copy
+  a release in by hand. Apps fetch `GET /v1/releases/<platform>` (the manifest
+  and signature as signed) and
+  `GET /v1/releases/<platform>/<version>/<file>` over plain HTTPS. That
+  connection is not tied to an account, and range requests let a download
+  resume.
 - **Checks on the device**, before anything is installed: both signatures verify
   under the built-in key; the version is newer than the running one (no downgrades,
   and a version once seen is never accepted with different contents); each file's
-  size and SHA-256 match the manifest.
-- **Installing**, per platform: Linux replaces an AppImage atomically and restarts,
-  or defers to Flatpak/the distribution package when installed that way; Windows runs
-  the signed installer; Android hands the APK to the system installer, which also
-  requires the same app signing key.
-- **The user decides when**: the app shows "update available" with the notes, and
-  installs on request or at the next restart. `min_version` lets a release mark older
-  versions as no longer able to talk to the server (after a protocol change), which
-  the app shows prominently.
+  size and SHA-256 match the manifest, checked again just before installing.
+- **Installing on Linux.** Post installs per user from a tarball:
+  `~/.local/share/post/versions/<version>/`, with `current` linking to the one the
+  desktop entry starts. The first install runs the tarball's `install.sh`. An update
+  unpacks beside the running version, accepting only plain files and folders with
+  plain names. It then swaps `current` in one rename, and keeps the version before
+  for going back. A copy run from anywhere else (a development build, a
+  distribution package) only says that an update exists. The tarball is packed
+  reproducibly: sorted names, fixed owners and timestamps, no gzip timestamp.
+- **Other platforms**, later: Windows runs the signed installer; Android hands the
+  APK to the system installer, which also requires the same app signing key.
+- **The user decides when.** With automatic updates on (the default), the app asks
+  every four hours and downloads in the background. The new version installs when
+  the user clicks Restart, or as they quit. With them off, the server is asked only
+  from Settings. `min_version` lets a release mark older versions as no longer able
+  to talk to the server (after a protocol change), which the app shows across the
+  top of the window.
 - **Key rotation**: a new release key is announced in a release signed by the old
   one. Losing the release key means shipping a new key out of band, so it is kept
   offline with a backup.

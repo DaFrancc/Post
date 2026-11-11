@@ -16,6 +16,7 @@ import 'dialogs.dart';
 import 'search.dart';
 import 'settings.dart';
 import 'side_panel.dart';
+import 'update.dart';
 
 /// Below this width the side panel does not fit beside the chat.
 const _panelMinWidth = 1100.0;
@@ -36,6 +37,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    installUpdatesOnClose(widget.state);
     // Security notices about no conversation in particular pop up; those
     // about one show in it.
     _notices = widget.state.events.where((e) => e.kind == EventKind.notice).listen((e) {
@@ -63,7 +65,7 @@ class _HomeScreenState extends State<HomeScreen> {
           // Search results take the side panel's place while searching.
           final searching = state.searchShown != null;
           final showPanel = (_panel || searching) && roomForPanel && c != null;
-          return Padding(
+          final main = Padding(
             padding: const EdgeInsets.fromLTRB(PShape.gap, 0, PShape.gap, PShape.gap),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -120,6 +122,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ],
             ),
+          );
+          // Too old for the server: said across the top, over everything.
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              UpdateRequiredBanner(
+                state: state,
+                onDetails: () => unawaited(showSettings(context, state, section: SettingsSection.updates)),
+              ),
+              Expanded(child: main),
+            ],
           );
         },
       ),
@@ -539,6 +552,10 @@ class _ConversationListState extends State<_ConversationList> {
                         ),
                     ],
                   ),
+          ),
+          UpdateCard(
+            state: state,
+            onDetails: () => unawaited(showSettings(context, state, section: SettingsSection.updates)),
           ),
           _YouCard(state: state),
         ],
