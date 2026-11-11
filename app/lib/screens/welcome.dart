@@ -288,7 +288,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 child: SelectableText(
                   code,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 19, letterSpacing: 1.5, color: PColors.textStrong),
+                  style: const TextStyle(fontFamily: PType.mono, fontSize: 19, letterSpacing: 1.5, color: PColors.textStrong),
                 ),
               ),
               IconButton(

@@ -508,7 +508,7 @@ class _DeviceRow extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   shortId(device.id),
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: PColors.textFaint),
+                  style: const TextStyle(fontFamily: PType.mono, fontSize: 12, color: PColors.textFaint),
                 ),
               ],
             ),
@@ -662,7 +662,7 @@ class _Detail extends StatelessWidget {
               Expanded(
                 child: SelectableText(
                   value,
-                  style: TextStyle(fontSize: mono ? 13 : 14.5, fontFamily: mono ? 'monospace' : PType.body, color: PColors.text),
+                  style: TextStyle(fontSize: mono ? 13 : 14.5, fontFamily: mono ? PType.mono : PType.body, color: PColors.text),
                 ),
               ),
               PIconButton(icon: Icons.copy_rounded, tooltip: 'Copy', size: 32, iconSize: 15, onPressed: () => copyText(context, value)),

@@ -444,7 +444,7 @@ class _SafetyCard extends StatelessWidget {
           else
             SelectableText(
               _lines(number!),
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 13, height: 1.7, letterSpacing: 0.5, color: Color(0xFFC9CDDC)),
+              style: const TextStyle(fontFamily: PType.mono, fontSize: 13, height: 1.7, letterSpacing: 0.5, color: Color(0xFFC9CDDC)),
             ),
           const SizedBox(height: 12),
           Row(

@@ -17,7 +17,7 @@ TextStyle _apply(TextStyle s, Mark m) => switch (m) {
 };
 
 TextStyle _code(TextStyle s) =>
-    s.copyWith(fontFamily: 'monospace', fontSize: (s.fontSize ?? 14) * 0.92, color: PColors.codeText, backgroundColor: PColors.codeInline);
+    s.copyWith(fontFamily: PType.mono, fontSize: (s.fontSize ?? 14) * 0.92, color: PColors.codeText, backgroundColor: PColors.codeInline);
 
 // ---------------------------------------------------------------- messages
 
@@ -158,7 +158,7 @@ class _CodeBox extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         child: Text(
           code,
-          style: style.copyWith(fontFamily: 'monospace', fontSize: 13, height: 1.5, color: PColors.codeText),
+          style: style.copyWith(fontFamily: PType.mono, fontSize: 13, height: 1.5, color: PColors.codeText),
         ),
       ),
     );
@@ -192,7 +192,7 @@ class MarkupEditingController extends TextEditingController {
     for (final r in _misspelled) {
       if (r.end > t.length || r.start >= r.end) continue;
       segs = _decorate(segs, r.start, r.end, (s) {
-        if (s.fontFamily == 'monospace') return s;
+        if (s.fontFamily == PType.mono) return s;
         return s.copyWith(
           decoration: TextDecoration.underline,
           decorationStyle: TextDecorationStyle.wavy,

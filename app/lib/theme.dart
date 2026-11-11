@@ -134,6 +134,9 @@ abstract final class PType {
   static const body = 'Inter';
   static const display = 'SpaceGrotesk';
 
+  /// Code, link codes, IDs and safety numbers. Bundled, never the system's.
+  static const mono = 'JetBrainsMono';
+
   static const title = TextStyle(fontFamily: display, fontWeight: FontWeight.w600, fontSize: 20, letterSpacing: -0.2, color: PColors.text);
   static const heading = TextStyle(fontFamily: display, fontWeight: FontWeight.w600, fontSize: 18, letterSpacing: -0.2, color: PColors.text);
   static const label = TextStyle(fontFamily: body, fontWeight: FontWeight.w600, fontSize: 11, letterSpacing: 0.7, color: PColors.textFaint);
@@ -142,13 +145,21 @@ abstract final class PType {
   static const small = TextStyle(fontFamily: body, fontSize: 12.5, color: PColors.textFaint);
 }
 
-/// Extra line height split evenly above and below the text, as CSS does.
-/// Flutter's default splits it by the font's ascent and descent, and Inter's
-/// tall ascent then pushes text low in its line: visibly off-centre in
-/// fields and buttons. Every text style inherits this from the theme's
-/// default text style unless it sets its own.
-TextTheme _evenLeading(TextTheme t) {
-  TextStyle? even(TextStyle? s) => s?.copyWith(leadingDistribution: TextLeadingDistribution.even);
+/// How every text style starts, inherited through the theme's default text
+/// style unless a style sets its own:
+///
+/// - Extra line height split evenly above and below the text, as CSS does.
+///   Flutter's default splits it by the font's ascent and descent, and
+///   Inter's tall ascent then pushes text low in its line: visibly
+///   off-centre in fields and buttons.
+/// - No fallback font list. Flutter's Linux theme names six system fonts
+///   (Ubuntu, Cantarell, DejaVu Sans, ...), and text layout asks the system
+///   font matcher about each the first time: a 23 ms stall on the first
+///   frame of the main screen, 46 ms on the link-code screen. Every font
+///   the app uses is bundled; a character missing from them (an emoji)
+///   still finds a system font on its own.
+TextTheme _textStyles(TextTheme t) {
+  TextStyle? even(TextStyle? s) => s?.copyWith(leadingDistribution: TextLeadingDistribution.even, fontFamilyFallback: const <String>[]);
   return t.copyWith(
     displayLarge: even(t.displayLarge),
     displayMedium: even(t.displayMedium),
@@ -181,7 +192,8 @@ ThemeData postTheme() {
   final base = ThemeData(brightness: Brightness.dark, colorScheme: scheme, fontFamily: PType.body, useMaterial3: true);
   return base.copyWith(
     scaffoldBackgroundColor: PColors.ground,
-    textTheme: _evenLeading(base.textTheme.apply(bodyColor: PColors.text, displayColor: PColors.text, fontFamily: PType.body)),
+    textTheme: _textStyles(base.textTheme.apply(bodyColor: PColors.text, displayColor: PColors.text, fontFamily: PType.body)),
+    primaryTextTheme: _textStyles(base.primaryTextTheme.apply(fontFamily: PType.body)),
     dividerColor: PColors.border,
     splashFactory: InkSparkle.splashFactory,
     popupMenuTheme: PopupMenuThemeData(

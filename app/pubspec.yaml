@@ -74,6 +74,12 @@ flutter:
     - family: SpaceGrotesk
       fonts:
         - asset: assets/fonts/SpaceGrotesk.ttf
+    # Bundled rather than the system's "monospace": a system font is found
+    # through font matching the first time text uses it, which stalled a frame
+    # for 70 ms, and differs between platforms.
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

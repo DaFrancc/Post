@@ -352,7 +352,7 @@ class _LinkDialogState extends State<_LinkDialog> {
                           const SizedBox(height: 2),
                           Text(
                             shortId(r?.deviceId ?? ''),
-                            style: const TextStyle(fontFamily: 'monospace', fontSize: 12.5, color: PColors.textFaint),
+                            style: const TextStyle(fontFamily: PType.mono, fontSize: 12.5, color: PColors.textFaint),
                           ),
                         ],
                       ),

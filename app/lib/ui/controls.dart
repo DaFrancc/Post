@@ -55,7 +55,7 @@ class PField extends StatelessWidget {
           autocorrect: false,
           maxLength: maxLength,
           maxLengthEnforcement: MaxLengthEnforcement.enforced,
-          style: TextStyle(fontSize: 14.5, color: PColors.text, fontFamily: mono ? 'monospace' : PType.body),
+          style: TextStyle(fontSize: 14.5, color: PColors.text, fontFamily: mono ? PType.mono : PType.body),
           decoration: InputDecoration(
             hintText: hint,
             counterText: '',
