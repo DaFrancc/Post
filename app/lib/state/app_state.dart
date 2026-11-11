@@ -8,6 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:post/src/rust/api/client.dart';
 import 'package:post/src/rust/api/error.dart';
 
+import '../ui/arrival.dart';
+
 /// One sentence to show for a failed call. Screens throw [ArgumentError]
 /// for their own checks, with the sentence as its message.
 String errorText(Object e) => switch (e) {
@@ -26,6 +28,7 @@ class AppState extends ChangeNotifier {
     unawaited(refreshConversations());
     unawaited(_loadOwnPresence());
     unawaited(person(me.username));
+    unawaited(_loadSettings());
     _connectionTimer = Timer.periodic(const Duration(seconds: 4), (_) => _checkConnection());
     unawaited(_checkConnection());
   }
@@ -44,6 +47,11 @@ class AppState extends ChangeNotifier {
 
   /// The presence this user chose.
   PresenceChoice ownPresence = PresenceChoice.online;
+
+  /// Whether other people's messages arrive in the styles they chose; off,
+  /// they all simply rise in. Your own always arrive in yours.
+  bool showOthersArrivals = true;
+  static const _othersArrivalsKey = 'arrival.others';
 
   final _people = <String, PersonInfo>{};
   final _peopleLoading = <String>{};
@@ -210,6 +218,32 @@ class AppState extends ChangeNotifier {
 
   /// The name this user shows as.
   String get myName => _people[me.username]?.shownName ?? me.username;
+
+  /// Forget what is known of someone and load it again, after it changed
+  /// here (your own profile, saved).
+  Future<void> reloadPerson(String username) async {
+    _people.remove(username);
+    await person(username);
+  }
+
+  /// How a message from [username] arrives on this screen.
+  Arrival arrivalOf(String username) {
+    if (username != me.username && !showOthersArrivals) return Arrival.rise;
+    return Arrival.parse(personNow(username)?.arrival);
+  }
+
+  Future<void> _loadSettings() async {
+    try {
+      showOthersArrivals = await client.setting(key: _othersArrivalsKey) != '0';
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> setShowOthersArrivals(bool show) async {
+    showOthersArrivals = show;
+    notifyListeners();
+    await client.setSetting(key: _othersArrivalsKey, value: show ? null : '0');
+  }
 
   /// Someone's presence word (online, away, dnd, offline), loading it the
   /// first time it is asked for.

@@ -11,6 +11,7 @@ import 'package:post/src/rust/api/client.dart';
 
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../ui/arrival.dart';
 import '../ui/controls.dart';
 import '../ui/format.dart';
 import '../ui/markup_text.dart';
@@ -94,13 +95,25 @@ class _ChatViewState extends State<ChatView> {
   _Flight? _flightFor(MessageInfo m) {
     if (_initial == null || _initial!.contains(m.id)) return null;
     return _claimed.putIfAbsent(m.id, () {
-      final i = _flights.indexWhere((f) => m.outgoing ? (f.outgoing && f.body == m.body) : (!f.outgoing && f.username == m.senderUsername));
-      if (i < 0) return null;
-      final f = _flights.removeAt(i);
       // Your message's row starts opening this frame: the composer can
       // shrink back now, alongside it.
-      if (f.outgoing) WidgetsBinding.instance.addPostFrameCallback((_) => _releaseComposer());
-      return f;
+      if (m.outgoing) WidgetsBinding.instance.addPostFrameCallback((_) => _releaseComposer());
+      final i = _flights.indexWhere((f) => m.outgoing ? (f.outgoing && f.body == m.body) : (!f.outgoing && f.username == m.senderUsername));
+      return i < 0 ? null : _flights.removeAt(i);
+    });
+  }
+
+  /// How each new message arrives, decided once when it first shows: in
+  /// its sender's style (yours for your own). A bubble needs somewhere to
+  /// fly from; without one it rises instead.
+  final _arrivals = <String, Arrival>{};
+
+  Arrival _arrivalFor(MessageInfo m) {
+    // Already here when the conversation opened: shown as it is.
+    if (_initial == null || _initial!.contains(m.id)) return Arrival.instant;
+    return _arrivals.putIfAbsent(m.id, () {
+      final a = _state.arrivalOf(m.outgoing ? _state.me.username : m.senderUsername);
+      return a == Arrival.bubble && _claimed[m.id] == null ? Arrival.rise : a;
     });
   }
 
@@ -191,7 +204,7 @@ class _ChatViewState extends State<ChatView> {
         for (final m in messages.where((m) => !m.outgoing && !known.contains(m.id))) {
           arrivedFrom.add(m.senderUsername);
           final rect = _rectOf(_typingKey(m.senderUsername));
-          if (rect != null && typing.contains(m.senderUsername) && m.body != null) {
+          if (rect != null && typing.contains(m.senderUsername) && m.body != null && _state.arrivalOf(m.senderUsername) == Arrival.bubble) {
             // Its shape starts as a small pill around the typing line.
             final pill = Rect.fromLTRB(rect.left - 8, rect.top - 4, rect.right + 8, rect.bottom + 4);
             _flights.add(
@@ -270,14 +283,14 @@ class _ChatViewState extends State<ChatView> {
     // the message flies from here when it appears in the history.
     final field = _rectOf(_composerFieldKey);
     final box = _rectOf(_composerBoxKey);
-    if (field != null && box != null) {
+    if (field != null && box != null && _state.arrivalOf(_state.me.username) == Arrival.bubble) {
       final from = Rect.fromLTRB(field.left, field.top + 10, field.right, field.bottom - 10);
       // Its shape starts as the composer's own, up to the send button, so it
       // looks like the text lifts out of the box it was typed in.
       final shape = Rect.fromLTRB(box.left, box.top, field.right + 2, box.bottom);
       _flights.add(_Flight(body: text, outgoing: true, from: from, fromStyle: _composerText, fromShape: shape, fromRadius: 18));
-      _holdComposer(field.height);
     }
+    if (field != null) _holdComposer(field.height);
     _composer.clear();
     try {
       await _state.client.sendText(conversation: _id, text: text);
@@ -580,6 +593,7 @@ class _ChatViewState extends State<ChatView> {
     _Notice(:final n) => _NoticeLine(n),
     _Msg(:final m, :final startsGroup) => _MessageTile(
       flight: _flightFor(m),
+      arrival: _arrivalFor(m),
       arrived: !(_initial?.contains(m.id) ?? true),
       m: m,
       startsGroup: startsGroup,
@@ -1174,8 +1188,13 @@ class _MessageTile extends StatefulWidget {
     required this.onSaveEdit,
     required this.onCancelEdit,
     required this.onMenu,
+    required this.arrival,
     this.flight,
   });
+
+  /// How it arrives, if it is new: [Arrival.bubble] with a [flight], or
+  /// played in place on its text.
+  final Arrival arrival;
 
   /// It came in while the conversation was open: slide it in.
   final bool arrived;
@@ -1204,7 +1223,12 @@ class _MessageTile extends StatefulWidget {
 
 class _MessageTileState extends State<_MessageTile> with SingleTickerProviderStateMixin {
   bool _hover = false;
-  late final AnimationController _in = AnimationController(vsync: this, duration: _rowEnters, value: widget.arrived ? 0 : 1);
+  // Instant means no animation at all: not even the row opening.
+  late final AnimationController _in = AnimationController(
+    vsync: this,
+    duration: _rowEnters,
+    value: widget.arrived && widget.arrival != Arrival.instant ? 0 : 1,
+  );
 
   /// Around the message's text, and its row: where a flight lands.
   final _bodyKey = GlobalKey();
@@ -1438,7 +1462,14 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
         style: TextStyle(fontSize: 14, height: 1.5, fontStyle: FontStyle.italic, color: PColors.textFaint),
       );
     }
-    return MarkupText(m.body ?? '', style: PType.text);
+    // In-place styles play on the text once the row has begun to open.
+    return ArrivalText(
+      m.body ?? '',
+      style: PType.text,
+      arrival: widget.arrival,
+      play: widget.arrived && widget.arrival.inPlace,
+      delay: const Duration(milliseconds: 140),
+    );
   }
 }
 

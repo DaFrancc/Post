@@ -21,12 +21,35 @@ TextStyle _code(TextStyle s) =>
 
 // ---------------------------------------------------------------- messages
 
+/// One stretch of a message's text as drawn, for arrival effects: where it
+/// starts among all the characters drawn, what it says, and how it looks.
+class RevealRun {
+  const RevealRun(this.start, this.text, this.style, {this.hidden = false});
+
+  final int start;
+  final String text;
+  final TextStyle style;
+
+  /// A spoiler's hidden text: drawn as a bar, never as letters.
+  final bool hidden;
+}
+
 /// A message's text, formatted. Spoilers are hidden until clicked.
 class MarkupText extends StatefulWidget {
-  const MarkupText(this.text, {super.key, required this.style});
+  const MarkupText(this.text, {super.key, required this.style, this.shownUpTo, this.runs});
 
   final String text;
   final TextStyle style;
+
+  /// For arrival effects: characters from this one on (counting every
+  /// character drawn, in order) are left transparent but in place, so the
+  /// text keeps its exact layout while an effect draws them its own way.
+  /// Null draws everything.
+  final int? shownUpTo;
+
+  /// For arrival effects: filled with the runs drawn, in order, on every
+  /// build.
+  final List<RevealRun>? runs;
 
   @override
   State<MarkupText> createState() => _MarkupTextState();
@@ -64,14 +87,38 @@ class _MarkupTextState extends State<MarkupText> {
     _disposeRecognizers();
     final s = widget.text;
     var spoiler = 0;
+    // Every character drawn goes through here, in order, so arrival effects
+    // can count them and find each one on screen.
+    var drawn = 0;
+    final runs = widget.runs?..clear();
+    final upTo = widget.shownUpTo;
+    InlineSpan run(String text, TextStyle st) {
+      runs?.add(RevealRun(drawn, text, st));
+      final cut = upTo == null ? text.length : (upTo - drawn).clamp(0, text.length);
+      drawn += text.length;
+      if (cut == text.length) return TextSpan(text: text, style: st);
+      // Transparent, decorations and backgrounds too: same glyphs, same
+      // layout, nothing visible.
+      final clear = st.copyWith(color: Colors.transparent, backgroundColor: Colors.transparent, decorationColor: Colors.transparent);
+      if (cut == 0) return TextSpan(text: text, style: clear);
+      return TextSpan(
+        children: [
+          TextSpan(text: text.substring(0, cut), style: st),
+          TextSpan(text: text.substring(cut), style: clear),
+        ],
+      );
+    }
 
     List<InlineSpan> inline(List<Inline> nodes, TextStyle st) => [
       for (final n in nodes)
         switch (n) {
-          Plain() => TextSpan(text: s.substring(n.start, n.end), style: st),
-          Escape() => TextSpan(text: s[n.end - 1], style: st),
-          Code() => TextSpan(text: s.substring(n.contentStart, n.contentEnd), style: _code(st)),
-          Styled(mark: Mark.spoiler) => _spoiler(spoiler++, n, st, inline),
+          Plain() => run(s.substring(n.start, n.end), st),
+          Escape() => run(s[n.end - 1], st),
+          Code() => run(s.substring(n.contentStart, n.contentEnd), _code(st)),
+          Styled(mark: Mark.spoiler) => _spoiler(spoiler++, n, st, inline, (text, style) {
+            runs?.add(RevealRun(drawn, text, style, hidden: true));
+            drawn += text.length;
+          }),
           Styled() => TextSpan(children: inline(n.children, _apply(st, n.mark))),
         },
     ];
@@ -88,12 +135,12 @@ class _MarkupTextState extends State<MarkupText> {
               child: Text.rich(
                 TextSpan(
                   children: [
-                    for (final (i, l) in b.lines.indexed) ...[if (i > 0) TextSpan(text: '\n', style: base), ...inline(l.inline, base)],
+                    for (final (i, l) in b.lines.indexed) ...[if (i > 0) run('\n', base), ...inline(l.inline, base)],
                   ],
                 ),
               ),
             ),
-            CodeBlock() => _CodeBox(code: s.substring(b.codeStart, b.codeEnd), style: base),
+            CodeBlock() => _CodeBox(child: Text.rich(run(s.substring(b.codeStart, b.codeEnd), _CodeBox.textStyle(base)))),
           },
       ],
     );
@@ -101,7 +148,13 @@ class _MarkupTextState extends State<MarkupText> {
 
   /// Hidden: a solid bar the size of the text. Clicked: the text, on a faint
   /// tint so it stays visibly a spoiler.
-  InlineSpan _spoiler(int index, Styled n, TextStyle st, List<InlineSpan> Function(List<Inline>, TextStyle) inline) {
+  InlineSpan _spoiler(
+    int index,
+    Styled n,
+    TextStyle st,
+    List<InlineSpan> Function(List<Inline>, TextStyle) inline,
+    void Function(String text, TextStyle style) counted,
+  ) {
     final shown = _revealed.contains(index);
     if (shown) return TextSpan(children: inline(n.children, st.copyWith(backgroundColor: PColors.spoilerShown)));
     final r = TapGestureRecognizer()..onTap = () => setState(() => _revealed.add(index));
@@ -109,13 +162,9 @@ class _MarkupTextState extends State<MarkupText> {
     // One span holding the text: a span's tap handler and label apply to its
     // own text only, not its children's.
     final hidden = st.copyWith(color: Colors.transparent, backgroundColor: PColors.spoiler, decoration: TextDecoration.none);
-    return TextSpan(
-      text: plainText(widget.text.substring(n.contentStart, n.contentEnd), revealSpoilers: true),
-      style: hidden,
-      recognizer: r,
-      mouseCursor: SystemMouseCursors.click,
-      semanticsLabel: 'Spoiler, hidden. Click to show.',
-    );
+    final text = plainText(widget.text.substring(n.contentStart, n.contentEnd), revealSpoilers: true);
+    counted(text, hidden);
+    return TextSpan(text: text, style: hidden, recognizer: r, mouseCursor: SystemMouseCursors.click, semanticsLabel: 'Spoiler, hidden. Click to show.');
   }
 }
 
@@ -138,10 +187,12 @@ class _QuoteBox extends StatelessWidget {
 }
 
 class _CodeBox extends StatelessWidget {
-  const _CodeBox({required this.code, required this.style});
+  const _CodeBox({required this.child});
 
-  final String code;
-  final TextStyle style;
+  /// The code, drawn.
+  final Widget child;
+
+  static TextStyle textStyle(TextStyle base) => base.copyWith(fontFamily: PType.mono, fontSize: 13, height: 1.5, color: PColors.codeText);
 
   @override
   Widget build(BuildContext context) {
@@ -154,13 +205,7 @@ class _CodeBox extends StatelessWidget {
         border: Border.all(color: PColors.selected),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Text(
-          code,
-          style: style.copyWith(fontFamily: PType.mono, fontSize: 13, height: 1.5, color: PColors.codeText),
-        ),
-      ),
+      child: SingleChildScrollView(scrollDirection: Axis.horizontal, child: child),
     );
   }
 }
