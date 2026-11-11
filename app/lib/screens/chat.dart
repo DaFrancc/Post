@@ -21,6 +21,7 @@ import '../ui/markup.dart';
 import '../ui/markup_text.dart';
 import 'dialogs.dart';
 import 'home.dart' show Panel;
+import 'profile_card.dart';
 import 'settings.dart' show SettingsSection, showSettings;
 
 /// Messages from one sender this close together share one header.
@@ -687,6 +688,7 @@ class _ChatViewState extends State<ChatView> {
       onSaveEdit: () => _saveEdit(m),
       onCancelEdit: _cancelEdit,
       onMenu: (at) => _messageMenu(m, at),
+      onPerson: (anchor) => unawaited(showProfileCard(anchor, _state, m.senderUsername)),
     ),
   };
 }
@@ -1268,9 +1270,14 @@ class _MessageTile extends StatefulWidget {
     required this.onSaveEdit,
     required this.onCancelEdit,
     required this.onMenu,
+    required this.onPerson,
     required this.arrival,
     this.flight,
   });
+
+  /// The sender's avatar or name was clicked: given what was clicked, to
+  /// show their card beside it.
+  final ValueChanged<BuildContext> onPerson;
 
   /// How it arrives, if it is new: [Arrival.bubble] with a [flight], or
   /// played in place on its text.
@@ -1419,7 +1426,10 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
               textBaseline: TextBaseline.alphabetic,
               children: [
                 Flexible(
-                  child: Text(m.sender, maxLines: 1, overflow: TextOverflow.ellipsis, style: PType.name),
+                  child: _PersonLink(
+                    onTap: widget.onPerson,
+                    child: Text(m.sender, maxLines: 1, overflow: TextOverflow.ellipsis, style: PType.name),
+                  ),
                 ),
                 const SizedBox(width: 8),
                 Text(messageTime(m.sentAtMs), style: const TextStyle(fontSize: 12, color: Color(0xFF7C829A))),
@@ -1476,7 +1486,10 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
                         child: widget.startsGroup
                             ? Padding(
                                 padding: const EdgeInsets.only(top: 2),
-                                child: PAvatar(name: m.sender, colorKey: m.senderUsername, size: 40),
+                                child: _PersonLink(
+                                  onTap: widget.onPerson,
+                                  child: PAvatar(name: m.sender, colorKey: m.senderUsername, size: 40),
+                                ),
                               )
                             : (_hover
                                   ? Padding(
@@ -1549,6 +1562,38 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
       arrival: widget.arrival,
       play: widget.arrived && widget.arrival.inPlace,
       delay: const Duration(milliseconds: 140),
+    );
+  }
+}
+
+/// A sender's avatar or name: a click shows their card beside it. The name
+/// underlines on hover, so it reads as something to click.
+class _PersonLink extends StatefulWidget {
+  const _PersonLink({required this.onTap, required this.child});
+
+  final ValueChanged<BuildContext> onTap;
+  final Widget child;
+
+  @override
+  State<_PersonLink> createState() => _PersonLinkState();
+}
+
+class _PersonLinkState extends State<_PersonLink> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: () => widget.onTap(context),
+        child: DefaultTextStyle.merge(
+          style: TextStyle(decoration: _hover ? TextDecoration.underline : TextDecoration.none),
+          child: widget.child,
+        ),
+      ),
     );
   }
 }

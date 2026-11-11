@@ -13,6 +13,7 @@ import '../ui/controls.dart';
 import '../ui/format.dart';
 import 'dialogs.dart';
 import 'home.dart' show Panel;
+import 'profile_card.dart';
 
 class SidePanel extends StatelessWidget {
   const SidePanel({super.key, required this.state, required this.conversation});
@@ -230,8 +231,9 @@ class _MemberRowState extends State<_MemberRow> {
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hover = true),
         onExit: (_) => setState(() => _hover = false),
+        // A click shows their card beside the row; a right-click, the menu.
         child: GestureDetector(
-          onTapUp: (d) => widget.onMenu(d.globalPosition),
+          onTap: () => unawaited(showProfileCard(context, widget.state, m.username)),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),

@@ -544,6 +544,90 @@ Future<T?> showContextMenu<T>(BuildContext context, Offset globalPosition, List<
   }
 }
 
+/// A card beside [anchor] (a profile, say): to its right, or its left where
+/// there is no room, top edges lined up and kept inside the window. It
+/// grows out from the anchor's side with the menus' ease-out, and closes on
+/// a click outside or Escape.
+Future<T?> showBeside<T>(BuildContext anchor, {required double width, required Widget child}) {
+  final navigator = Navigator.of(anchor);
+  final overlay = navigator.overlay!.context.findRenderObject()! as RenderBox;
+  final box = anchor.findRenderObject()! as RenderBox;
+  final rect = box.localToGlobal(Offset.zero, ancestor: overlay) & box.size;
+  return navigator.push(_BesideRoute<T>(anchor: rect, width: width, child: child));
+}
+
+class _BesideRoute<T> extends PopupRoute<T> {
+  _BesideRoute({required this.anchor, required this.width, required this.child});
+
+  final Rect anchor;
+  final double width;
+  final Widget child;
+
+  @override
+  Color? get barrierColor => null;
+
+  @override
+  bool get barrierDismissible => true;
+
+  @override
+  String? get barrierLabel => 'Close';
+
+  @override
+  Duration get transitionDuration => pMenuAnimation.duration!;
+
+  @override
+  Duration get reverseTransitionDuration => pMenuAnimation.reverseDuration!;
+
+  @override
+  Animation<double> createAnimation() =>
+      CurvedAnimation(parent: super.createAnimation(), curve: pMenuAnimation.curve!, reverseCurve: pMenuAnimation.reverseCurve);
+
+  @override
+  Widget buildPage(BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation) {
+    final size = MediaQuery.sizeOf(context);
+    // Right of the anchor unless it would leave the window.
+    final right = anchor.right + 10 + width <= size.width - 8;
+    return CustomSingleChildLayout(
+      delegate: _BesideLayout(anchor, right: right),
+      child: SizedBox(
+        width: width,
+        child: FadeTransition(
+          opacity: CurveTween(curve: const Interval(0, 0.5)).animate(animation),
+          child: ScaleTransition(
+            scale: Tween(begin: 0.94, end: 1.0).animate(animation),
+            alignment: right ? Alignment.topLeft : Alignment.topRight,
+            child: SlideTransition(
+              position: Tween(begin: Offset(right ? -0.03 : 0.03, 0), end: Offset.zero).animate(animation),
+              child: child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BesideLayout extends SingleChildLayoutDelegate {
+  _BesideLayout(this.anchor, {required this.right});
+
+  final Rect anchor;
+  final bool right;
+  static const _margin = 8.0;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) => BoxConstraints.loose(constraints.biggest).deflate(const EdgeInsets.all(_margin));
+
+  @override
+  Offset getPositionForChild(Size size, Size child) {
+    final x = right ? anchor.right + 10 : anchor.left - 10 - child.width;
+    final y = anchor.top.clamp(_margin, math.max(_margin, size.height - child.height - _margin));
+    return Offset(x.clamp(_margin, math.max(_margin, size.width - child.width - _margin)).toDouble(), y.toDouble());
+  }
+
+  @override
+  bool shouldRelayout(_BesideLayout old) => old.anchor != anchor || old.right != right;
+}
+
 /// A menu that grows up out of [anchor], for a button near the bottom of the
 /// window: it looks like a context menu and moves like one, but unrolls
 /// upward from the button, and its entries (which may be tall) come in
