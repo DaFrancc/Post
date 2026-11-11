@@ -6,7 +6,6 @@ import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 import 'package:post/src/rust/api/client.dart';
 
@@ -662,20 +661,10 @@ class _Flight {
   final DateTime made = DateTime.now();
 }
 
-/// How far along its arc a flight is: a spring, just under-damped, so it
-/// gathers speed from rest, carries a little past its row and settles back.
-class _Rise extends Curve {
-  const _Rise();
-
-  static final _spring = SpringSimulation(SpringDescription.withDampingRatio(mass: 1, stiffness: 170, ratio: 0.78), 0, 1, 0);
-
-  /// Long enough for the spring to settle within half a pixel of a typical
-  /// trip; [Curve.transform] gives exactly 1 at the end.
-  static const _seconds = 0.62;
-
-  @override
-  double transformInternal(double t) => _spring.x(t * _seconds);
-}
+/// How far along its arc a flight is: eases in from rest, gently, eases out,
+/// and carries a couple of percent past its row before settling back (the
+/// second control point's 1.15).
+const _travel = Cubic(0.62, 0, 0.32, 1.15);
 
 /// The text in flight, drawn above everything, carried in a bubble for the
 /// journey: the bubble leaves as the composer (or a pill at the typing
@@ -702,7 +691,7 @@ class _FlyingState extends State<_Flying> with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
     // Rising from the typing line, the text also fades in: a little longer.
-    duration: Duration(milliseconds: widget.flight.outgoing ? 720 : 780),
+    duration: Duration(milliseconds: widget.flight.outgoing ? 780 : 840),
   );
 
   /// The text as drawn last frame: the bubble hugs its size.
@@ -710,7 +699,6 @@ class _FlyingState extends State<_Flying> with SingleTickerProviderStateMixin {
 
   /// Narrow enough at the sides that, in place, it stays clear of the avatar.
   static const _pad = EdgeInsets.symmetric(horizontal: 11, vertical: 7);
-  static const _rise = _Rise();
 
   /// Your bubble carries a touch of the accent; someone else's is neutral.
   static final _mine = Color.alphaBlend(PColors.accent.withValues(alpha: 0.16), PColors.panelRaised);
@@ -759,23 +747,23 @@ class _FlyingState extends State<_Flying> with SingleTickerProviderStateMixin {
         final dest = local(to);
 
         // The path: an arc that swings out into the open space to the right
-        // of the messages and comes back in to land, travelled on a spring.
+        // of the messages and comes back in to land. Everything eases in and
+        // out: it gets going gently rather than jumping off.
         // The swing grows with the climb, within the room the row has.
         final rise = (from.top - dest.top).abs();
         final bulge = math.min((90 + rise * 0.5).clamp(110.0, 220.0), local(row).width * 0.4);
-        final u = _rise.transform(v);
-        final at = _arc(from.topLeft, dest.topLeft, bulge, u);
+        final at = _arc(from.topLeft, dest.topLeft, bulge, _travel.transform(v));
         final (x, y) = (at.dx, at.dy);
-        final t = Curves.easeOutCubic.transform(v);
+        final t = Curves.easeInOutCubic.transform(v);
 
-        // The bubble: closes from where it started around the text, rides
-        // with it, and at the end swells a little as it dissolves, leaving
-        // the text in its place.
+        // The bubble: closes from where it started around the text as it
+        // sets off, rides with it, and once it is nearly in place swells a
+        // little as it dissolves, leaving the text where it belongs.
         final drawn = _text.currentContext?.findRenderObject();
         final size = drawn is RenderBox && drawn.hasSize ? drawn.size : from.size;
         final hug = _pad.inflateRect(Offset(x, y) & size);
-        final gather = Curves.easeOutCubic.transform((v / 0.3).clamp(0, 1));
-        final settle = Curves.easeInOutCubic.transform(((v - 0.6) / 0.4).clamp(0, 1));
+        final gather = Curves.easeInOutCubic.transform((v / 0.4).clamp(0, 1));
+        final settle = Curves.easeInOutCubic.transform(((v - 0.72) / 0.28).clamp(0, 1));
         final shape = Rect.lerp(local(f.fromShape), hug, gather)!.inflate(6 * settle);
         final radius = lerpDouble(f.fromRadius, math.min(hug.height / 2, 18), gather)!;
         final fill = f.outgoing ? Color.lerp(PColors.panelRaised, _mine, gather)! : PColors.selected;
@@ -785,7 +773,7 @@ class _FlyingState extends State<_Flying> with SingleTickerProviderStateMixin {
 
         // Leaning into the turn: tilted by how fast it moves sideways, only
         // once it has left the composer and until it lands.
-        final ahead = _arc(from.topLeft, dest.topLeft, bulge, _rise.transform(math.min(v + 0.02, 1)));
+        final ahead = _arc(from.topLeft, dest.topLeft, bulge, _travel.transform(math.min(v + 0.02, 1)));
         final lean = ((ahead.dx - x) * 0.006).clamp(-0.06, 0.06) * gather * (1 - settle);
         final pivot = Offset(x, y) + size.center(Offset.zero);
 
@@ -843,7 +831,7 @@ class _FlyingState extends State<_Flying> with SingleTickerProviderStateMixin {
                     // little into its size; the typing line it leaves fades
                     // out on its own.
                     child: Opacity(
-                      opacity: f.outgoing ? 1 : Curves.easeOut.transform((v / 0.5).clamp(0, 1)),
+                      opacity: f.outgoing ? 1 : Curves.easeInOut.transform((v / 0.5).clamp(0, 1)),
                       child: Transform.scale(
                         scale: f.outgoing ? 1 : lerpDouble(0.9, 1, gather)!,
                         alignment: Alignment.centerLeft,
