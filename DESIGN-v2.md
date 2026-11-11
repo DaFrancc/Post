@@ -1132,6 +1132,38 @@ livekit-server: UDP 7882 media, TCP 7881 fallback, TURN/TLS 5349
 - `posternd` runs as a non-root user in a read-only container filesystem. Config is
   one TOML file, overridable by environment variables.
 
+### App updates
+
+Apps find out about new releases from the Postern server and download them from it,
+so a community's devices update without an app store. The server only distributes:
+it cannot make a build devices will accept. Planned after the app (build order,
+phase 5b); not built yet.
+
+- **A release key held offline**, a hybrid Ed25519 + ML-DSA-65 key like a device
+  chain key, whose public half is built into every app. Each release has a manifest
+  `{ version, platform, files: [{ name, size, sha256 }], min_version, notes,
+  released_at }`, and the release key signs the manifest's exact bytes. Both
+  signatures must verify.
+- **Distribution.** The operator uploads a signed release to the server
+  (`posternd release add`). Apps check the latest manifest for their platform on
+  connect and every few hours over the anonymous connection (so a check is not tied
+  to an account), and download over HTTPS with resume.
+- **Checks on the device**, before anything is installed: both signatures verify
+  under the built-in key; the version is newer than the running one (no downgrades,
+  and a version once seen is never accepted with different contents); each file's
+  size and SHA-256 match the manifest.
+- **Installing**, per platform: Linux replaces an AppImage atomically and restarts,
+  or defers to Flatpak/the distribution package when installed that way; Windows runs
+  the signed installer; Android hands the APK to the system installer, which also
+  requires the same app signing key.
+- **The user decides when**: the app shows "update available" with the notes, and
+  installs on request or at the next restart. `min_version` lets a release mark older
+  versions as no longer able to talk to the server (after a protocol change), which
+  the app shows prominently.
+- **Key rotation**: a new release key is announced in a release signed by the old
+  one. Losing the release key means shipping a new key out of band, so it is kept
+  offline with a backup.
+
 ## 13. Sizing
 
 | Item | Estimate |
@@ -1195,6 +1227,7 @@ For every change:
 | 3 | Multi-device: linking, self group, device add and remove, chain-head gossip, private nicknames (stored in the self group) | A linked device joins all conversations; a removed one is cut off. **Done 2026-11-10**; see "Phase 3 status" below |
 | 4 | Groups: policy, metadata, leave, stale devices, key refresh; typing indicators and presence | Adversarial server tests pass; typing and presence reach online members and are never stored. **Done 2026-11-11**; see "Phase 4 status" below |
 | 5 | Flutter app, text only: Linux, then Windows, then Android | Daily use between real devices |
+| 5b | App updates over the wire (section 12, "App updates"): signed release manifests from the server, update detection, installing per platform | A device installs a signed update from the server and refuses an unsigned, modified or older one |
 | 6 | Attachments, profile pictures, and history sharing for new members and new devices | Resumable upload and download on all three platforms; a member added to a `Shared` group sees its history |
 | 7 | Android push and background sync | Messages arrive with the app closed |
 | 8 | Calls: 1:1 audio, then video, then group | Rekey on membership change verified |
