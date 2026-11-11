@@ -1,0 +1,64 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+exclude = ["spikes"]
+
+[workspace.package]
+edition = "2024"
+# Edition 2024 let-chains need 1.88.
+rust-version = "1.88"
+publish = false
+
+[workspace.dependencies]
+# Crypto versions match what OpenMLS 0.9 already depends on, so the client links
+# one copy of each.
+ed25519-dalek = { version = "2.2", features = ["zeroize"] }
+ml-dsa = "0.1.2"
+sha2 = "0.10"
+getrandom = { version = "0.4", features = ["sys_rng"] }
+zeroize = "1.8"
+prost = "0.14"
+thiserror = "2"
+hex = "0.4"
+proptest = "1.12"
+
+# MLS. Pinned exactly: the hybrid suite uses a provisional codepoint, and an
+# upgrade must be a deliberate step (design section 6).
+openmls = { version = "=0.9.2", features = ["draft-ietf-mls-pq-ciphersuites"] }
+openmls_libcrux_crypto = { version = "=0.4.0", features = ["draft-ietf-mls-pq-ciphersuites"] }
+openmls_rust_crypto = { version = "=0.6.0", features = ["draft-ietf-mls-pq-ciphersuites"] }
+openmls_basic_credential = { version = "=0.6.0", features = ["draft-ietf-mls-pq-ciphersuites"] }
+openmls_traits = { version = "=0.6.0", features = ["draft-ietf-mls-pq-ciphersuites"] }
+openmls_sqlite_storage = { version = "=0.3.0", features = ["draft-ietf-mls-pq-ciphersuites"] }
+# Must match the version openmls_sqlite_storage uses, so they share one
+# Connection type. SQLCipher for client databases; harmless for the server.
+rusqlite = { version = "0.37", features = ["bundled-sqlcipher"] }
+
+# Runtime, networking, interfaces.
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util", "io-std", "signal"] }
+axum = { version = "0.8", features = ["ws"] }
+# wss:// with the operating system's trust store.
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
+# The TLS crypto backend for tokio-tungstenite: aws-lc-rs, with the hybrid
+# X25519MLKEM768 group tried first (design section 8, Transport).
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "prefer-post-quantum", "std"] }
+futures-util = { version = "0.3", features = ["sink"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1.2"
+clap = { version = "4.6", features = ["derive", "env"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+url = "2.5"
+tempfile = "3"
+# Anonymous tokens, RFC 9474. Uses rsa 0.10, which fixed the Marvin timing
+# side channel (RUSTSEC-2023-0071) by moving to constant-time arithmetic.
+blind-rsa-signatures = "0.18"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
