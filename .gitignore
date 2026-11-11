@@ -1,2 +1,4 @@
 /target
 **/target
+# Local development server data and keys (scripts/dev-server.sh).
+/.dev/

@@ -6,10 +6,10 @@
 
 use std::path::PathBuf;
 
-use anyhow::Context as _;
 use flutter_rust_bridge::frb;
 use postern_core::{self as core, ConversationId, Core};
 
+use super::error::{ErrorKind, PosternError, from_anyhow};
 use crate::frb_generated::StreamSink;
 
 /// Called once when the Dart side loads the library: logging and panic
@@ -115,14 +115,15 @@ pub struct AppEvent {
 impl Client {
     /// Open (creating if needed) the profile in `profile_dir`. Its database
     /// key comes from the platform keystore, made on first open.
-    pub async fn open(profile_dir: String) -> anyhow::Result<Client> {
+    pub async fn open(profile_dir: String) -> Result<Client, PosternError> {
         let dir = PathBuf::from(profile_dir);
         let core = tokio::task::spawn_blocking(move || -> anyhow::Result<Core> {
             let key = crate::keystore::key_for(&dir)?;
             Ok(Core::open(&dir, &key)?)
         })
         .await
-        .context("opening the profile")??;
+        .map_err(|_| PosternError::new(ErrorKind::Other, "Opening the profile stopped unexpectedly."))?
+        .map_err(from_anyhow)?;
         Ok(Client { core })
     }
 
@@ -132,8 +133,21 @@ impl Client {
     }
 
     /// Create an account with an invite.
-    pub async fn register(&self, server: String, invite: String, username: String) -> anyhow::Result<Identity> {
+    pub async fn register(&self, server: String, invite: String, username: String) -> Result<Identity, PosternError> {
         Ok(identity(self.core.register(&server, &invite, &username, false).await?))
+    }
+
+    /// On a new device: offer it for linking to an existing account on
+    /// `server`, as `device_name`. Returns the code to show; then call
+    /// [`Client::finish_link`].
+    pub async fn begin_link(&self, server: String, device_name: String) -> Result<String, PosternError> {
+        Ok(self.core.begin_link(&server, &device_name, false).await?)
+    }
+
+    /// On the new device: wait (up to ten minutes) for the code to be
+    /// approved on another device, then join the account.
+    pub async fn finish_link(&self) -> Result<Identity, PosternError> {
+        Ok(identity(self.core.finish_link().await?))
     }
 
     /// Stay connected until the app closes: run this once, without awaiting
@@ -143,24 +157,24 @@ impl Client {
     }
 
     /// Fetch everything new now.
-    pub async fn sync(&self) -> anyhow::Result<()> {
+    pub async fn sync(&self) -> Result<(), PosternError> {
         self.core.connect().await?;
         Ok(self.core.sync().await?)
     }
 
     /// Conversations, most recent first.
-    pub async fn conversations(&self) -> anyhow::Result<Vec<ConversationInfo>> {
+    pub async fn conversations(&self) -> Result<Vec<ConversationInfo>, PosternError> {
         Ok(self.core.conversations()?.into_iter().map(conversation).collect())
     }
 
     /// The newest `limit` messages of a conversation, oldest first.
-    pub async fn messages(&self, conversation: String, limit: u32) -> anyhow::Result<Vec<MessageInfo>> {
+    pub async fn messages(&self, conversation: String, limit: u32) -> Result<Vec<MessageInfo>, PosternError> {
         let id: ConversationId = conversation.parse()?;
         Ok(self.core.messages(id, limit)?.into_iter().map(message).collect())
     }
 
     /// Send a text message.
-    pub async fn send_text(&self, conversation: String, text: String) -> anyhow::Result<MessageInfo> {
+    pub async fn send_text(&self, conversation: String, text: String) -> Result<MessageInfo, PosternError> {
         let id: ConversationId = conversation.parse()?;
         Ok(message(self.core.send_text(id, &text).await?))
     }

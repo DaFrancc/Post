@@ -4,6 +4,7 @@
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
 import 'api/client.dart';
+import 'api/error.dart';
 
 import 'dart:async';
 import 'dart:convert';
@@ -65,6 +66,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ConversationInfo dco_decode_conversation_info(dynamic raw);
 
   @protected
+  ErrorKind dco_decode_error_kind(dynamic raw);
+
+  @protected
   EventKind dco_decode_event_kind(dynamic raw);
 
   @protected
@@ -93,6 +97,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Identity? dco_decode_opt_box_autoadd_identity(dynamic raw);
+
+  @protected
+  PosternError dco_decode_postern_error(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
@@ -148,6 +155,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ConversationInfo sse_decode_conversation_info(SseDeserializer deserializer);
 
   @protected
+  ErrorKind sse_decode_error_kind(SseDeserializer deserializer);
+
+  @protected
   EventKind sse_decode_event_kind(SseDeserializer deserializer);
 
   @protected
@@ -178,6 +188,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Identity? sse_decode_opt_box_autoadd_identity(SseDeserializer deserializer);
+
+  @protected
+  PosternError sse_decode_postern_error(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
@@ -243,6 +256,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_error_kind(ErrorKind self, SseSerializer serializer);
+
+  @protected
   void sse_encode_event_kind(EventKind self, SseSerializer serializer);
 
   @protected
@@ -283,6 +299,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     Identity? self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_postern_error(PosternError self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);

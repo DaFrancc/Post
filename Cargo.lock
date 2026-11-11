@@ -3175,6 +3175,7 @@ dependencies = [
  "flutter_rust_bridge",
  "keyring-core",
  "postern-core",
+ "postern-proto",
  "tempfile",
  "tokio",
  "tracing",

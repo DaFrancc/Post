@@ -4,6 +4,7 @@
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
 import '../frb_generated.dart';
+import 'error.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
@@ -11,11 +12,23 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>
 abstract class Client implements RustOpaqueInterface {
+  /// On a new device: offer it for linking to an existing account on
+  /// `server`, as `device_name`. Returns the code to show; then call
+  /// [`Client::finish_link`].
+  Future<String> beginLink({
+    required String server,
+    required String deviceName,
+  });
+
   /// Conversations, most recent first.
   Future<List<ConversationInfo>> conversations();
 
   /// Live events, until the Dart stream is closed.
   Stream<AppEvent> events();
+
+  /// On the new device: wait (up to ten minutes) for the code to be
+  /// approved on another device, then join the account.
+  Future<Identity> finishLink();
 
   /// The account on this device, if there is one yet.
   Future<Identity?> identity();
