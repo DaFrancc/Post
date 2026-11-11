@@ -137,8 +137,8 @@ void main() {
     await t.pump();
     await t.tap(find.byTooltip('Send (Enter). Shift+Enter for a new line.'));
     await waitFor(t, find.text('flying in from the composer'));
-    for (final ms in [0, 110, 220]) {
-      await Future<void>.delayed(Duration(milliseconds: ms == 0 ? 0 : 110));
+    for (final ms in [0, 80, 160, 240, 320, 400]) {
+      await Future<void>.delayed(Duration(milliseconds: ms == 0 ? 0 : 80));
       await _capture(t, '02b-send-$ms');
     }
     await settle(t);
@@ -152,8 +152,8 @@ void main() {
     // Someone typing who then sends: their text rises from the typing line.
     await h.cli('carol', ['send', '--conversation', group, 'rising from the typing line']);
     await waitFor(t, find.text('rising from the typing line'));
-    for (final ms in [0, 140, 280]) {
-      await Future<void>.delayed(Duration(milliseconds: ms == 0 ? 0 : 140));
+    for (final ms in [0, 80, 160, 240, 320, 400]) {
+      await Future<void>.delayed(Duration(milliseconds: ms == 0 ? 0 : 80));
       await _capture(t, '03b-arrive-$ms');
     }
     await settle(t);

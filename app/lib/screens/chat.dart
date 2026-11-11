@@ -2,9 +2,11 @@
 // in line, who is typing, and the composer.
 
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 import 'package:post/src/rust/api/client.dart';
 
@@ -62,6 +64,7 @@ class _ChatViewState extends State<ChatView> {
   // Messages fly into the history from where they were: yours from the
   // composer, others' from their typing line.
   final _composerFieldKey = GlobalKey();
+  final _composerBoxKey = GlobalKey();
   final _typingKeys = <String, GlobalKey>{};
 
   /// Flights waiting for their message to appear.
@@ -156,7 +159,19 @@ class _ChatViewState extends State<ChatView> {
           arrivedFrom.add(m.senderUsername);
           final rect = _rectOf(_typingKey(m.senderUsername));
           if (rect != null && typing.contains(m.senderUsername) && m.body != null) {
-            _flights.add(_Flight(body: m.body!, outgoing: false, username: m.senderUsername, from: rect, fromStyle: _Composer.typingStyle));
+            // Its shape starts as a small pill around the typing line.
+            final pill = Rect.fromLTRB(rect.left - 8, rect.top - 4, rect.right + 8, rect.bottom + 4);
+            _flights.add(
+              _Flight(
+                body: m.body!,
+                outgoing: false,
+                username: m.senderUsername,
+                from: rect,
+                fromStyle: _Composer.typingStyle,
+                fromShape: pill,
+                fromRadius: pill.height / 2,
+              ),
+            );
           }
         }
       }
@@ -221,9 +236,13 @@ class _ChatViewState extends State<ChatView> {
     // Where the text sits now, inside the field's 10 px of vertical padding:
     // the message flies from here when it appears in the history.
     final field = _rectOf(_composerFieldKey);
-    if (field != null) {
+    final box = _rectOf(_composerBoxKey);
+    if (field != null && box != null) {
       final from = Rect.fromLTRB(field.left, field.top + 10, field.right, field.bottom - 10);
-      _flights.add(_Flight(body: text, outgoing: true, from: from, fromStyle: _composerText));
+      // Its shape starts as the composer's own, up to the send button, so it
+      // looks like the text lifts out of the box it was typed in.
+      final shape = Rect.fromLTRB(box.left, box.top, field.right + 2, box.bottom);
+      _flights.add(_Flight(body: text, outgoing: true, from: from, fromStyle: _composerText, fromShape: shape, fromRadius: 18));
     }
     _composer.clear();
     try {
@@ -507,6 +526,7 @@ class _ChatViewState extends State<ChatView> {
               typing: typing,
               typingKey: _typingKey,
               fieldKey: _composerFieldKey,
+              boxKey: _composerBoxKey,
               onKey: _composerKey,
               onChanged: _typed,
               onSend: _send,
@@ -614,7 +634,15 @@ class _Day extends _Item {
 /// A message's text on its way into the history: from the composer when you
 /// send, or from the sender's typing line when they do.
 class _Flight {
-  _Flight({required this.body, required this.outgoing, required this.from, required this.fromStyle, this.username});
+  _Flight({
+    required this.body,
+    required this.outgoing,
+    required this.from,
+    required this.fromStyle,
+    required this.fromShape,
+    required this.fromRadius,
+    this.username,
+  });
 
   final String body;
   final bool outgoing;
@@ -622,20 +650,46 @@ class _Flight {
   /// Whose typing line it leaves (someone else's message).
   final String? username;
 
-  /// Where it starts, in window coordinates, and how its text looks there.
+  /// Where its text starts, in window coordinates, and how it looks there.
   final Rect from;
   final TextStyle fromStyle;
+
+  /// The shape it carries starts as this: the composer, or a pill around the
+  /// typing line.
+  final Rect fromShape;
+  final double fromRadius;
 
   final DateTime made = DateTime.now();
 }
 
-/// The text in flight, drawn above everything. Each frame it looks up where
-/// its message now sits, so it lands right even if the list moves meanwhile.
+/// The vertical motion of a flight: a spring, just under-damped, so the text
+/// rises quickly, carries a few percent past its row and settles back.
+class _Rise extends Curve {
+  const _Rise();
+
+  static final _spring = SpringSimulation(SpringDescription.withDampingRatio(mass: 1, stiffness: 170, ratio: 0.75), 0, 1, 0);
+
+  /// Long enough for the spring to settle within half a pixel of a typical
+  /// trip; [Curve.transform] gives exactly 1 at the end.
+  static const _seconds = 0.62;
+
+  @override
+  double transformInternal(double t) => _spring.x(t * _seconds);
+}
+
+/// The text in flight, drawn above everything, inside a shape that morphs
+/// along the way: it leaves as the composer (or a pill at the typing line),
+/// travels as a raised bubble hugging the text, and settles into the
+/// message's row, dissolving as it lands. Each frame it looks up where its
+/// message now sits, so it lands right even if the list moves meanwhile.
 class _Flying extends StatefulWidget {
-  const _Flying({required this.flight, required this.target, required this.toStyle, required this.onDone});
+  const _Flying({required this.flight, required this.target, required this.tile, required this.toStyle, required this.onDone});
 
   final _Flight flight;
+
+  /// Around the message's text, and around its whole row.
   final GlobalKey target;
+  final GlobalKey tile;
   final TextStyle toStyle;
   final VoidCallback onDone;
 
@@ -647,8 +701,14 @@ class _FlyingState extends State<_Flying> with SingleTickerProviderStateMixin {
   late final AnimationController _c = AnimationController(
     vsync: this,
     // Rising from the typing line, the text also fades in: a little longer.
-    duration: Duration(milliseconds: widget.flight.outgoing ? 340 : 420),
+    duration: Duration(milliseconds: widget.flight.outgoing ? 620 : 680),
   );
+
+  /// The text as drawn last frame: the bubble hugs its size.
+  final _text = GlobalKey();
+
+  static const _pad = EdgeInsets.symmetric(horizontal: 12, vertical: 6);
+  static const _rise = _Rise();
 
   @override
   void initState() {
@@ -671,16 +731,68 @@ class _FlyingState extends State<_Flying> with SingleTickerProviderStateMixin {
         // space to place the text in (laid out from the second frame on).
         final box = context.findRenderObject();
         final to = _ChatViewState._rectOf(widget.target);
-        if (to == null || box is! RenderBox || !box.hasSize) return const Stack(children: []);
-        final t = Curves.easeOutCubic.transform(_c.value);
+        final row = _ChatViewState._rectOf(widget.tile);
+        if (to == null || row == null || box is! RenderBox || !box.hasSize) return const Stack(children: []);
         Rect local(Rect r) => box.globalToLocal(r.topLeft) & r.size;
-        final at = Rect.lerp(local(widget.flight.from), local(to), t)!;
         final f = widget.flight;
+        final v = _c.value;
+        final from = local(f.from);
+        final dest = local(to);
+
+        // The path: across quickly, up on a spring, so it arcs rather than
+        // sliding along a straight line. Across goes first so the bubble is
+        // clear of the avatars by the time it reaches their height.
+        final x = lerpDouble(from.left, dest.left, Curves.easeOutQuart.transform(v))!;
+        final y = lerpDouble(from.top, dest.top, _rise.transform(v))!;
+        final t = Curves.easeOutCubic.transform(v);
+
+        // The shape: gathers from where it started to hug the text, and in
+        // the last stretch opens out across the message's row and dissolves.
+        final drawn = _text.currentContext?.findRenderObject();
+        final size = drawn is RenderBox && drawn.hasSize ? drawn.size : from.size;
+        final hug = _pad.inflateRect(Offset(x, y) & size);
+        final landing = Rect.fromLTRB(dest.left - 10, dest.top - 3, local(row).right, dest.bottom + 3);
+        final gather = Curves.easeOutCubic.transform((v / 0.3).clamp(0, 1));
+        final settle = Curves.easeInOutCubic.transform(((v - 0.55) / 0.45).clamp(0, 1));
+        final shape = Rect.lerp(Rect.lerp(local(f.fromShape), hug, gather), landing, settle)!;
+        final radius = lerpDouble(lerpDouble(f.fromRadius, math.min(hug.height / 2, 18), gather), 10, settle)!;
+        // Raised off the page in flight, flat at both ends.
+        final lift = math.sin(math.pi * v);
+
         return Stack(
           children: [
+            Positioned.fromRect(
+              rect: shape,
+              child: IgnorePointer(
+                child: Opacity(
+                  // Yours starts as the composer itself, so it is there from
+                  // the first frame; someone else's grows out of nothing.
+                  opacity: (f.outgoing ? 1 : gather) * (1 - settle),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Color.lerp(PColors.panelRaised, PColors.messageHover, settle),
+                      borderRadius: BorderRadius.circular(radius),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.45 * lift),
+                          blurRadius: 24 * lift,
+                          offset: Offset(0, 8 * lift),
+                        ),
+                        if (f.outgoing)
+                          BoxShadow(
+                            color: PColors.accent.withValues(alpha: 0.18 * lift),
+                            blurRadius: 28 * lift,
+                            spreadRadius: lift,
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
             Positioned(
-              left: at.left,
-              top: at.top,
+              left: x,
+              top: y,
               child: IgnorePointer(
                 // Your text's room to wrap eases from the composer's width to
                 // where it lands, as its size does, so text that fits on one
@@ -690,12 +802,20 @@ class _FlyingState extends State<_Flying> with SingleTickerProviderStateMixin {
                 // exactly as the real text, so nothing jumps when they swap;
                 // the extra pixel keeps rounding from wrapping the last word.
                 child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: (f.outgoing ? lerpDouble(f.from.width, to.width, t)! : to.width) + 1),
-                  // Someone else's message appears as it rises; the typing
-                  // line it leaves fades out on its own.
+                  constraints: BoxConstraints(maxWidth: (f.outgoing ? lerpDouble(from.width, dest.width, t)! : dest.width) + 1),
+                  // Someone else's message appears as it rises, growing a
+                  // little into its size; the typing line it leaves fades
+                  // out on its own.
                   child: Opacity(
-                    opacity: f.outgoing ? 1 : Curves.easeOut.transform((_c.value / 0.6).clamp(0, 1)),
-                    child: MarkupText(f.body, style: TextStyle.lerp(f.outgoing ? f.fromStyle : widget.toStyle, widget.toStyle, t)!),
+                    opacity: f.outgoing ? 1 : Curves.easeOut.transform((v / 0.5).clamp(0, 1)),
+                    child: Transform.scale(
+                      scale: f.outgoing ? 1 : lerpDouble(0.9, 1, gather)!,
+                      alignment: Alignment.centerLeft,
+                      child: KeyedSubtree(
+                        key: _text,
+                        child: MarkupText(f.body, style: TextStyle.lerp(f.outgoing ? f.fromStyle : widget.toStyle, widget.toStyle, t)!),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -1026,8 +1146,9 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
   bool _hover = false;
   late final AnimationController _in = AnimationController(vsync: this, duration: PMotion.slow, value: widget.arrived ? 0 : 1);
 
-  /// Around the message's text: where a flight lands.
+  /// Around the message's text, and its row: where a flight lands.
   final _bodyKey = GlobalKey();
+  final _rowKey = GlobalKey();
 
   /// False while the text is still flying in; the real text shows once it lands.
   late bool _landed = widget.flight == null;
@@ -1052,6 +1173,7 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
       builder: (_) => _Flying(
         flight: flight,
         target: _bodyKey,
+        tile: _rowKey,
         toStyle: PType.text,
         onDone: () {
           _flying?.remove();
@@ -1158,70 +1280,76 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
       onExit: (_) => setState(() => _hover = false),
       child: PRightClick(
         onMenu: widget.editing ? null : widget.onMenu,
-        child: AnimatedContainer(
+        // The space above is outside the row's box, so a flight settles
+        // into the row's shape exactly.
+        child: AnimatedPadding(
           duration: PMotion.fast,
-          margin: EdgeInsets.only(top: widget.startsGroup ? 10 : 0),
-          padding: const EdgeInsets.fromLTRB(10, 3, 10, 3),
-          decoration: BoxDecoration(color: _hover || widget.editing ? PColors.messageHover : PColors.panel, borderRadius: BorderRadius.circular(12)),
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Opacity(
-                opacity: m.pending ? 0.55 : 1,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 40,
-                      child: widget.startsGroup
-                          ? Padding(
-                              padding: const EdgeInsets.only(top: 2),
-                              child: PAvatar(name: m.sender, colorKey: m.senderUsername, size: 40),
-                            )
-                          : (_hover
-                                ? Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Text(
-                                      clockTime(m.sentAtMs),
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(fontSize: 10.5, color: PColors.textFaint),
-                                    ),
-                                  )
-                                : null),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(child: body),
-                  ],
+          padding: EdgeInsets.only(top: widget.startsGroup ? 10 : 0),
+          child: AnimatedContainer(
+            key: _rowKey,
+            duration: PMotion.fast,
+            padding: const EdgeInsets.fromLTRB(10, 3, 10, 3),
+            decoration: BoxDecoration(color: _hover || widget.editing ? PColors.messageHover : PColors.panel, borderRadius: BorderRadius.circular(12)),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Opacity(
+                  opacity: m.pending ? 0.55 : 1,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 40,
+                        child: widget.startsGroup
+                            ? Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: PAvatar(name: m.sender, colorKey: m.senderUsername, size: 40),
+                              )
+                            : (_hover
+                                  ? Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Text(
+                                        clockTime(m.sentAtMs),
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(fontSize: 10.5, color: PColors.textFaint),
+                                      ),
+                                    )
+                                  : null),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(child: body),
+                    ],
+                  ),
                 ),
-              ),
-              if (actions.isNotEmpty && !widget.editing)
-                Positioned(
-                  right: 4,
-                  top: widget.startsGroup ? -14 : -18,
-                  child: IgnorePointer(
-                    ignoring: !_hover,
-                    child: AnimatedOpacity(
-                      opacity: _hover ? 1 : 0,
-                      duration: PMotion.fast,
-                      child: AnimatedSlide(
-                        offset: _hover ? Offset.zero : const Offset(0, 0.15),
+                if (actions.isNotEmpty && !widget.editing)
+                  Positioned(
+                    right: 4,
+                    top: widget.startsGroup ? -14 : -18,
+                    child: IgnorePointer(
+                      ignoring: !_hover,
+                      child: AnimatedOpacity(
+                        opacity: _hover ? 1 : 0,
                         duration: PMotion.fast,
-                        curve: PMotion.curve,
-                        child: Container(
-                          padding: const EdgeInsets.all(3),
-                          decoration: BoxDecoration(
-                            color: PColors.panelRaised,
-                            border: Border.all(color: PColors.borderStrong),
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 12, offset: Offset(0, 4))],
+                        child: AnimatedSlide(
+                          offset: _hover ? Offset.zero : const Offset(0, 0.15),
+                          duration: PMotion.fast,
+                          curve: PMotion.curve,
+                          child: Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: BoxDecoration(
+                              color: PColors.panelRaised,
+                              border: Border.all(color: PColors.borderStrong),
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 12, offset: Offset(0, 4))],
+                            ),
+                            child: Row(mainAxisSize: MainAxisSize.min, children: actions),
                           ),
-                          child: Row(mainAxisSize: MainAxisSize.min, children: actions),
                         ),
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -1409,6 +1537,7 @@ class _Composer extends StatelessWidget {
     required this.typing,
     required this.typingKey,
     required this.fieldKey,
+    required this.boxKey,
     required this.onKey,
     required this.onChanged,
     required this.onSend,
@@ -1428,6 +1557,9 @@ class _Composer extends StatelessWidget {
 
   /// On the text field, so a sent message can fly from it.
   final GlobalKey fieldKey;
+
+  /// On the rounded box around it: a sent message's shape starts as this.
+  final GlobalKey boxKey;
   final FocusOnKeyEventCallback onKey;
   final ValueChanged<String> onChanged;
   final VoidCallback onSend;
@@ -1473,6 +1605,7 @@ class _Composer extends StatelessWidget {
           ListenableBuilder(
             listenable: focus,
             builder: (context, child) => AnimatedContainer(
+              key: boxKey,
               duration: PMotion.normal,
               curve: PMotion.curve,
               constraints: const BoxConstraints(minHeight: 52),
