@@ -224,59 +224,61 @@ class _MemberRowState extends State<_MemberRow> {
     final m = widget.m;
     final note = widget.state.personNow(m.username)?.note;
     final bg = _hover ? PColors.hover : PColors.panel;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTapUp: (d) => widget.onMenu(d.globalPosition),
-        onSecondaryTapUp: (d) => widget.onMenu(d.globalPosition),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
-          child: Opacity(
-            opacity: widget.presence == 'offline' ? 0.6 : 1,
-            child: Row(
-              children: [
-                PAvatar(name: m.shownName, colorKey: m.username, size: 32, presence: widget.presence, ringColor: bg),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              m.you ? '${m.shownName} (you)' : m.shownName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: PColors.text),
-                            ),
-                          ),
-                          if (m.admin) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                              decoration: BoxDecoration(color: PColors.adminSoft, borderRadius: BorderRadius.circular(6)),
-                              child: const Text(
-                                'admin',
-                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: PColors.adminText),
+    return PRightClick(
+      onMenu: widget.onMenu,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTapUp: (d) => widget.onMenu(d.globalPosition),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
+            child: Opacity(
+              opacity: widget.presence == 'offline' ? 0.6 : 1,
+              child: Row(
+                children: [
+                  PAvatar(name: m.shownName, colorKey: m.username, size: 32, presence: widget.presence, ringColor: bg),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                m.you ? '${m.shownName} (you)' : m.shownName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: PColors.text),
                               ),
                             ),
+                            if (m.admin) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                decoration: BoxDecoration(color: PColors.adminSoft, borderRadius: BorderRadius.circular(6)),
+                                child: const Text(
+                                  'admin',
+                                  style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: PColors.adminText),
+                                ),
+                              ),
+                            ],
                           ],
-                        ],
-                      ),
-                      Text(
-                        note ?? '@${m.username}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12, color: PColors.textFaint),
-                      ),
-                    ],
+                        ),
+                        Text(
+                          note ?? '@${m.username}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12, color: PColors.textFaint),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

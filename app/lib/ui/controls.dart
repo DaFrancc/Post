@@ -3,6 +3,7 @@
 
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart' show PointerDeviceKind, kSecondaryMouseButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -446,15 +447,38 @@ class _PMenuDividerState extends State<PMenuDivider> {
   );
 }
 
-/// Open a context menu with its corner at the pointer.
+/// Open a context menu with its corner at the pointer. Quick: 120ms in,
+/// 80ms out (the default is 300ms, with entries fading in one by one).
 Future<T?> showContextMenu<T>(BuildContext context, Offset globalPosition, List<PopupMenuEntry<T>> items) {
   return showMenu<T>(
     context: context,
     position: menuAt(context, globalPosition),
     constraints: const BoxConstraints(minWidth: 200, maxWidth: 280),
     menuPadding: const EdgeInsets.all(6),
+    popUpAnimationStyle: const AnimationStyle(duration: PMotion.fast, reverseDuration: Duration(milliseconds: 80), curve: PMotion.curve),
     items: items,
   );
+}
+
+/// Calls [onMenu] the moment the right mouse button goes down, as desktop
+/// menus open. A gesture detector's secondary tap waits up to 100ms to tell
+/// gestures apart, which reads as lag.
+class PRightClick extends StatelessWidget {
+  const PRightClick({super.key, required this.onMenu, required this.child});
+
+  /// Where the button went down, in window coordinates; null to do nothing.
+  final ValueChanged<Offset>? onMenu;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      onPointerDown: (e) {
+        if (onMenu != null && e.kind == PointerDeviceKind.mouse && e.buttons & kSecondaryMouseButton != 0) onMenu!(e.position);
+      },
+      child: child,
+    );
+  }
 }
 
 /// Where to open a context menu so its corner is at the pointer. Pointer

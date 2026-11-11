@@ -632,67 +632,69 @@ class _ConversationRowState extends State<_ConversationRow> {
     final unread = c.unread > 0 && !selected;
     final typing = state.typingIn(c.id);
     final bg = selected ? PColors.active : (_hover ? PColors.hover : PColors.panel);
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: () => state.select(c.id),
-        onSecondaryTapUp: (d) => _menu(d.globalPosition),
-        child: AnimatedContainer(
-          duration: PMotion.fast,
-          constraints: const BoxConstraints(minHeight: 52),
-          margin: const EdgeInsets.only(bottom: 2),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: bg,
-            border: Border.all(color: selected ? PColors.activeEdge : bg),
-            borderRadius: BorderRadius.circular(PShape.rowRadius),
-          ),
-          child: Opacity(
-            opacity: c.following ? 1 : 0.55,
-            child: Row(
-              children: [
-                c.isGroup
-                    ? PAvatar(name: c.title, colorKey: c.id, square: true)
-                    : PAvatar(name: c.title, colorKey: c.peer ?? c.id, presence: state.presenceOf(c.peer ?? ''), ringColor: bg),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        c.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: unread ? FontWeight.w600 : FontWeight.w500,
-                          color: selected || unread ? PColors.textStrong : const Color(0xFFC9CDDC),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      AnimatedSwitcher(
-                        duration: PMotion.fast,
-                        layoutBuilder: (current, previous) => Stack(alignment: Alignment.centerLeft, children: [...previous, ?current]),
-                        child: Text(
-                          typing.isNotEmpty ? typing.first : (c.following ? _preview(c) : (c.isGroup ? 'You left this group' : 'No longer updated')),
-                          key: ValueKey(typing.isNotEmpty),
+    return PRightClick(
+      onMenu: _menu,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          onTap: () => state.select(c.id),
+          child: AnimatedContainer(
+            duration: PMotion.fast,
+            constraints: const BoxConstraints(minHeight: 52),
+            margin: const EdgeInsets.only(bottom: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: bg,
+              border: Border.all(color: selected ? PColors.activeEdge : bg),
+              borderRadius: BorderRadius.circular(PShape.rowRadius),
+            ),
+            child: Opacity(
+              opacity: c.following ? 1 : 0.55,
+              child: Row(
+                children: [
+                  c.isGroup
+                      ? PAvatar(name: c.title, colorKey: c.id, square: true)
+                      : PAvatar(name: c.title, colorKey: c.peer ?? c.id, presence: state.presenceOf(c.peer ?? ''), ringColor: bg),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          c.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 12.5, color: typing.isNotEmpty ? PColors.accentText : PColors.textFaint),
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: unread ? FontWeight.w600 : FontWeight.w500,
+                            color: selected || unread ? PColors.textStrong : const Color(0xFFC9CDDC),
+                          ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 2),
+                        AnimatedSwitcher(
+                          duration: PMotion.fast,
+                          layoutBuilder: (current, previous) => Stack(alignment: Alignment.centerLeft, children: [...previous, ?current]),
+                          child: Text(
+                            typing.isNotEmpty ? typing.first : (c.following ? _preview(c) : (c.isGroup ? 'You left this group' : 'No longer updated')),
+                            key: ValueKey(typing.isNotEmpty),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 12.5, color: typing.isNotEmpty ? PColors.accentText : PColors.textFaint),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                AnimatedScale(
-                  scale: unread ? 1 : 0,
-                  duration: PMotion.normal,
-                  curve: unread ? Curves.easeOutBack : Curves.easeIn,
-                  child: unread ? Padding(padding: const EdgeInsets.only(left: 8), child: _Badge(c.unread)) : const SizedBox(),
-                ),
-              ],
+                  AnimatedScale(
+                    scale: unread ? 1 : 0,
+                    duration: PMotion.normal,
+                    curve: unread ? Curves.easeOutBack : Curves.easeIn,
+                    child: unread ? Padding(padding: const EdgeInsets.only(left: 8), child: _Badge(c.unread)) : const SizedBox(),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

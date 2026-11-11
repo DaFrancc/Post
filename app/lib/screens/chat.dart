@@ -931,8 +931,8 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onSecondaryTapUp: widget.editing ? null : (d) => widget.onMenu(d.globalPosition),
+      child: PRightClick(
+        onMenu: widget.editing ? null : widget.onMenu,
         child: AnimatedContainer(
           duration: PMotion.fast,
           margin: EdgeInsets.only(top: widget.startsGroup ? 10 : 0),

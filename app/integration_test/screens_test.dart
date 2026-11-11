@@ -212,7 +212,7 @@ void main() {
     final quickdraws = t.getRect(find.text('count me in. who has the quickdraws?'));
     await t.dragFrom(quickdraws.centerLeft + const Offset(4, 0), const Offset(120, 0), kind: PointerDeviceKind.mouse);
     await _settle(t, 300);
-    await t.tapAt(quickdraws.centerLeft + const Offset(40, 0), buttons: kSecondaryButton);
+    await t.tapAt(quickdraws.centerLeft + const Offset(40, 0), buttons: kSecondaryButton, kind: PointerDeviceKind.mouse);
     await _wait(t, find.text('Delete message'));
     await _shot(t, '04b-message-menu');
     await t.sendKeyEvent(LogicalKeyboardKey.escape);
@@ -239,7 +239,7 @@ void main() {
 
     // A right-click menu opens with its corner at the pointer.
     final click = t.getCenter(find.text('Carol C').first);
-    await t.tapAt(click, buttons: kSecondaryButton);
+    await t.tapAt(click, buttons: kSecondaryButton, kind: PointerDeviceKind.mouse);
     await _wait(t, find.text('Set nickname'));
     await _shot(t, '06b-context-menu');
     final item = t.getRect(find.byWidgetPredicate((w) => w is PMenuItem).first);
