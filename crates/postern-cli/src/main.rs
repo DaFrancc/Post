@@ -57,6 +57,8 @@ enum Command {
         #[command(subcommand)]
         cmd: Option<DevicesCommand>,
     },
+    /// Give this device fresh keys in every conversation now (otherwise weekly).
+    RefreshKeys,
     /// Show the account on this device.
     Whoami,
     /// Fetch everything new and send what is queued.
@@ -272,6 +274,7 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
             ("rename_device", json!({ "device": device, "name": name }))
         }
         Command::Devices { cmd: Some(DevicesCommand::Remove { device, .. }) } => ("remove_device", json!({ "device": device })),
+        Command::RefreshKeys => ("refresh_keys", json!({})),
         Command::Whoami => ("whoami", json!({})),
         Command::Sync => ("sync", json!({})),
         Command::Dm { username } => ("start_dm", json!({ "username": username })),
@@ -586,6 +589,7 @@ mod tests {
             Command::SafetyNumber { username: "a".into() },
             Command::Nickname { username: "a".into(), nickname: "b".into() },
             Command::Devices { cmd: None },
+            Command::RefreshKeys,
             Command::Group { cmd: GroupCommand::Create { name: "g".into(), members: vec!["a".into()] } },
             Command::Group { cmd: GroupCommand::Members { conversation: "00".into() } },
             Command::Group { cmd: GroupCommand::Add { conversation: "00".into(), members: vec!["a".into()] } },

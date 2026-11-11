@@ -539,6 +539,7 @@ methods! {
     "link_inspect", Connection, CodeParams, LinkRequest, "On one of your devices: which device a link code would add.";
     "link_approve", Connection, CodeParams, LinkRequest, "On one of your devices: add the device behind a link code.";
     "devices", Local, NoParams, Vec<Device>, "Your devices, oldest first.";
+    "refresh_keys", Connection, NoParams, Done, "Give this device fresh keys in every conversation now (otherwise weekly).";
     "rename_device", Connection, RenameDeviceParams, Done, "Name one of your devices.";
     "remove_device", Connection, DeviceParams, Done, "Remove another of your devices from your account and every conversation.";
     "whoami", Local, NoParams, Option<Identity>, "The account on this device, if any.";
@@ -645,6 +646,11 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
             params::<NoParams>(p)?;
             let ds = core.devices().await?;
             ok(ds.into_iter().map(|d| Device { id: d.id, name: d.name, this_device: d.this_device }).collect::<Vec<_>>())
+        }
+        "refresh_keys" => {
+            params::<NoParams>(p)?;
+            core.refresh_keys().await?;
+            ok(Done {})
         }
         "rename_device" => {
             let p: RenameDeviceParams = params(p)?;

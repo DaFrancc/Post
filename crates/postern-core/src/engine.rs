@@ -47,6 +47,20 @@ const MAX_FETCH_ROUNDS: usize = 10_000;
 /// After a claim finds no KeyPackages for a device, wait this long before
 /// spending another token on it.
 const KP_BACKOFF: std::time::Duration = std::time::Duration::from_secs(600);
+/// How often a device replaces its own leaf in each group (design section 6,
+/// "Key refresh"). Each group is due somewhat earlier, by a spread derived
+/// from its ID, so a device's refreshes do not all land at once.
+const REFRESH_INTERVAL_MS: u64 = 7 * 24 * 3600 * 1000;
+const REFRESH_SPREAD_MS: u64 = 24 * 3600 * 1000;
+
+/// Whether this device's leaf in group `gid`, last replaced at
+/// `refreshed_at`, should be replaced now. Leaves older than `force_before`
+/// are always due.
+fn refresh_due(gid: &[u8; 16], refreshed_at: u64, now: u64, force_before: u64) -> bool {
+    let spread = u64::from_be_bytes([gid[0], gid[1], gid[2], gid[3], gid[4], gid[5], gid[6], gid[7]]) % REFRESH_SPREAD_MS;
+    refreshed_at < force_before || now.saturating_sub(refreshed_at) >= REFRESH_INTERVAL_MS - spread
+}
+
 /// Most accounts in one group. Postern serves a community of about 100.
 const MAX_GROUP_ACCOUNTS: usize = 150;
 /// Most KeyPackages the server holds for a device (its `MAX_KEY_PACKAGES`).
@@ -83,6 +97,8 @@ struct Plan {
     remove: Vec<LeafNodeIndex>,
     /// Members' proposals (people leaving) wait to be committed.
     proposals: bool,
+    /// This device's leaf is due for fresh keys.
+    refresh: bool,
 }
 
 /// KeyPackages claimed for one device. One-time packages are used first; the
@@ -245,6 +261,9 @@ pub(crate) struct Engine {
     no_key_packages: HashMap<DeviceId, std::time::Instant>,
     /// Chain heads already warned about, so one problem is reported once.
     gossip_warned: HashSet<(AccountId, u64)>,
+    /// Leaves last refreshed before this time (Unix ms) are due now; set by
+    /// an explicit refresh.
+    refresh_before: u64,
     link: Option<PendingLink>,
     pub events: broadcast::Sender<Event>,
 }
@@ -262,6 +281,7 @@ impl Engine {
             subscribed: Vec::new(),
             no_key_packages: HashMap::new(),
             gossip_warned: HashSet::new(),
+            refresh_before: 0,
             link: None,
             events,
         };
@@ -1077,7 +1097,7 @@ impl Engine {
                 }
                 kps.extend(theirs);
             }
-            if self.commit_changes(gid, kps, leaves, meta_change).await? {
+            if self.commit_changes(gid, kps, leaves, meta_change, false).await? {
                 // Merged when it comes back through the log.
                 self.sync_groups().await?;
                 return self.flush_outbox().await;
@@ -1356,6 +1376,7 @@ impl Engine {
         adds: Vec<KeyPackage>,
         removes: Vec<LeafNodeIndex>,
         meta: Option<GroupMeta>,
+        refresh: bool,
     ) -> Result<bool> {
         let req = {
             let me = self.me.as_ref().ok_or(Error::NotRegistered)?;
@@ -1369,7 +1390,7 @@ impl Engine {
                     .filter_map(|kp| postern_mls::leaf_identity(kp.leaf_node()).ok())
                     .map(|l| l.device.0.to_vec())
                     .collect();
-                let mut builder = group.commit_builder().propose_adds(adds).propose_removals(removes);
+                let mut builder = group.commit_builder().force_self_update(refresh).propose_adds(adds).propose_removals(removes);
                 if let Some(meta) = &meta {
                     builder = builder.propose_group_context_extensions(postern_mls::group_context_extensions(meta).map_err(mls)?).map_err(mls)?;
                 }
@@ -1447,6 +1468,11 @@ impl Engine {
         {
             let provider = Provider::on(&tx);
             let mut group = load_group(&provider, &gid)?;
+            // A commit with a path gives this device's leaf fresh keys,
+            // whatever else it did.
+            if group.pending_commit().and_then(|s| s.update_path_leaf_node()).is_some() {
+                store::set_refreshed(&tx, &gid)?;
+            }
             group.merge_pending_commit(&provider).map_err(mls)?;
             let meta = GroupMeta::from_extensions(group.extensions()).map_err(mls)?;
             if meta.conversation_kind() == Some(MlsKind::Group) {
@@ -1477,10 +1503,10 @@ impl Engine {
             for p in plans {
                 let adds: Vec<KeyPackage> = p.add.iter().filter_map(|d| pools.get_mut(d).and_then(KpPool::take)).collect();
                 // A commit takes every pending proposal along with it.
-                if adds.is_empty() && p.remove.is_empty() && !p.proposals {
+                if adds.is_empty() && p.remove.is_empty() && !p.proposals && !p.refresh {
                     continue;
                 }
-                lost_race |= !self.commit_changes(p.gid, adds, p.remove, None).await?;
+                lost_race |= !self.commit_changes(p.gid, adds, p.remove, None, p.refresh).await?;
             }
             // Our commits are merged as they come back through the log.
             self.sync_groups().await?;
@@ -1489,6 +1515,14 @@ impl Engine {
             }
         }
         Ok(())
+    }
+
+    /// Give this device's leaf fresh keys in every group now, instead of
+    /// waiting for the weekly refresh: after a device may have been exposed.
+    pub async fn refresh_keys(&mut self) -> Result<()> {
+        self.refresh_before = store::now_ms();
+        self.reconcile().await?;
+        self.flush_outbox().await
     }
 
     fn plan_membership(&self) -> Result<Vec<Plan>> {
@@ -1533,8 +1567,9 @@ impl Engine {
             } else {
                 Vec::new()
             };
-            if !add.is_empty() || !remove.is_empty() || proposals {
-                out.push(Plan { gid: c.group_id, add, remove, proposals });
+            let refresh = refresh_due(&c.group_id, c.refreshed_at, store::now_ms(), self.refresh_before);
+            if !add.is_empty() || !remove.is_empty() || proposals || refresh {
+                out.push(Plan { gid: c.group_id, add, remove, proposals, refresh });
             }
         }
         Ok(out)
@@ -2627,6 +2662,24 @@ fn handle_content(
 mod tests {
     use super::*;
     use postern_identity::chain::seal;
+
+    #[test]
+    fn refreshes_fall_due_weekly_spread_by_group() {
+        let day = 24 * 3600 * 1000;
+        let (a, b) = ([0u8; 16], [0xff; 16]);
+        let t0 = 1_000 * day;
+        // Never early, never later than a week.
+        for g in [&a, &b] {
+            assert!(!refresh_due(g, t0, t0 + 5 * day, 0));
+            assert!(refresh_due(g, t0, t0 + 7 * day, 0));
+        }
+        // Groups fall due at different times within the last day.
+        let first_due = |g: &[u8; 16]| (0..=7 * 24).find(|h| refresh_due(g, t0, t0 + h * 3600 * 1000, 0)).expect("due within a week");
+        assert_ne!(first_due(&a), first_due(&b));
+        // An explicit refresh makes every older leaf due at once.
+        assert!(refresh_due(&a, t0, t0 + 1, t0 + 1));
+        assert!(!refresh_due(&a, t0 + 2, t0 + 3, t0 + 1));
+    }
 
     #[test]
     fn gossiped_heads_are_compared_by_position() {

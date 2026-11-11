@@ -38,6 +38,12 @@ impl Server {
         postern_server::db::create_invite(&mut conn, bot, 3_600_000).expect("invite")
     }
 
+    /// The sum of every group's epoch: each commit anywhere adds one.
+    fn total_epochs(&self) -> i64 {
+        let conn = postern_server::db::open(&self.db, &self.key).expect("open server db");
+        conn.query_row("SELECT COALESCE(SUM(epoch), 0) FROM groups", [], |r| r.get(0)).expect("epochs")
+    }
+
     async fn client(&self, dir: &Path, username: &str) -> Core {
         let core = Core::open(&dir.join(username), &DbKey::from_bytes([7; 32])).expect("open profile");
         core.register(&self.url, &self.invite(false), username, false).await.expect("register");
@@ -489,6 +495,46 @@ async fn leaving_a_group() {
     let members = carol.members(g.id).await.expect("members");
     assert_eq!(members.iter().map(|m| (m.username.as_str(), m.admin)).collect::<Vec<_>>(), vec![("carol", true)]);
     carol.rename_group(g.id, "carol's trip").await.expect("carol can manage it");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn key_refresh() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let mut bob_events = bob.subscribe();
+    let dm = alice.start_dm("bob").await.expect("dm");
+    let g = alice.create_group("pair", &["bob".into()]).await.expect("group");
+    bob.sync().await.expect("sync");
+
+    // Both refresh at once: one commit per epoch wins, the other retries.
+    // Four groups (two self groups, the DM, the group); the DM and group get
+    // a refresh from each side, and each self group one.
+    let before = server.total_epochs();
+    let (a, b) = tokio::join!(alice.refresh_keys(), bob.refresh_keys());
+    a.expect("alice refresh");
+    b.expect("bob refresh");
+    alice.sync().await.expect("sync");
+    bob.sync().await.expect("sync");
+    assert_eq!(server.total_epochs() - before, 6, "every leaf got fresh keys");
+
+    // Done for the week: syncing again commits nothing more.
+    alice.sync().await.expect("sync");
+    bob.sync().await.expect("sync");
+    assert_eq!(server.total_epochs() - before, 6);
+
+    for conv in [dm.id, g.id] {
+        alice.send_text(conv, "after refresh").await.expect("send");
+        bob.sync().await.expect("sync");
+        assert_eq!(last_in(&bob, conv).as_deref(), Some("after refresh"));
+        bob.send_text(conv, "still here").await.expect("send");
+        alice.sync().await.expect("sync");
+        assert_eq!(last_in(&alice, conv).as_deref(), Some("still here"));
+    }
+    while let Ok(e) = bob_events.try_recv() {
+        assert!(!matches!(e, Event::Notice { .. }), "unexpected notice: {e:?}");
+    }
 }
 
 fn last_in(c: &Core, conv: postern_core::ConversationId) -> Option<String> {

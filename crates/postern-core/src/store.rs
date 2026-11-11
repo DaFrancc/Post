@@ -202,6 +202,10 @@ const MIGRATIONS: &[&str] = &[
     // 3: leaving a group takes until another member commits the removal; the
     // conversation is shown as left from the moment the user leaves.
     "ALTER TABLE conversations ADD COLUMN leaving INTEGER NOT NULL DEFAULT 0;",
+    // 4: when this device last replaced its own leaf in each group, for the
+    // weekly key refresh (design section 6, "Key refresh").
+    "ALTER TABLE conversations ADD COLUMN refreshed_at INTEGER NOT NULL DEFAULT 0;
+     UPDATE conversations SET refreshed_at = created_at;",
 ];
 
 /// Create tables, both ours and OpenMLS's, and bring old databases up to date.
@@ -335,9 +339,11 @@ pub struct ConversationRow {
     pub following: bool,
     /// The user left; the removal waits for another member to commit it.
     pub leaving: bool,
+    /// When this device last replaced its own leaf here (Unix ms).
+    pub refreshed_at: u64,
 }
 
-const CONV_COLS: &str = "group_id, kind, peer_account, name, last_activity, cursor, active, following, leaving";
+const CONV_COLS: &str = "group_id, kind, peer_account, name, last_activity, cursor, active, following, leaving, refreshed_at";
 
 fn conv_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ConversationRow> {
     let g: Vec<u8> = r.get(0)?;
@@ -351,6 +357,7 @@ fn conv_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ConversationRow> {
         active: r.get(6)?,
         following: r.get(7)?,
         leaving: r.get(8)?,
+        refreshed_at: r.get::<_, i64>(9)? as u64,
     })
 }
 
@@ -363,11 +370,17 @@ pub fn insert_conversation(
     active: bool,
 ) -> Result<()> {
     let now = i64_of(now_ms());
+    // Creating or joining gives this device a fresh leaf.
     conn.execute(
-        "INSERT OR IGNORE INTO conversations (group_id, kind, peer_account, name, created_at, last_activity, active)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6)",
+        "INSERT OR IGNORE INTO conversations (group_id, kind, peer_account, name, created_at, last_activity, active, refreshed_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?5)",
         params![&group[..], kind, peer.map(|p| p.0.to_vec()), name, now, active],
     )?;
+    Ok(())
+}
+
+pub fn set_refreshed(conn: &Connection, group: &[u8]) -> Result<()> {
+    conn.execute("UPDATE conversations SET refreshed_at = ?1 WHERE group_id = ?2", params![i64_of(now_ms()), group])?;
     Ok(())
 }
 

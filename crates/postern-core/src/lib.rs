@@ -579,6 +579,13 @@ impl Core {
         self.engine.lock().await.set_history(conversation.0, shared, days).await
     }
 
+    /// Give this device fresh keys in every conversation now. This happens by
+    /// itself weekly; doing it at once limits what a copy of the device's
+    /// keys taken earlier can read from here on.
+    pub async fn refresh_keys(&self) -> Result<()> {
+        self.engine.lock().await.refresh_keys().await
+    }
+
     /// Leave a group, with all your devices. It shows as left at once; the
     /// other members' devices complete the removal.
     pub async fn leave_group(&self, conversation: ConversationId) -> Result<()> {
@@ -771,6 +778,7 @@ fn core_futures_are_send(c: &Core, conv: ConversationId, msg: MessageId) {
     send(c.set_admin(conv, "", true));
     send(c.set_history(conv, true, 0));
     send(c.leave_group(conv));
+    send(c.refresh_keys());
     send(c.send_text(conv, ""));
     send(c.edit_message(conv, msg, ""));
     send(c.delete_message(conv, msg));
