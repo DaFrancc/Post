@@ -38,7 +38,16 @@ cmd_new() {
   [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "usage: release.sh new X.Y.Z  (for example: release.sh new 0.2.0)"
   local tag=v$version
   git rev-parse -q --verify "refs/tags/$tag" >/dev/null && die "$tag already exists"
-  [[ -z $(git status --porcelain --untracked-files=no) ]] || die "commit or stash your changes first: the release is built from what is committed"
+  # The release is built from the pushed commit, so local changes never get
+  # in; say which ones, in case something meant for it is not committed.
+  local changed
+  changed=$(git status --porcelain --untracked-files=no)
+  if [[ -n $changed ]]; then
+    echo "These changes are not committed, so they will not be in the release:"
+    sed 's/^/  /' <<<"$changed"
+    read -rp "Go on without them? [y/N] " answer
+    [[ $answer == [yY] ]] || exit 1
+  fi
   git fetch -q origin
   local branch
   branch=$(git rev-parse --abbrev-ref HEAD)
