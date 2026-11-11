@@ -26,7 +26,8 @@ case ${1:-serve} in
     build
     prepare
     echo "Post development server: ws://$addr/v1/ws  (scripts/dev-server.sh invite for an invite)"
-    exec "$bin" serve --domain "$addr" --listen "$addr"
+    # Releases only from its own folder, never fetched from GitHub.
+    exec "$bin" serve --domain "$addr" --listen "$addr" --releases-dir "$dir/releases" --releases-from ""
     ;;
   invite)
     build
