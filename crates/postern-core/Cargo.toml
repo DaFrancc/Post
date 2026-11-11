@@ -1,0 +1,42 @@
+[package]
+name = "postern-core"
+description = "Postern client core: keys, MLS, sync and local storage"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+postern-identity = { path = "../postern-identity" }
+postern-mls = { path = "../postern-mls" }
+postern-proto = { path = "../postern-proto" }
+openmls.workspace = true
+openmls_basic_credential.workspace = true
+openmls_libcrux_crypto.workspace = true
+openmls_sqlite_storage.workspace = true
+openmls_traits.workspace = true
+rusqlite.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+rustls.workspace = true
+futures-util.workspace = true
+prost.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+hex.workspace = true
+getrandom.workspace = true
+zeroize.workspace = true
+url.workspace = true
+ed25519-dalek.workspace = true
+sha2.workspace = true
+blind-rsa-signatures.workspace = true
+
+[dev-dependencies]
+postern-server = { path = "../postern-server" }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true
