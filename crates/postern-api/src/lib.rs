@@ -210,6 +210,23 @@ pub enum Event {
         /// Devices removed.
         removed: u32,
     },
+    /// Someone is typing. Show `text` until another arrives, or for six
+    /// seconds after the last one.
+    Typing {
+        /// Conversation ID, hex.
+        conversation: String,
+        /// Who.
+        username: String,
+        /// Their typing template filled with the name you see for them.
+        text: String,
+    },
+    /// Someone's presence changed.
+    Presence {
+        /// Whose.
+        username: String,
+        /// `online`, `away`, `dnd` or `offline`.
+        presence: String,
+    },
     /// Something you should know, usually a security warning.
     Notice {
         /// Conversation ID, if it concerns one.
@@ -261,6 +278,22 @@ fn identity(i: core::Identity) -> Identity {
     Identity { username: i.username, account_id: i.account_id, device_id: i.device_id, server: i.server, bot: i.bot }
 }
 
+fn presence_word(p: core::Presence) -> &'static str {
+    match p {
+        core::Presence::Offline => "offline",
+        core::Presence::Online => "online",
+        core::Presence::Away => "away",
+        core::Presence::DoNotDisturb => "dnd",
+    }
+}
+
+/// Someone's presence, as last heard.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct PresenceResult {
+    /// `online`, `away`, `dnd` or `offline`.
+    pub presence: String,
+}
+
 /// Convert a core event for the API.
 pub fn event(e: core::Event) -> Event {
     match e {
@@ -273,6 +306,8 @@ pub fn event(e: core::Event) -> Event {
         }
         core::Event::ProfileChanged { username } => Event::ProfileChanged { username },
         core::Event::DevicesChanged { username, added, removed } => Event::DevicesChanged { username, added, removed },
+        core::Event::Typing { conversation, username, text } => Event::Typing { conversation: conversation.to_string(), username, text },
+        core::Event::Presence { username, presence } => Event::Presence { username, presence: presence_word(presence).into() },
         core::Event::Notice { conversation, text } => Event::Notice { conversation: conversation.map(|c| c.to_string()), text },
     }
 }
@@ -355,6 +390,28 @@ pub struct SetHistoryParams {
 pub struct ConversationParams {
     /// Conversation ID, hex.
     pub conversation: String,
+}
+
+/// The presence you choose to show.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PresenceChoice {
+    /// Shown online.
+    Online,
+    /// Shown away.
+    Away,
+    /// Shown as do not disturb.
+    Dnd,
+    /// Shown offline; nothing is sent, and you still receive everything.
+    Invisible,
+}
+
+/// `set_presence`: what others see.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetPresenceParams {
+    /// The presence to show.
+    pub presence: PresenceChoice,
 }
 
 /// `link_begin`: offer this new device for linking to an existing account.
@@ -563,6 +620,9 @@ methods! {
     "set_conversation_name", Connection, ConversationNameParams, Done, "Set your display name in one conversation.";
     "set_nickname", Local, NicknameParams, Done, "Set your private nickname for someone.";
     "person", Local, UserParams, Person, "What you know about a person.";
+    "send_typing", Connection, ConversationParams, Done, "Tell a conversation you are typing (sent at most every 3 seconds).";
+    "set_presence", Connection, SetPresenceParams, Done, "Choose the presence others see.";
+    "presence", Local, UserParams, PresenceResult, "Someone's presence, as last heard by this device.";
     "safety_number", Local, UserParams, SafetyNumber, "The safety number between you and a user.";
 }
 
@@ -779,6 +839,26 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 typing_template: x.typing_template,
                 note: x.note,
             })
+        }
+        "send_typing" => {
+            let p: ConversationParams = params(p)?;
+            core.send_typing(id(&p.conversation)?).await?;
+            ok(Done {})
+        }
+        "set_presence" => {
+            let p: SetPresenceParams = params(p)?;
+            let setting = match p.presence {
+                PresenceChoice::Online => core::PresenceSetting::Online,
+                PresenceChoice::Away => core::PresenceSetting::Away,
+                PresenceChoice::Dnd => core::PresenceSetting::DoNotDisturb,
+                PresenceChoice::Invisible => core::PresenceSetting::Invisible,
+            };
+            core.set_presence(setting).await?;
+            ok(Done {})
+        }
+        "presence" => {
+            let p: UserParams = params(p)?;
+            ok(PresenceResult { presence: presence_word(core.presence(&p.username).await?).into() })
         }
         "safety_number" => {
             let p: UserParams = params(p)?;

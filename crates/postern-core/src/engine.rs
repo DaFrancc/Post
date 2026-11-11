@@ -27,13 +27,15 @@ use prost::Message as _;
 use rusqlite::{Connection, Transaction};
 use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
+use zeroize::Zeroizing;
 
 use crate::content::{self, Body, Content};
+use crate::ephemeral;
 use crate::link::{self as linking, Channel, LinkCode};
 use crate::net::{ServerConn, expect_reply};
 use crate::provider::Provider;
 use crate::store::{self, KIND_DM, KIND_GROUP, KIND_SELF, NewMessage};
-use crate::{ConversationId, Error, Event, MessageId, Result};
+use crate::{ConversationId, Error, Event, MessageId, Presence, PresenceSetting, Result};
 
 /// Exporter label for group access keys (design section 8).
 pub const ACCESS_LABEL: &str = "postern/group-access/v1";
@@ -60,6 +62,15 @@ fn refresh_due(gid: &[u8; 16], refreshed_at: u64, now: u64, force_before: u64) -
     let spread = u64::from_be_bytes([gid[0], gid[1], gid[2], gid[3], gid[4], gid[5], gid[6], gid[7]]) % REFRESH_SPREAD_MS;
     refreshed_at < force_before || now.saturating_sub(refreshed_at) >= REFRESH_INTERVAL_MS - spread
 }
+
+/// Typing signals go out at most this often per conversation.
+const TYPING_EVERY: std::time::Duration = std::time::Duration::from_secs(3);
+/// Someone silent this long is shown offline.
+const PRESENCE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25 * 60);
+/// Groups quiet this long are not sent repeated presence.
+const QUIET_GROUP_MS: u64 = 30 * 24 * 3600 * 1000;
+/// Signals sent before pausing a second, under the server's 20 a second.
+const SIGNALS_PER_BURST: usize = 15;
 
 /// Most accounts in one group. Postern serves a community of about 100.
 const MAX_GROUP_ACCOUNTS: usize = 150;
@@ -117,6 +128,13 @@ impl KpPool {
     fn is_empty(&self) -> bool {
         self.one_time.is_empty() && self.last_resort.is_none()
     }
+}
+
+/// What the listen loop waits on.
+pub(crate) struct ListenHandles {
+    pub wakes: [std::sync::Arc<tokio::sync::Notify>; 2],
+    pub closed: [crate::net::Closed; 2],
+    pub signals: std::sync::Arc<crate::net::Signals>,
 }
 
 /// This device's identity and keys.
@@ -264,6 +282,10 @@ pub(crate) struct Engine {
     /// Leaves last refreshed before this time (Unix ms) are due now; set by
     /// an explicit refresh.
     refresh_before: u64,
+    /// When this device last sent a typing signal to each group.
+    typing_sent: HashMap<[u8; 16], std::time::Instant>,
+    /// Others' presence and when it was last heard. Memory only, by design.
+    presence: HashMap<AccountId, (ephemeral::State, std::time::Instant)>,
     link: Option<PendingLink>,
     pub events: broadcast::Sender<Event>,
 }
@@ -282,6 +304,8 @@ impl Engine {
             no_key_packages: HashMap::new(),
             gossip_warned: HashSet::new(),
             refresh_before: 0,
+            typing_sent: HashMap::new(),
+            presence: HashMap::new(),
             link: None,
             events,
         };
@@ -332,10 +356,15 @@ impl Engine {
         self.session().is_ok() && self.anon().is_ok()
     }
 
-    /// Both connections' wake and close signals, for the listen loop.
-    pub fn signals(&self) -> Result<[(std::sync::Arc<tokio::sync::Notify>, crate::net::Closed); 2]> {
+    /// Both connections' wake and close signals, and the relayed signals,
+    /// for the listen loop.
+    pub fn listen_handles(&self) -> Result<ListenHandles> {
         let (s, a) = (self.session()?, self.anon()?);
-        Ok([(s.wake.clone(), s.closed_signal()), (a.wake.clone(), a.closed_signal())])
+        Ok(ListenHandles {
+            wakes: [s.wake.clone(), a.wake.clone()],
+            closed: [s.closed_signal(), a.closed_signal()],
+            signals: a.signals.clone(),
+        })
     }
 
     fn emit(&self, e: Event) {
@@ -2125,6 +2154,172 @@ impl Engine {
         self.anon()?.request(Request::Subscribe(proto::Subscribe { groups: cursors })).await?;
         self.subscribed = now;
         Ok(())
+    }
+
+    // ------------------------------------------------------------ typing and presence
+
+    /// Tell a conversation's members who are online that the user is typing.
+    /// Call it as the user types; it sends at most once every three seconds.
+    pub async fn send_typing(&mut self, gid: [u8; 16]) -> Result<()> {
+        let gid = self.live_group(gid)?;
+        let conv = store::conversation(&self.conn, &gid)?.ok_or(Error::NotFound("conversation"))?;
+        if !conv.following || conv.leaving || conv.kind == KIND_SELF {
+            return Err(Error::InvalidInput("you are no longer in this conversation".into()));
+        }
+        if self.typing_sent.get(&gid).is_some_and(|t| t.elapsed() < TYPING_EVERY) {
+            return Ok(());
+        }
+        self.typing_sent.insert(gid, std::time::Instant::now());
+        self.send_signal(gid, ephemeral::Kind::Typing(ephemeral::Typing {})).await
+    }
+
+    /// The presence this account shows, as chosen on this device.
+    pub fn own_presence(&self) -> Result<PresenceSetting> {
+        Ok(match store::meta_str(&self.conn, "presence")?.as_deref() {
+            Some("away") => PresenceSetting::Away,
+            Some("dnd") => PresenceSetting::DoNotDisturb,
+            Some("invisible") => PresenceSetting::Invisible,
+            _ => PresenceSetting::Online,
+        })
+    }
+
+    /// Choose the presence others see, and announce it to every conversation.
+    pub async fn set_presence(&mut self, setting: PresenceSetting) -> Result<()> {
+        let word = match setting {
+            PresenceSetting::Online => "online",
+            PresenceSetting::Away => "away",
+            PresenceSetting::DoNotDisturb => "dnd",
+            PresenceSetting::Invisible => "invisible",
+        };
+        store::meta_put(&self.conn, "presence", word.as_bytes())?;
+        // Going invisible announces "offline" once, then nothing.
+        let state = match setting {
+            PresenceSetting::Online => ephemeral::State::Online,
+            PresenceSetting::Away => ephemeral::State::Away,
+            PresenceSetting::DoNotDisturb => ephemeral::State::DoNotDisturb,
+            PresenceSetting::Invisible => ephemeral::State::Offline,
+        };
+        self.announce(state, false).await
+    }
+
+    /// Repeat this account's presence, as a running app does every ten
+    /// minutes. Invisible sends nothing. Groups quiet for a month are
+    /// skipped, to keep relay traffic small.
+    pub async fn announce_presence(&mut self) -> Result<()> {
+        let state = match self.own_presence()? {
+            PresenceSetting::Online => ephemeral::State::Online,
+            PresenceSetting::Away => ephemeral::State::Away,
+            PresenceSetting::DoNotDisturb => ephemeral::State::DoNotDisturb,
+            PresenceSetting::Invisible => return Ok(()),
+        };
+        self.announce(state, true).await
+    }
+
+    async fn announce(&mut self, state: ephemeral::State, active_only: bool) -> Result<()> {
+        let cutoff = store::now_ms().saturating_sub(QUIET_GROUP_MS) as i64;
+        let groups: Vec<[u8; 16]> = store::broadcast_groups(&self.conn)?
+            .into_iter()
+            .filter(|g| !active_only || store::conversation(&self.conn, g).ok().flatten().is_some_and(|c| c.last_activity >= cutoff))
+            .collect();
+        for (i, gid) in groups.into_iter().enumerate() {
+            // The server relays at most 20 signals a second per connection.
+            if i > 0 && i % SIGNALS_PER_BURST == 0 {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+            self.send_signal(gid, ephemeral::Kind::Presence(ephemeral::PresenceSignal { state: state as i32 })).await?;
+        }
+        Ok(())
+    }
+
+    /// Sign, seal and relay one signal. Signals are best effort: one that
+    /// misses its epoch or a rate limit is simply dropped.
+    async fn send_signal(&mut self, gid: [u8; 16], kind: ephemeral::Kind) -> Result<()> {
+        let (payload, access_key) = {
+            let me = self.me.as_ref().ok_or(Error::NotRegistered)?;
+            let provider = Provider::on(&self.conn);
+            let group = load_group(&provider, &gid)?;
+            let key = Zeroizing::new(group.export_secret(provider.crypto(), ephemeral::EXPORTER_LABEL, &[], 32).map_err(mls)?);
+            let ctx = ephemeral::Context { group_id: &gid, epoch: group.epoch().as_u64(), key };
+            let signal = ephemeral::Signal {
+                account: me.account.0.to_vec(),
+                device: me.device.0.to_vec(),
+                sent_at_ms: store::now_ms(),
+                kind: Some(kind),
+            };
+            (ctx.seal(&signal, &me.keys.mls)?, access_key_of(&group, &provider)?)
+        };
+        let req = proto::SendEphemeral { group_id: gid.to_vec(), access_key, payload };
+        match self.anon()?.request(Request::SendEphemeral(req)).await {
+            Ok(_) => Ok(()),
+            Err(Error::Server(e)) if matches!(e.code(), ErrorCode::WrongEpoch | ErrorCode::BadAccessKey | ErrorCode::RateLimited) => {
+                tracing::debug!(error = %e, "signal dropped");
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Open the signals the server relayed, and report the ones that check
+    /// out. Never touches the database.
+    pub fn process_signals(&mut self) -> Result<()> {
+        let Ok(anon) = self.anon() else { return Ok(()) };
+        let waiting = anon.signals.take();
+        let mine = self.me()?.account;
+        for (group_id, payload) in waiting {
+            let Ok(gid) = group_id_of(&group_id) else { continue };
+            let Some(conv) = store::conversation(&self.conn, &gid)? else { continue };
+            if !conv.following || conv.leaving {
+                continue;
+            }
+            let opened = {
+                let provider = Provider::on(&self.conn);
+                let group = load_group(&provider, &gid)?;
+                let key = Zeroizing::new(group.export_secret(provider.crypto(), ephemeral::EXPORTER_LABEL, &[], 32).map_err(mls)?);
+                let ctx = ephemeral::Context { group_id: &gid, epoch: group.epoch().as_u64(), key };
+                let leaf_key = |a: &AccountId, d: &DeviceId| {
+                    group.members().find_map(|m| leaf_of_member(&m).ok().filter(|l| l.account == *a && l.device == *d).map(|l| l.signature_key))
+                };
+                ctx.open(&payload, leaf_key, store::now_ms())
+            };
+            let signal = match opened {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::debug!(error = %e);
+                    continue;
+                }
+            };
+            let Ok(account) = store::account_id(&signal.account) else { continue };
+            if account == mine {
+                continue;
+            }
+            let Some(username) = store::username_of(&self.conn, &account.0)? else { continue };
+            match signal.kind {
+                Some(ephemeral::Kind::Typing(_)) if conv.kind != KIND_SELF => {
+                    let template = store::profile(&self.conn, &account.0)?.map(|p| p.typing_template).unwrap_or_default();
+                    let name = store::shown_name(&self.conn, Some(&gid), &account.0)?;
+                    let text = content::render_typing(&template, &name);
+                    self.emit(Event::Typing { conversation: ConversationId(gid), username, text });
+                }
+                Some(ephemeral::Kind::Presence(p)) => {
+                    let state = ephemeral::State::try_from(p.state).unwrap_or(ephemeral::State::Offline);
+                    let changed = self.presence.insert(account, (state, std::time::Instant::now())).map(|(s, _)| s) != Some(state);
+                    if changed {
+                        self.emit(Event::Presence { username, presence: Presence::from(state) });
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// What this device last heard of someone's presence. Silence for 25
+    /// minutes means offline.
+    pub fn presence_of(&self, account: &AccountId) -> Presence {
+        match self.presence.get(account) {
+            Some((state, at)) if at.elapsed() < PRESENCE_TIMEOUT => Presence::from(*state),
+            _ => Presence::Offline,
+        }
     }
 
     // ------------------------------------------------------------ profile

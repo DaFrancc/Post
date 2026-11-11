@@ -44,6 +44,12 @@ impl Server {
         conn.query_row("SELECT COALESCE(SUM(epoch), 0) FROM groups", [], |r| r.get(0)).expect("epochs")
     }
 
+    /// Entries in every group log on the server.
+    fn log_entries(&self) -> i64 {
+        let conn = postern_server::db::open(&self.db, &self.key).expect("open server db");
+        conn.query_row("SELECT COUNT(*) FROM group_log", [], |r| r.get(0)).expect("count")
+    }
+
     async fn client(&self, dir: &Path, username: &str) -> Core {
         let core = Core::open(&dir.join(username), &DbKey::from_bytes([7; 32])).expect("open profile");
         core.register(&self.url, &self.invite(false), username, false).await.expect("register");
@@ -535,6 +541,59 @@ async fn key_refresh() {
     while let Ok(e) = bob_events.try_recv() {
         assert!(!matches!(e, Event::Notice { .. }), "unexpected notice: {e:?}");
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn typing_and_presence() {
+    use postern_core::{Presence, PresenceSetting};
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    alice
+        .set_profile(ProfileUpdate {
+            display_name: Some("Alice A".into()),
+            typing_template: Some("the one who types is $$NAME$$".into()),
+            ..Default::default()
+        })
+        .await
+        .expect("profile");
+    let dm = alice.start_dm("bob").await.expect("dm");
+    bob.sync().await.expect("sync");
+    bob.set_nickname("alice", "Ally").await.expect("nickname");
+
+    let mut bob_events = bob.subscribe();
+    let listener = {
+        let bob = bob.clone();
+        tokio::spawn(async move { bob.listen().await })
+    };
+    // Let Bob's listener subscribe before anything is relayed.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let entries = server.log_entries();
+
+    // Typing arrives with Alice's template and the name Bob sees for her.
+    alice.send_typing(dm.id).await.expect("typing");
+    let e = next_event(&mut bob_events, |e| matches!(e, Event::Typing { .. })).await;
+    assert_eq!(
+        e,
+        Event::Typing { conversation: dm.id, username: "alice".into(), text: "the one who types is Ally".into() }
+    );
+
+    // Presence changes arrive, and are remembered in memory.
+    alice.set_presence(PresenceSetting::DoNotDisturb).await.expect("presence");
+    let e = next_event(&mut bob_events, |e| matches!(e, Event::Presence { .. })).await;
+    assert_eq!(e, Event::Presence { username: "alice".into(), presence: Presence::DoNotDisturb });
+    assert_eq!(bob.presence("alice").await.expect("presence"), Presence::DoNotDisturb);
+    assert_eq!(alice.own_presence().await.expect("own"), PresenceSetting::DoNotDisturb);
+
+    // Going invisible says "offline" once and then nothing.
+    alice.set_presence(PresenceSetting::Invisible).await.expect("invisible");
+    let e = next_event(&mut bob_events, |e| matches!(e, Event::Presence { .. })).await;
+    assert_eq!(e, Event::Presence { username: "alice".into(), presence: Presence::Offline });
+
+    // None of it was stored on the server.
+    assert_eq!(server.log_entries(), entries, "signals never enter a group log");
+    listener.abort();
 }
 
 fn last_in(c: &Core, conv: postern_core::ConversationId) -> Option<String> {

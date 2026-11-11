@@ -115,6 +115,13 @@ enum Command {
     Nickname { username: String, nickname: String },
     /// Show what you know about someone.
     Person { username: String },
+    /// Choose the presence others see: online, away, dnd or invisible.
+    Presence {
+        #[arg(value_parser = ["online", "away", "dnd", "invisible"])]
+        presence: String,
+    },
+    /// Tell a conversation you are typing.
+    Typing { conversation: String },
     /// Show the safety number between you and someone.
     SafetyNumber { username: String },
     /// Serve the local API as JSON-RPC for bots and scripts.
@@ -314,6 +321,8 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         Command::Nickname { username, nickname } => ("set_nickname", json!({ "username": username, "nickname": nickname })),
         Command::Person { username } => ("person", json!({ "username": username })),
         Command::SafetyNumber { username } => ("safety_number", json!({ "username": username })),
+        Command::Presence { presence } => ("set_presence", json!({ "presence": presence })),
+        Command::Typing { conversation } => ("send_typing", json!({ "conversation": conversation })),
         Command::Keygen { .. } | Command::Daemon { .. } | Command::Schema | Command::Link { .. } => return None,
     })
 }
@@ -590,6 +599,8 @@ mod tests {
             Command::Nickname { username: "a".into(), nickname: "b".into() },
             Command::Devices { cmd: None },
             Command::RefreshKeys,
+            Command::Presence { presence: "away".into() },
+            Command::Typing { conversation: "00".into() },
             Command::Group { cmd: GroupCommand::Create { name: "g".into(), members: vec!["a".into()] } },
             Command::Group { cmd: GroupCommand::Members { conversation: "00".into() } },
             Command::Group { cmd: GroupCommand::Add { conversation: "00".into(), members: vec!["a".into()] } },

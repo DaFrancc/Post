@@ -11,6 +11,7 @@
 
 mod content;
 mod engine;
+mod ephemeral;
 mod link;
 mod net;
 mod provider;
@@ -272,6 +273,43 @@ pub struct LinkRequest {
     pub name: String,
 }
 
+/// What others see of someone (design section 7, "Presence").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Presence {
+    /// Not seen for 25 minutes, signed off, or invisible.
+    Offline,
+    /// Using the app.
+    Online,
+    /// Set by hand, or idle for 10 minutes.
+    Away,
+    /// Not to be disturbed: their notifications are silenced.
+    DoNotDisturb,
+}
+
+impl From<ephemeral::State> for Presence {
+    fn from(s: ephemeral::State) -> Self {
+        match s {
+            ephemeral::State::Offline => Presence::Offline,
+            ephemeral::State::Online => Presence::Online,
+            ephemeral::State::Away => Presence::Away,
+            ephemeral::State::DoNotDisturb => Presence::DoNotDisturb,
+        }
+    }
+}
+
+/// The presence you choose to show.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PresenceSetting {
+    /// Shown online.
+    Online,
+    /// Shown away.
+    Away,
+    /// Shown as not to be disturbed; your own notifications are silenced.
+    DoNotDisturb,
+    /// Shown offline. Nothing is sent, but you still receive everything.
+    Invisible,
+}
+
 /// A member of a conversation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Member {
@@ -345,6 +383,23 @@ pub enum Event {
         added: u32,
         /// How many were removed.
         removed: u32,
+    },
+    /// Someone is typing. Show `text` until another arrives, or for six
+    /// seconds after the last one.
+    Typing {
+        /// Where.
+        conversation: ConversationId,
+        /// Who.
+        username: String,
+        /// Their typing template filled with the name you see for them.
+        text: String,
+    },
+    /// Someone's presence changed.
+    Presence {
+        /// Whose.
+        username: String,
+        /// What it is now.
+        presence: Presence,
     },
     /// Something the user should know about, usually a security warning.
     Notice {
@@ -517,19 +572,53 @@ impl Core {
         self.engine.lock().await.sync().await
     }
 
-    /// Process server wakes until a connection drops. Returns
-    /// [`Error::NotConnected`] then; call [`Core::connect`] to resume.
+    /// Stay live until a connection drops: process server wakes, relayed
+    /// typing and presence, and repeat this account's presence every ten
+    /// minutes. Returns [`Error::NotConnected`] when a connection drops; call
+    /// [`Core::connect`] to resume.
     pub async fn listen(&self) -> Result<()> {
+        const PRESENCE_EVERY: std::time::Duration = std::time::Duration::from_secs(600);
+        self.engine.lock().await.announce_presence().await?;
+        let mut next_presence = tokio::time::Instant::now() + PRESENCE_EVERY;
         loop {
-            let [(s_wake, s_closed), (a_wake, a_closed)] = self.engine.lock().await.signals()?;
+            let engine::ListenHandles { wakes: [s_wake, a_wake], closed: [s_closed, a_closed], signals } =
+                self.engine.lock().await.listen_handles()?;
             tokio::select! {
-                () = s_wake.notified() => {}
-                () = a_wake.notified() => {}
+                () = s_wake.notified() => self.sync().await?,
+                () = a_wake.notified() => self.sync().await?,
+                () = signals.arrived.notified() => self.engine.lock().await.process_signals()?,
+                () = tokio::time::sleep_until(next_presence) => {
+                    self.engine.lock().await.announce_presence().await?;
+                    next_presence = tokio::time::Instant::now() + PRESENCE_EVERY;
+                }
                 () = s_closed => return Err(Error::NotConnected),
                 () = a_closed => return Err(Error::NotConnected),
             }
-            self.sync().await?;
         }
+    }
+
+    /// Tell a conversation's online members you are typing. Call it as you
+    /// type; it sends at most once every three seconds.
+    pub async fn send_typing(&self, conversation: ConversationId) -> Result<()> {
+        self.engine.lock().await.send_typing(conversation.0).await
+    }
+
+    /// Choose the presence others see. Kept on this device; announced now
+    /// and every ten minutes while listening, except when invisible.
+    pub async fn set_presence(&self, setting: PresenceSetting) -> Result<()> {
+        self.engine.lock().await.set_presence(setting).await
+    }
+
+    /// The presence you chose on this device.
+    pub async fn own_presence(&self) -> Result<PresenceSetting> {
+        self.engine.lock().await.own_presence()
+    }
+
+    /// What this device last heard of someone's presence.
+    pub async fn presence(&self, username: &str) -> Result<Presence> {
+        let mut engine = self.engine.lock().await;
+        let account = engine.resolve(username).await?;
+        Ok(engine.presence_of(&account))
     }
 
     /// Open a DM with `username`, creating it if needed.
@@ -779,6 +868,10 @@ fn core_futures_are_send(c: &Core, conv: ConversationId, msg: MessageId) {
     send(c.set_history(conv, true, 0));
     send(c.leave_group(conv));
     send(c.refresh_keys());
+    send(c.send_typing(conv));
+    send(c.set_presence(PresenceSetting::Away));
+    send(c.own_presence());
+    send(c.presence(""));
     send(c.send_text(conv, ""));
     send(c.edit_message(conv, msg, ""));
     send(c.delete_message(conv, msg));

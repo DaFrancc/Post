@@ -21,6 +21,35 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
 type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<Reply>>>>;
 
+/// Most relayed signals held before the oldest are dropped. They are only
+/// worth anything while fresh.
+const SIGNAL_QUEUE: usize = 256;
+
+/// Relayed ephemeral signals waiting to be read: (group ID, sealed payload).
+#[derive(Default)]
+pub struct Signals {
+    queue: Mutex<std::collections::VecDeque<(Vec<u8>, Vec<u8>)>>,
+    /// Notified when a signal arrives.
+    pub arrived: Notify,
+}
+
+impl Signals {
+    fn push(&self, group: Vec<u8>, payload: Vec<u8>) {
+        let mut q = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+        if q.len() == SIGNAL_QUEUE {
+            q.pop_front();
+        }
+        q.push_back((group, payload));
+        drop(q);
+        self.arrived.notify_one();
+    }
+
+    /// Everything waiting, oldest first.
+    pub fn take(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
+        std::mem::take(&mut *self.queue.lock().unwrap_or_else(|p| p.into_inner())).into_iter().collect()
+    }
+}
+
 /// A live server connection: a session once logged in, or anonymous.
 pub struct ServerConn {
     out: mpsc::Sender<Vec<u8>>,
@@ -28,6 +57,8 @@ pub struct ServerConn {
     next_id: AtomicU64,
     /// Notified when the server says new entries are waiting.
     pub wake: Arc<Notify>,
+    /// Typing and presence signals relayed by the server.
+    pub signals: Arc<Signals>,
     closed: watch::Receiver<bool>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
 }
@@ -79,7 +110,8 @@ impl ServerConn {
             }
             let _ = sink.close().await;
         });
-        let (r_pending, r_wake) = (pending.clone(), wake.clone());
+        let signals = Arc::new(Signals::default());
+        let (r_pending, r_wake, r_signals) = (pending.clone(), wake.clone(), signals.clone());
         let reader = tokio::spawn(async move {
             while let Some(Ok(msg)) = stream.next().await {
                 let Message::Binary(b) = msg else { continue };
@@ -91,8 +123,7 @@ impl ServerConn {
                         }
                     }
                     Ok(Some(ServerKind::Wake(_))) => r_wake.notify_one(),
-                    // Typing and presence are handled from phase 4.
-                    Ok(Some(ServerKind::Ephemeral(_))) => {}
+                    Ok(Some(ServerKind::Ephemeral(e))) => r_signals.push(e.group_id, e.payload),
                     _ => break,
                 }
             }
@@ -102,7 +133,7 @@ impl ServerConn {
             r_wake.notify_one();
         });
 
-        Ok((Self { out, pending, next_id: AtomicU64::new(1), wake, closed, tasks: vec![writer, reader] }, hello))
+        Ok((Self { out, pending, next_id: AtomicU64::new(1), wake, signals, closed, tasks: vec![writer, reader] }, hello))
     }
 
     /// Send a request and wait for its reply. A protocol `Error` reply comes
