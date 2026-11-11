@@ -385,6 +385,12 @@ class _ChatViewState extends State<ChatView> {
     final c = widget.conversation;
     final typing = _state.typingIn(_id);
     final items = _timeline();
+    // Each row's position in the (newest-first) list, by key.
+    final positions = <Key, int>{
+      for (final (i, item) in items.indexed) item.key: items.length - 1 - i,
+      const ValueKey('more'): items.length,
+      const ValueKey('beginning'): items.length,
+    };
     return Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -410,16 +416,22 @@ class _ChatViewState extends State<ChatView> {
                             reverse: true,
                             padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
                             itemCount: items.length + 1,
+                            // Find each row by its key, not its position: a new
+                            // message enters at position 0 (the list runs
+                            // newest first) and moves every other row along.
+                            findChildIndexCallback: (key) => positions[key],
                             itemBuilder: (context, i) {
                               if (i == items.length) {
                                 return _hasMore
                                     ? const Padding(
+                                        key: ValueKey('more'),
                                         padding: EdgeInsets.all(16),
                                         child: Center(child: PSpinner()),
                                       )
-                                    : _Beginning(conversation: c);
+                                    : _Beginning(key: const ValueKey('beginning'), conversation: c);
                               }
-                              return _itemView(items[items.length - 1 - i]);
+                              final item = items[items.length - 1 - i];
+                              return KeyedSubtree(key: item.key, child: _itemView(item));
                             },
                           ),
                         ),
@@ -455,7 +467,6 @@ class _ChatViewState extends State<ChatView> {
     _NewMark() => const _NewLine(),
     _Notice(:final n) => _NoticeLine(n),
     _Msg(:final m, :final startsGroup) => _MessageTile(
-      key: ValueKey(m.id),
       arrived: !(_initial?.contains(m.id) ?? true),
       m: m,
       startsGroup: startsGroup,
@@ -484,8 +495,12 @@ extension<T> on List<T> {
 
 // ---------------------------------------------------------------- timeline items
 
+/// One row of the conversation. Each has a key that stays the same however
+/// the rows around it change, so the list keeps its widget (and its state:
+/// revealed spoilers, open versions) when messages arrive.
 sealed class _Item {
   int get at;
+  Key get key;
 }
 
 class _Msg extends _Item {
@@ -496,6 +511,9 @@ class _Msg extends _Item {
 
   @override
   int get at => m.sentAtMs;
+
+  @override
+  Key get key => ValueKey('message ${m.id}');
 }
 
 class _Notice extends _Item {
@@ -505,6 +523,9 @@ class _Notice extends _Item {
 
   @override
   int get at => n.atMs;
+
+  @override
+  Key get key => ValueKey('notice ${n.atMs} ${n.text}');
 }
 
 /// Where unread messages began when the conversation opened.
@@ -513,6 +534,9 @@ class _NewMark extends _Item {
 
   @override
   final int at;
+
+  @override
+  Key get key => const ValueKey('new');
 }
 
 class _Day extends _Item {
@@ -520,6 +544,12 @@ class _Day extends _Item {
 
   @override
   final int at;
+
+  @override
+  Key get key {
+    final d = DateTime.fromMillisecondsSinceEpoch(at);
+    return ValueKey('day ${d.year}-${d.month}-${d.day}');
+  }
 }
 
 // ---------------------------------------------------------------- header
@@ -616,7 +646,7 @@ class _EncryptedBadge extends StatelessWidget {
 // ---------------------------------------------------------------- lines
 
 class _Beginning extends StatelessWidget {
-  const _Beginning({required this.conversation});
+  const _Beginning({super.key, required this.conversation});
 
   final ConversationInfo conversation;
 
@@ -796,7 +826,6 @@ class _NoticeLine extends StatelessWidget {
 
 class _MessageTile extends StatefulWidget {
   const _MessageTile({
-    super.key,
     required this.arrived,
     required this.m,
     required this.startsGroup,

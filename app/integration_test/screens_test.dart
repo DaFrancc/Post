@@ -104,6 +104,15 @@ void main() {
 
     await tap(t, find.text('Alice A'));
     await _shot(t, '02-dm');
+
+    // A new message leaves the ones on screen alone: the same widgets, not
+    // rebuilt from scratch (which reset them and looked like a refresh).
+    State tile(String text) => t.state(find.ancestor(of: find.text(text), matching: find.byWidgetPredicate((w) => w.runtimeType.toString() == '_MessageTile')));
+    final before = tile('see you saturday');
+    await h.cli('alice', ['send', '--to', 'sam', 'one more thing']);
+    await waitFor(t, find.text('one more thing'));
+    await settle(t);
+    expect(identical(tile('see you saturday'), before), isTrue, reason: 'an existing message was rebuilt when a new one arrived');
     // The composer's text centres beside the send button: same height, same
     // middle, to the pixel (desktop density once moved it by four).
     final field = t.getRect(find.byWidgetPredicate((w) => w is TextField).last);
