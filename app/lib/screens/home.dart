@@ -61,7 +61,7 @@ class _HomeScreenState extends State<HomeScreen> {
           final c = state.current;
           final roomForPanel = box.maxWidth >= _panelMinWidth;
           // Search results take the side panel's place while searching.
-          final searching = state.searchText.trim().isNotEmpty;
+          final searching = state.searchShown != null;
           final showPanel = (_panel || searching) && roomForPanel && c != null;
           return Padding(
             padding: const EdgeInsets.fromLTRB(PShape.gap, 0, PShape.gap, PShape.gap),

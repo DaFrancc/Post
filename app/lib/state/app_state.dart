@@ -4,11 +4,12 @@
 
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:post/src/rust/api/client.dart';
 import 'package:post/src/rust/api/error.dart';
 
 import '../ui/arrival.dart';
+import 'search_spec.dart';
 import 'spelling.dart';
 
 /// One sentence to show for a failed call. Screens throw [ArgumentError]
@@ -165,22 +166,78 @@ class AppState extends ChangeNotifier {
 
   // ---------------------------------------------------------------- search
 
-  /// What is being searched for; empty when not searching.
+  /// The search box: its chips and the words typed after them. Kept here so
+  /// it survives opening a result in another conversation.
+  List<SearchFilter> searchFilters = const [];
   String searchText = '';
 
-  /// Search every conversation rather than the one on screen.
+  /// The search box, for Ctrl+F.
+  final searchFocus = FocusNode(debugLabel: 'search');
+
+  /// The search whose results show; null when none do.
+  SearchSpec? searchShown;
+
+  /// Search every conversation rather than the one on screen; oldest
+  /// first; which page of results.
   bool searchAll = false;
+  bool searchOldest = false;
+  int searchPage = 0;
 
-  /// A message to bring into view (and flash) once its conversation shows.
-  ({String conversation, String message})? _jump;
+  /// Searches run, newest first, for the box to offer again.
+  List<SearchSpec> searchHistory = const [];
+  static const _historyKey = 'search.history';
 
-  void setSearch(String text, {bool? all}) {
-    searchText = text;
-    if (all != null) searchAll = all;
+  void editSearch({List<SearchFilter>? filters, String? text}) {
+    if (filters != null) searchFilters = filters;
+    if (text != null) searchText = text;
     notifyListeners();
   }
 
-  void closeSearch() => setSearch('');
+  /// Show results for what is in the box (or [spec]), from the first page.
+  void runSearch([SearchSpec? spec]) {
+    final s = spec ?? SearchSpec(words: searchText.trim(), filters: searchFilters);
+    if (s.isEmpty) return;
+    searchFilters = s.filters;
+    searchText = s.words;
+    searchShown = s;
+    searchPage = 0;
+    searchHistory = [s, ...searchHistory.where((h) => h != s)].take(8).toList();
+    unawaited(client.setSetting(key: _historyKey, value: searchHistory.join('\n')).catchError((_) {}));
+    notifyListeners();
+  }
+
+  void setSearchView({bool? all, bool? oldest, int? page}) {
+    if (all != null) searchAll = all;
+    if (oldest != null) searchOldest = oldest;
+    searchPage = page ?? (all != null || oldest != null ? 0 : searchPage);
+    notifyListeners();
+  }
+
+  void closeSearch() {
+    searchFilters = const [];
+    searchText = '';
+    searchShown = null;
+    notifyListeners();
+  }
+
+  void clearSearchHistory() {
+    searchHistory = const [];
+    unawaited(client.setSetting(key: _historyKey, value: null).catchError((_) {}));
+    notifyListeners();
+  }
+
+  Future<void> _loadSearchHistory() async {
+    try {
+      final saved = await client.setting(key: _historyKey);
+      searchHistory = [
+        for (final line in saved?.split('\n') ?? const <String>[])
+          if (!SearchSpec.parse(line).isEmpty) SearchSpec.parse(line),
+      ];
+    } catch (_) {}
+  }
+
+  /// A message to bring into view (and flash) once its conversation shows.
+  ({String conversation, String message})? _jump;
 
   /// Open a message's conversation and scroll to the message.
   void jumpTo(String conversation, String message) {
@@ -277,9 +334,14 @@ class AppState extends ChangeNotifier {
   Future<void> _loadSettings() async {
     try {
       showOthersArrivals = await client.setting(key: _othersArrivalsKey) != '0';
-      notifyListeners();
     } catch (_) {}
+    await _loadSearchHistory();
+    notifyListeners();
   }
+
+  /// Everyone this device knows of, for suggesting names: people in DMs,
+  /// and anyone whose profile has loaded.
+  List<String> get knownPeople => {for (final c in conversations) ?c.peer, ..._people.keys}.toList();
 
   Future<void> setShowOthersArrivals(bool show) async {
     showOthersArrivals = show;
@@ -344,6 +406,7 @@ class AppState extends ChangeNotifier {
     _events.cancel();
     _relay.close();
     spelling.dispose();
+    searchFocus.dispose();
     _typingSweep?.cancel();
     _refreshSoon?.cancel();
     _connectionTimer.cancel();

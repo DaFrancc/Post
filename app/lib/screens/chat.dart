@@ -22,6 +22,7 @@ import '../ui/markup_text.dart';
 import 'dialogs.dart';
 import 'home.dart' show Panel;
 import 'profile_card.dart';
+import 'search.dart' show SearchBox;
 import 'settings.dart' show SettingsSection, showSettings;
 
 /// Messages from one sender this close together share one header.
@@ -151,11 +152,8 @@ class _ChatViewState extends State<ChatView> {
   String get _id => widget.conversation.id;
   AppState get _state => widget.state;
 
-  // Search: the header's box (carrying what was typed across conversations,
-  // since opening a result opens its conversation), and a message brought
-  // into view and lit for a moment.
-  late final _search = TextEditingController(text: _state.searchText);
-  final _searchFocus = FocusNode();
+  // A message opened from a search result: brought into view and lit for a
+  // moment.
   String? _highlight;
   String? _jumpTarget;
   final _highlightKey = GlobalKey();
@@ -182,8 +180,6 @@ class _ChatViewState extends State<ChatView> {
     _state.spelling.removeListener(_spellSoon);
     HardwareKeyboard.instance.removeHandler(_typeToCompose);
     HardwareKeyboard.instance.removeHandler(_findKey);
-    _search.dispose();
-    _searchFocus.dispose();
     _unhighlight?.cancel();
     _composer.dispose();
     _composerFocus.dispose();
@@ -210,8 +206,7 @@ class _ChatViewState extends State<ChatView> {
     final keys = HardwareKeyboard.instance;
     if (e is! KeyDownEvent || e.logicalKey != LogicalKeyboardKey.keyF || !keys.isControlPressed || keys.isAltPressed) return false;
     if (!(ModalRoute.of(context)?.isCurrent ?? false)) return false;
-    _searchFocus.requestFocus();
-    _search.selection = TextSelection(baseOffset: 0, extentOffset: _search.text.length);
+    _state.searchFocus.requestFocus();
     return true;
   }
 
@@ -662,7 +657,7 @@ class _ChatViewState extends State<ChatView> {
             memberCount: _members.length,
             panelOpen: widget.panelOpen,
             onTogglePanel: widget.onTogglePanel,
-            search: _SearchBox(controller: _search, focus: _searchFocus, state: _state),
+            search: SearchBox(state: _state, members: _members),
           ),
           Expanded(
             child: !_loaded
@@ -1068,85 +1063,6 @@ class _FlyingState extends State<_Flying> with SingleTickerProviderStateMixin {
 
 // ---------------------------------------------------------------- header
 
-/// The search box in the header: widens while in use; Escape clears and
-/// closes the search.
-class _SearchBox extends StatelessWidget {
-  const _SearchBox({required this.controller, required this.focus, required this.state});
-
-  final TextEditingController controller;
-  final FocusNode focus;
-  final AppState state;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Listenable.merge([focus, controller]),
-      builder: (context, _) {
-        final active = focus.hasFocus || controller.text.isNotEmpty;
-        return AnimatedContainer(
-          duration: PMotion.normal,
-          curve: PMotion.curve,
-          width: active ? 260 : 190,
-          height: 36,
-          decoration: BoxDecoration(
-            color: PColors.sunken,
-            border: Border.all(color: focus.hasFocus ? PColors.focusEdge : PColors.border),
-            borderRadius: BorderRadius.circular(11),
-          ),
-          child: Focus(
-            onKeyEvent: (_, e) {
-              if (e is KeyDownEvent && e.logicalKey == LogicalKeyboardKey.escape) {
-                controller.clear();
-                state.closeSearch();
-                focus.unfocus();
-                return KeyEventResult.handled;
-              }
-              return KeyEventResult.ignored;
-            },
-            child: Row(
-              children: [
-                const SizedBox(width: 10),
-                const Icon(Icons.search_rounded, size: 17, color: PColors.textFaint),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: TextField(
-                    controller: controller,
-                    focusNode: focus,
-                    onChanged: state.setSearch,
-                    style: const TextStyle(fontSize: 13.5, color: PColors.text),
-                    decoration: const InputDecoration(
-                      hintText: 'Search (Ctrl+F)',
-                      hintStyle: TextStyle(fontSize: 13.5, color: PColors.textFaint),
-                      isDense: true,
-                      filled: false,
-                      contentPadding: EdgeInsets.symmetric(vertical: 9),
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                    ),
-                  ),
-                ),
-                if (controller.text.isNotEmpty)
-                  PIconButton(
-                    icon: Icons.close_rounded,
-                    tooltip: 'Clear',
-                    size: 28,
-                    iconSize: 15,
-                    onPressed: () {
-                      controller.clear();
-                      state.closeSearch();
-                    },
-                  ),
-                const SizedBox(width: 4),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
 class _Header extends StatelessWidget {
   const _Header({
     required this.state,
@@ -1304,30 +1220,32 @@ class _JumpToNewest extends StatelessWidget {
                 offset: away ? Offset.zero : const Offset(0, 0.4),
                 duration: PMotion.normal,
                 curve: PMotion.curve,
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: GestureDetector(
-                    onTap: onTap,
-                    child: Container(
-                      padding: const EdgeInsets.fromLTRB(14, 7, 10, 7),
-                      decoration: BoxDecoration(
-                        color: PColors.panelRaised,
-                        border: Border.all(color: PColors.borderStrong),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 16, offset: Offset(0, 6))],
+                // Where you are, and the way back.
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(16, 5, 5, 5),
+                  decoration: BoxDecoration(
+                    color: PColors.panelRaised,
+                    border: Border.all(color: PColors.borderStrong),
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 16, offset: Offset(0, 6))],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text("You're viewing older messages", style: TextStyle(fontSize: 13, color: PColors.textMuted)),
+                      const SizedBox(width: 12),
+                      FilledButton.icon(
+                        onPressed: onTap,
+                        icon: const Icon(Icons.arrow_downward_rounded, size: 15),
+                        label: const Text('Jump to present'),
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size(0, 30),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
                       ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Jump to newest',
-                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: PColors.text),
-                          ),
-                          SizedBox(width: 6),
-                          Icon(Icons.arrow_downward_rounded, size: 16, color: PColors.accentText),
-                        ],
-                      ),
-                    ),
+                    ],
                   ),
                 ),
               ),
@@ -1654,13 +1572,29 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
             curve: PMotion.curve,
             padding: const EdgeInsets.fromLTRB(10, 3, 10, 3),
             decoration: BoxDecoration(
-              color: widget.highlighted ? const Color(0xFF1C2444) : (_hover || widget.editing ? PColors.messageHover : PColors.panel),
-              border: Border.all(color: widget.highlighted ? PColors.activeEdge : Colors.transparent),
+              color: widget.highlighted ? const Color(0xFF1A2142) : (_hover || widget.editing ? PColors.messageHover : PColors.panel),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Stack(
               clipBehavior: Clip.none,
               children: [
+                // Opened from a search: an accent bar down its left edge.
+                Positioned(
+                  left: -10,
+                  top: -3,
+                  bottom: -3,
+                  child: AnimatedOpacity(
+                    opacity: widget.highlighted ? 1 : 0,
+                    duration: widget.highlighted ? PMotion.fast : const Duration(milliseconds: 900),
+                    child: Container(
+                      width: 3,
+                      decoration: const BoxDecoration(
+                        color: PColors.accent,
+                        borderRadius: BorderRadius.horizontal(left: Radius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ),
                 Opacity(
                   opacity: m.pending ? 0.55 : 1,
                   child: Row(

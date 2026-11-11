@@ -1,12 +1,28 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:post/screens/search.dart';
+import 'package:post/state/search_spec.dart';
 
 void main() {
-  test('words and a sender, in any order', () {
-    expect(parseSearch('rope  noon'), (words: 'rope noon', from: null));
-    expect(parseSearch('from:Alice rope'), (words: 'rope', from: 'alice'));
-    expect(parseSearch('rope from:@bob noon'), (words: 'rope noon', from: 'bob'));
-    // A bare "from:" is just a word.
-    expect(parseSearch('from:'), (words: 'from:', from: null));
+  test('filters and words, read and written', () {
+    final s = SearchSpec.parse('rope from:@Alice has:link noon before:2026-11-01');
+    expect(s.words, 'rope noon');
+    expect(s.filters, const [SearchFilter(FilterKind.from, 'alice'), SearchFilter(FilterKind.has, 'link'), SearchFilter(FilterKind.before, '2026-11-01')]);
+    expect('$s', 'from:alice has:link before:2026-11-01 rope noon');
+    expect(SearchSpec.parse('$s'), s);
+  });
+
+  test('what is not a usable filter is a word', () {
+    expect(SearchSpec.parse('from: has:video before:2026-02-30 to:x').words, 'from: has:video before:2026-02-30 to:x');
+    expect(SearchSpec.parse('   ').isEmpty, isTrue);
+  });
+
+  test('dates become a range of whole local days', () {
+    final o = SearchSpec.parse('during:2026-03-05 rope').options(oldestFirst: false, page: 2, pageSize: 25);
+    expect(o.afterMs, BigInt.from(DateTime(2026, 3, 5).millisecondsSinceEpoch));
+    expect(o.beforeMs, BigInt.from(DateTime(2026, 3, 6).millisecondsSinceEpoch));
+    expect(o.offset, 50);
+    // after: means from the next day.
+    final a = SearchSpec.parse('after:2026-03-05').options(oldestFirst: true, page: 0, pageSize: 25);
+    expect(a.afterMs, BigInt.from(DateTime(2026, 3, 6).millisecondsSinceEpoch));
+    expect(a.beforeMs, isNull);
   });
 }
