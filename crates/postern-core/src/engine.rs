@@ -1021,6 +1021,129 @@ impl Engine {
         Ok(ConversationId(self.create_conversation(meta, kps).await?))
     }
 
+    /// Change a group as its admin: add accounts (with all their devices),
+    /// remove accounts (all their leaves, and their admin role), and edit the
+    /// group's details. Decided against the group's current state, and
+    /// decided again if another commit takes the epoch first.
+    async fn change_group(
+        &mut self,
+        gid: [u8; 16],
+        add: &[AccountId],
+        remove: &[AccountId],
+        mut edit: impl FnMut(&mut GroupMeta) -> Result<()> + Send,
+    ) -> Result<()> {
+        for _ in 0..3 {
+            self.sync_groups().await?;
+            if store::pending_commit(&self.conn, &gid)?.is_some() {
+                return Err(Error::InvalidInput("another change to this group is still being sent; try again shortly".into()));
+            }
+            let conv = store::conversation(&self.conn, &gid)?.filter(|c| c.following).ok_or(Error::NotFound("conversation"))?;
+            if conv.kind != KIND_GROUP {
+                return Err(Error::NotAllowed("only group chats have members and details to change"));
+            }
+            let mine = self.me()?.account;
+            let (meta, members) = group_members(&self.conn, &gid)?;
+            if !meta.admins.iter().any(|a| a[..] == mine.0) {
+                return Err(Error::NotAllowed("only the group's admins can do that"));
+            }
+            let mut new_meta = meta.clone();
+            edit(&mut new_meta)?;
+            new_meta.admins.retain(|a| !remove.iter().any(|r| a[..] == r.0));
+            if new_meta.admins.is_empty() {
+                return Err(Error::InvalidInput("a group needs at least one admin".into()));
+            }
+            let is_member = |a: &AccountId| members.iter().any(|(m, _)| m == a);
+            let to_add: Vec<AccountId> = add.iter().filter(|a| !is_member(a)).copied().collect();
+            if members.len() + to_add.len() > MAX_GROUP_ACCOUNTS {
+                return Err(Error::InvalidInput(format!("a group can have at most {MAX_GROUP_ACCOUNTS} members")));
+            }
+            let leaves: Vec<LeafNodeIndex> = {
+                let provider = Provider::on(&self.conn);
+                let group = load_group(&provider, &gid)?;
+                group.members().filter(|m| leaf_of_member(m).is_ok_and(|l| remove.contains(&l.account))).map(|m| m.index).collect()
+            };
+            let meta_change = (new_meta != meta).then_some(new_meta);
+            if to_add.is_empty() && leaves.is_empty() && meta_change.is_none() {
+                return Ok(());
+            }
+            let mut kps = Vec::new();
+            for a in &to_add {
+                let theirs = self.claim(*a).await?;
+                if theirs.is_empty() {
+                    let name = store::username_of(&self.conn, &a.0)?.unwrap_or_default();
+                    return Err(Error::PeerUnavailable(name));
+                }
+                kps.extend(theirs);
+            }
+            if self.commit_changes(gid, kps, leaves, meta_change).await? {
+                // Merged when it comes back through the log.
+                self.sync_groups().await?;
+                return self.flush_outbox().await;
+            }
+        }
+        Err(Error::InvalidInput("the group kept changing while this was being sent; try again".into()))
+    }
+
+    async fn accounts_of(&mut self, usernames: &[String]) -> Result<Vec<AccountId>> {
+        let mut out = Vec::new();
+        for u in usernames {
+            out.push(self.resolve(u).await?);
+        }
+        Ok(out)
+    }
+
+    /// Add people to a group, with all their devices.
+    pub async fn add_members(&mut self, gid: [u8; 16], usernames: &[String]) -> Result<()> {
+        let accounts = self.accounts_of(usernames).await?;
+        self.change_group(gid, &accounts, &[], |_| Ok(())).await
+    }
+
+    /// Remove people from a group, with all their devices.
+    pub async fn remove_members(&mut self, gid: [u8; 16], usernames: &[String]) -> Result<()> {
+        let accounts = self.accounts_of(usernames).await?;
+        if accounts.contains(&self.me()?.account) {
+            return Err(Error::InvalidInput("to leave a group, leave it rather than removing yourself".into()));
+        }
+        self.change_group(gid, &[], &accounts, |_| Ok(())).await
+    }
+
+    /// Rename a group.
+    pub async fn rename_group(&mut self, gid: [u8; 16], name: &str) -> Result<()> {
+        check_group_name(name)?;
+        self.change_group(gid, &[], &[], |m| {
+            m.name = name.to_string();
+            Ok(())
+        })
+        .await
+    }
+
+    /// Make a member an admin, or stop them being one.
+    pub async fn set_admin(&mut self, gid: [u8; 16], username: &str, admin: bool) -> Result<()> {
+        let account = self.resolve(username).await?;
+        let (_, members) = group_members(&self.conn, &gid)?;
+        if !members.iter().any(|(a, _)| *a == account) {
+            return Err(Error::InvalidInput(format!("{username} is not in this group")));
+        }
+        self.change_group(gid, &[], &[], |m| {
+            m.admins.retain(|a| a[..] != account.0);
+            if admin {
+                m.admins.push(account.0.to_vec());
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    /// Whether new members see past messages, and how many days back.
+    pub async fn set_history(&mut self, gid: [u8; 16], shared: bool, days: u32) -> Result<()> {
+        self.change_group(gid, &[], &[], |m| {
+            m.history = if shared { postern_mls::HistoryVisibility::Shared } else { postern_mls::HistoryVisibility::Hidden } as i32;
+            m.history_days = if shared { days } else { 0 };
+            Ok(())
+        })
+        .await
+    }
+
     /// Build a group with `meta` and the devices behind `kps`, and register it.
     async fn create_conversation(&mut self, meta: GroupMeta, kps: Vec<KeyPackage>) -> Result<[u8; 16]> {
         let gid = random16()?;
@@ -1098,7 +1221,13 @@ impl Engine {
     /// caller syncs and decides again. The commit is merged only when it shows
     /// up in the group's log, so messages logged before it in the same epoch
     /// are still read with the old keys.
-    async fn commit_changes(&mut self, gid: [u8; 16], adds: Vec<KeyPackage>, removes: Vec<LeafNodeIndex>) -> Result<bool> {
+    async fn commit_changes(
+        &mut self,
+        gid: [u8; 16],
+        adds: Vec<KeyPackage>,
+        removes: Vec<LeafNodeIndex>,
+        meta: Option<GroupMeta>,
+    ) -> Result<bool> {
         let req = {
             let me = self.me.as_ref().ok_or(Error::NotRegistered)?;
             let tx = self.conn.transaction()?;
@@ -1111,10 +1240,11 @@ impl Engine {
                     .filter_map(|kp| postern_mls::leaf_identity(kp.leaf_node()).ok())
                     .map(|l| l.device.0.to_vec())
                     .collect();
-                let bundle = group
-                    .commit_builder()
-                    .propose_adds(adds)
-                    .propose_removals(removes)
+                let mut builder = group.commit_builder().propose_adds(adds).propose_removals(removes);
+                if let Some(meta) = &meta {
+                    builder = builder.propose_group_context_extensions(postern_mls::group_context_extensions(meta).map_err(mls)?).map_err(mls)?;
+                }
+                let bundle = builder
                     .load_psks(provider.storage())
                     .map_err(mls)?
                     .build(provider.rand(), provider.crypto(), &me.signer, |_| true)
@@ -1187,7 +1317,12 @@ impl Engine {
         let tx = self.conn.transaction()?;
         {
             let provider = Provider::on(&tx);
-            load_group(&provider, &gid)?.merge_pending_commit(&provider).map_err(mls)?;
+            let mut group = load_group(&provider, &gid)?;
+            group.merge_pending_commit(&provider).map_err(mls)?;
+            let meta = GroupMeta::from_extensions(group.extensions()).map_err(mls)?;
+            if meta.conversation_kind() == Some(MlsKind::Group) {
+                store::set_name(&tx, &gid, &meta.name)?;
+            }
         }
         store::pending_commit_remove(&tx, &gid)?;
         store::set_cursor(&tx, &gid, seq)?;
@@ -1215,7 +1350,7 @@ impl Engine {
                 if adds.is_empty() && p.remove.is_empty() {
                     continue;
                 }
-                lost_race |= !self.commit_changes(p.gid, adds, p.remove).await?;
+                lost_race |= !self.commit_changes(p.gid, adds, p.remove, None).await?;
             }
             // Our commits are merged as they come back through the log.
             self.sync_groups().await?;
@@ -2136,8 +2271,18 @@ fn check_commit(
     let is_dm = old.conversation_kind() == Some(MlsKind::Dm);
     let is_self = old.conversation_kind() == Some(MlsKind::SelfGroup);
     let is_admin = old.admins.iter().any(|a| a[..] == committer.0);
-    if new != old && (is_dm || is_self || !is_admin) {
-        return Err(reject("someone who is not an admin tried to change the group"));
+    if new != old {
+        if is_dm || is_self || !is_admin {
+            return Err(reject("someone who is not an admin tried to change the group"));
+        }
+        if new.kind != old.kind {
+            return Err(reject("someone tried to turn the group into a different kind of conversation"));
+        }
+        // Exactly Postern's extensions, so nothing rides along unchecked.
+        let expected = postern_mls::group_context_extensions(&new).map_err(fatal)?;
+        if staged.group_context().extensions() != &expected {
+            return Err(reject("a change set group details this app does not recognise"));
+        }
     }
     let members: Vec<LeafIdentity> = group.members().filter_map(|m| leaf_of_member(&m).ok()).collect();
     let current: HashSet<AccountId> = members.iter().map(|l| l.account).collect();
@@ -2176,6 +2321,20 @@ fn check_commit(
     }
     if staged.update_proposals().next().is_some() {
         return Err(reject("an unsupported change was skipped"));
+    }
+    // A group always keeps an admin among its members, or nobody could
+    // manage it again.
+    if new.conversation_kind() == Some(MlsKind::Group) {
+        let removed: HashSet<LeafNodeIndex> = staged.remove_proposals().map(|r| r.remove_proposal().removed()).collect();
+        let after: HashSet<AccountId> = group
+            .members()
+            .filter(|m| !removed.contains(&m.index))
+            .filter_map(|m| leaf_of_member(&m).ok().map(|l| l.account))
+            .chain(staged.add_proposals().filter_map(|a| postern_mls::leaf_identity(a.add_proposal().key_package().leaf_node()).ok().map(|l| l.account)))
+            .collect();
+        if !new.admins.iter().any(|a| store::account_id(a).is_ok_and(|a| after.contains(&a))) {
+            return Err(reject("a change would have left the group with no admin"));
+        }
     }
     Ok(())
 }

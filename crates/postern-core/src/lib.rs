@@ -552,6 +552,33 @@ impl Core {
         })
     }
 
+    /// As an admin: add people to a group, with all their devices.
+    pub async fn add_members(&self, conversation: ConversationId, usernames: &[String]) -> Result<()> {
+        self.engine.lock().await.add_members(conversation.0, usernames).await
+    }
+
+    /// As an admin: remove people from a group, with all their devices.
+    pub async fn remove_members(&self, conversation: ConversationId, usernames: &[String]) -> Result<()> {
+        self.engine.lock().await.remove_members(conversation.0, usernames).await
+    }
+
+    /// As an admin: rename a group.
+    pub async fn rename_group(&self, conversation: ConversationId, name: &str) -> Result<()> {
+        self.engine.lock().await.rename_group(conversation.0, name).await
+    }
+
+    /// As an admin: make a member an admin, or stop them being one. A group
+    /// always keeps at least one admin.
+    pub async fn set_admin(&self, conversation: ConversationId, username: &str, admin: bool) -> Result<()> {
+        self.engine.lock().await.set_admin(conversation.0, username, admin).await
+    }
+
+    /// As an admin: whether new members are shown past messages, and how many
+    /// days back (0 means all of them).
+    pub async fn set_history(&self, conversation: ConversationId, shared: bool, days: u32) -> Result<()> {
+        self.engine.lock().await.set_history(conversation.0, shared, days).await
+    }
+
     /// The members of a conversation, by the name you see for them.
     pub async fn members(&self, conversation: ConversationId) -> Result<Vec<Member>> {
         let me = self.engine.lock().await.me.as_ref().ok_or(Error::NotRegistered)?.account;
@@ -732,6 +759,11 @@ fn core_futures_are_send(c: &Core, conv: ConversationId, msg: MessageId) {
     send(c.start_dm(""));
     send(c.create_group("", &[]));
     send(c.members(conv));
+    send(c.add_members(conv, &[]));
+    send(c.remove_members(conv, &[]));
+    send(c.rename_group(conv, ""));
+    send(c.set_admin(conv, "", true));
+    send(c.set_history(conv, true, 0));
     send(c.send_text(conv, ""));
     send(c.edit_message(conv, msg, ""));
     send(c.delete_message(conv, msg));

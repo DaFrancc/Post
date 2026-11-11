@@ -139,6 +139,40 @@ enum GroupCommand {
     },
     /// List the members of a conversation.
     Members { conversation: String },
+    /// As an admin: add people to a group.
+    Add {
+        conversation: String,
+        #[arg(required = true)]
+        members: Vec<String>,
+    },
+    /// As an admin: remove people from a group.
+    Remove {
+        conversation: String,
+        #[arg(required = true)]
+        members: Vec<String>,
+    },
+    /// As an admin: rename a group.
+    Rename { conversation: String, name: String },
+    /// As an admin: make a member an admin (or, with --revoke, stop them being one).
+    Admin {
+        conversation: String,
+        username: String,
+        #[arg(long)]
+        revoke: bool,
+    },
+    /// As an admin: whether new members are shown past messages.
+    History {
+        conversation: String,
+        /// Share past messages with new members.
+        #[arg(long, conflicts_with = "hidden", required_unless_present = "hidden")]
+        shared: bool,
+        /// New members see only what is sent after they join.
+        #[arg(long)]
+        hidden: bool,
+        /// With --shared: how many days back (0, the default, means all).
+        #[arg(long, default_value_t = 0, requires = "shared")]
+        days: u32,
+    },
 }
 
 #[derive(Subcommand)]
@@ -238,6 +272,21 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
             ("create_group", json!({ "name": name, "members": members }))
         }
         Command::Group { cmd: GroupCommand::Members { conversation } } => ("members", json!({ "conversation": conversation })),
+        Command::Group { cmd: GroupCommand::Add { conversation, members } } => {
+            ("add_members", json!({ "conversation": conversation, "members": members }))
+        }
+        Command::Group { cmd: GroupCommand::Remove { conversation, members } } => {
+            ("remove_members", json!({ "conversation": conversation, "members": members }))
+        }
+        Command::Group { cmd: GroupCommand::Rename { conversation, name } } => {
+            ("rename_group", json!({ "conversation": conversation, "name": name }))
+        }
+        Command::Group { cmd: GroupCommand::Admin { conversation, username, revoke } } => {
+            ("set_admin", json!({ "conversation": conversation, "username": username, "admin": !revoke }))
+        }
+        Command::Group { cmd: GroupCommand::History { conversation, shared, days, .. } } => {
+            ("set_history", json!({ "conversation": conversation, "shared": shared, "days": days }))
+        }
         Command::Conversations => ("conversations", json!({})),
         Command::Messages { conversation, limit } => ("messages", json!({ "conversation": conversation, "limit": limit })),
         Command::Send { to, conversation, text } => ("send", json!({ "to": to, "conversation": conversation, "text": text })),
@@ -520,6 +569,11 @@ mod tests {
             Command::Devices { cmd: None },
             Command::Group { cmd: GroupCommand::Create { name: "g".into(), members: vec!["a".into()] } },
             Command::Group { cmd: GroupCommand::Members { conversation: "00".into() } },
+            Command::Group { cmd: GroupCommand::Add { conversation: "00".into(), members: vec!["a".into()] } },
+            Command::Group { cmd: GroupCommand::Remove { conversation: "00".into(), members: vec!["a".into()] } },
+            Command::Group { cmd: GroupCommand::Rename { conversation: "00".into(), name: "n".into() } },
+            Command::Group { cmd: GroupCommand::Admin { conversation: "00".into(), username: "a".into(), revoke: false } },
+            Command::Group { cmd: GroupCommand::History { conversation: "00".into(), shared: true, hidden: false, days: 7 } },
             Command::Devices { cmd: Some(DevicesCommand::Rename { device: "abcd".into(), name: "x".into() }) },
             Command::Devices { cmd: Some(DevicesCommand::Remove { device: "abcd".into(), yes: true }) },
         ];

@@ -304,6 +304,51 @@ pub struct CreateGroupParams {
     pub members: Vec<String>,
 }
 
+/// People to add to or remove from a group.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MembersParams {
+    /// Conversation ID, hex.
+    pub conversation: String,
+    /// Usernames.
+    pub members: Vec<String>,
+}
+
+/// `rename_group`: a group's new name.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RenameGroupParams {
+    /// Conversation ID, hex.
+    pub conversation: String,
+    /// The new name.
+    pub name: String,
+}
+
+/// `set_admin`: make a member an admin, or stop them being one.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetAdminParams {
+    /// Conversation ID, hex.
+    pub conversation: String,
+    /// The member's username.
+    pub username: String,
+    /// True to make them an admin, false to remove the role.
+    pub admin: bool,
+}
+
+/// `set_history`: whether new members are shown past messages.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetHistoryParams {
+    /// Conversation ID, hex.
+    pub conversation: String,
+    /// Share past messages with new members.
+    pub shared: bool,
+    /// With `shared`: how many days back; 0 means all of them.
+    #[serde(default)]
+    pub days: u32,
+}
+
 /// A conversation.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -501,6 +546,11 @@ methods! {
     "start_dm", Connection, UserParams, Conversation, "Open a DM with a user, creating it if needed.";
     "create_group", Connection, CreateGroupParams, Conversation, "Create a named group with you as admin.";
     "members", Local, ConversationParams, Vec<Member>, "The members of a conversation.";
+    "add_members", Connection, MembersParams, Done, "As an admin: add people to a group.";
+    "remove_members", Connection, MembersParams, Done, "As an admin: remove people from a group.";
+    "rename_group", Connection, RenameGroupParams, Done, "As an admin: rename a group.";
+    "set_admin", Connection, SetAdminParams, Done, "As an admin: make a member an admin, or stop them being one.";
+    "set_history", Connection, SetHistoryParams, Done, "As an admin: whether new members are shown past messages.";
     "conversations", Local, NoParams, Vec<Conversation>, "Your conversations, most recent first.";
     "messages", Local, MessagesParams, Vec<Message>, "The newest messages of a conversation, oldest first.";
     "send", Connection, SendParams, Message, "Send a text message.";
@@ -629,6 +679,27 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 .into_iter()
                 .map(|m| Member { username: m.username, shown_name: m.shown_name, admin: m.admin, devices: m.devices, you: m.you })
                 .collect::<Vec<_>>())
+        }
+        "add_members" | "remove_members" => {
+            let p: MembersParams = params(p)?;
+            let conv = id(&p.conversation)?;
+            if name == "add_members" { core.add_members(conv, &p.members).await? } else { core.remove_members(conv, &p.members).await? }
+            ok(Done {})
+        }
+        "rename_group" => {
+            let p: RenameGroupParams = params(p)?;
+            core.rename_group(id(&p.conversation)?, &p.name).await?;
+            ok(Done {})
+        }
+        "set_admin" => {
+            let p: SetAdminParams = params(p)?;
+            core.set_admin(id(&p.conversation)?, &p.username, p.admin).await?;
+            ok(Done {})
+        }
+        "set_history" => {
+            let p: SetHistoryParams = params(p)?;
+            core.set_history(id(&p.conversation)?, p.shared, p.days).await?;
+            ok(Done {})
         }
         "conversations" => {
             params::<NoParams>(p)?;

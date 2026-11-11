@@ -392,6 +392,61 @@ async fn group_chat() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn group_admins() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let carol = server.client(dir.path(), "carol").await;
+    let g = alice.create_group("book club", &["bob".into()]).await.expect("create");
+    bob.sync().await.expect("sync");
+    let title = |c: &Core| c.conversations().expect("conversations").into_iter().find(|x| x.id == g.id).map(|x| x.title);
+    let admins = |ms: Vec<postern_core::Member>| ms.into_iter().filter(|m| m.admin).map(|m| m.username).collect::<Vec<_>>();
+
+    // Only admins change the group.
+    assert!(bob.rename_group(g.id, "hijacked").await.is_err());
+    assert!(bob.add_members(g.id, &["carol".into()]).await.is_err());
+
+    // The admin adds Carol, who sees what is sent from then on.
+    alice.add_members(g.id, &["carol".into()]).await.expect("add carol");
+    alice.send_text(g.id, "welcome carol").await.expect("send");
+    carol.sync().await.expect("carol sync");
+    assert_eq!(last_in(&carol, g.id).as_deref(), Some("welcome carol"));
+    assert_eq!(carol.members(g.id).await.expect("members").len(), 3);
+
+    // Renaming reaches everyone.
+    alice.rename_group(g.id, "book club (fiction)").await.expect("rename");
+    bob.sync().await.expect("sync");
+    carol.sync().await.expect("sync");
+    for c in [&alice, &bob, &carol] {
+        assert_eq!(title(c).as_deref(), Some("book club (fiction)"));
+    }
+
+    // Alice hands the group to Bob. The last admin cannot step down.
+    alice.set_admin(g.id, "bob", true).await.expect("promote bob");
+    alice.set_admin(g.id, "alice", false).await.expect("alice steps down");
+    bob.sync().await.expect("sync");
+    assert_eq!(admins(bob.members(g.id).await.expect("members")), vec!["bob"]);
+    assert!(bob.set_admin(g.id, "bob", false).await.is_err(), "a group keeps an admin");
+    assert!(alice.rename_group(g.id, "mine again").await.is_err());
+
+    // Bob removes Carol: she keeps what she had but gets nothing new.
+    bob.remove_members(g.id, &["carol".into()]).await.expect("remove carol");
+    bob.send_text(g.id, "just us").await.expect("send");
+    carol.sync().await.expect("carol sync");
+    let at_carol = carol.conversations().expect("conversations").into_iter().find(|x| x.id == g.id).expect("still listed");
+    assert!(!at_carol.following, "carol was removed");
+    assert_eq!(last_in(&carol, g.id).as_deref(), Some("welcome carol"));
+    alice.sync().await.expect("alice sync");
+    assert_eq!(last_in(&alice, g.id).as_deref(), Some("just us"));
+    assert_eq!(alice.members(g.id).await.expect("members").len(), 2);
+
+    // The history setting is the admin's too.
+    assert!(alice.set_history(g.id, false, 0).await.is_err());
+    bob.set_history(g.id, true, 30).await.expect("history");
+}
+
 fn last_in(c: &Core, conv: postern_core::ConversationId) -> Option<String> {
     c.messages(conv, 10).expect("messages").last().and_then(|m| m.body.clone())
 }
