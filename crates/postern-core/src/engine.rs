@@ -547,7 +547,11 @@ impl Engine {
     /// than this one.
     async fn claim(&mut self, account: AccountId) -> Result<Vec<KeyPackage>> {
         let token = self.take_token().await?;
-        let req = Request::ClaimKeyPackages(proto::ClaimKeyPackages { token: Some(token), account_id: account.0.to_vec() });
+        let req = Request::ClaimKeyPackages(proto::ClaimKeyPackages {
+            token: Some(token),
+            account_id: account.0.to_vec(),
+            ..Default::default()
+        });
         let claimed = expect_reply!(self.anon()?.request(req).await?, Reply::ClaimedKeyPackages)?;
         let crypto = postern_mls::crypto();
         let me = self.me()?.device;

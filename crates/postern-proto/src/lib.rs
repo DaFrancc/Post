@@ -17,13 +17,17 @@
 //!
 //! The server refuses a request on the wrong kind of connection, so a client
 //! cannot accidentally link its identity to its conversations.
+//!
+//! Device linking ([`LinkPut`], [`LinkGet`]) also runs on anonymous
+//! connections: the new device has no account yet, and the server only
+//! relays sealed slots it cannot read.
 
 #![allow(missing_docs)]
 
 use prost::{Message, Oneof};
 
 /// Bumped on any incompatible change to this protocol.
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 /// Largest frame either side accepts. A Welcome for a 250-device group is
 /// about 700 KB (spike 1); this leaves headroom.
@@ -51,7 +55,7 @@ pub fn auth_message(server_domain: &str, nonce: &[u8]) -> Vec<u8> {
 pub struct ClientFrame {
     #[prost(uint64, tag = "1")]
     pub id: u64,
-    #[prost(oneof = "Request", tags = "10, 11, 20, 21, 22, 23, 24, 25, 26, 40, 41, 42, 43, 44, 45, 46")]
+    #[prost(oneof = "Request", tags = "10, 11, 20, 21, 22, 23, 24, 25, 26, 40, 41, 42, 43, 44, 45, 46, 47, 48")]
     pub request: Option<Request>,
 }
 
@@ -94,6 +98,10 @@ pub enum Request {
     ClaimKeyPackages(ClaimKeyPackages),
     #[prost(message, tag = "46")]
     SendEphemeral(SendEphemeral),
+    #[prost(message, tag = "47")]
+    LinkPut(LinkPut),
+    #[prost(message, tag = "48")]
+    LinkGet(LinkGet),
 }
 
 impl Request {
@@ -169,7 +177,7 @@ pub struct Wake {
 pub struct Response {
     #[prost(uint64, tag = "1")]
     pub id: u64,
-    #[prost(oneof = "Reply", tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21")]
+    #[prost(oneof = "Reply", tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22")]
     pub reply: Option<Reply>,
 }
 
@@ -199,6 +207,8 @@ pub enum Reply {
     GroupBatch(GroupBatch),
     #[prost(message, tag = "21")]
     GroupCreated(GroupCreated),
+    #[prost(message, tag = "22")]
+    LinkSlot(LinkSlot),
 }
 
 // ---------------------------------------------------------------- errors
@@ -238,6 +248,8 @@ pub enum ErrorCode {
     WrongConnection = 14,
     /// A rate limit was reached.
     RateLimited = 15,
+    /// The thing being created or written already exists.
+    Conflict = 16,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -576,14 +588,27 @@ pub struct Subscribe {
     pub groups: Vec<GroupCursor>,
 }
 
-/// One KeyPackage for each active device of an account. Costs one token.
+/// Claim KeyPackages of an account. Costs one token.
+///
+/// Without `device_id`: one for each active device of the account, the way a
+/// conversation is started. With `device_id`: up to `count` for that one
+/// device, the way its own account's devices add it to many conversations at
+/// once after it is linked.
 #[derive(Clone, PartialEq, Message)]
 pub struct ClaimKeyPackages {
     #[prost(message, optional, tag = "1")]
     pub token: Option<Token>,
     #[prost(bytes = "vec", tag = "2")]
     pub account_id: Vec<u8>,
+    #[prost(bytes = "vec", tag = "3")]
+    pub device_id: Vec<u8>,
+    /// With `device_id`: how many, at most [`MAX_CLAIM`]. 0 means 1.
+    #[prost(uint32, tag = "4")]
+    pub count: u32,
 }
+
+/// Most KeyPackages one claim for a single device returns.
+pub const MAX_CLAIM: u32 = 100;
 
 #[derive(Clone, PartialEq, Message)]
 pub struct ClaimedKeyPackage {
@@ -611,6 +636,52 @@ pub struct SendEphemeral {
     #[prost(bytes = "vec", tag = "2")]
     pub access_key: Vec<u8>,
     #[prost(bytes = "vec", tag = "3")]
+    pub payload: Vec<u8>,
+}
+
+// ---------------------------------------------------------------- device linking
+
+/// Largest payload one link slot holds.
+pub const MAX_LINK_SLOT_BYTES: usize = 64 * 1024;
+/// Slots per rendezvous.
+pub const LINK_SLOTS: u32 = 8;
+/// Longest a [`LinkGet`] waits for its slot to be filled.
+pub const MAX_LINK_WAIT_MS: u32 = 25_000;
+
+/// Write one slot of a link rendezvous (design section 5, "Linking a device").
+///
+/// A rendezvous is a short-lived set of write-once slots, held in the
+/// server's memory only and gone after ten minutes. Writing slot 0 creates
+/// it; the other slots can be written once it exists. Payloads are sealed by
+/// the two devices under a key the server never sees.
+#[derive(Clone, PartialEq, Message)]
+pub struct LinkPut {
+    /// 16 bytes, derived from the link code.
+    #[prost(bytes = "vec", tag = "1")]
+    pub rendezvous: Vec<u8>,
+    #[prost(uint32, tag = "2")]
+    pub slot: u32,
+    #[prost(bytes = "vec", tag = "3")]
+    pub payload: Vec<u8>,
+}
+
+/// Read one slot, waiting up to `wait_ms` for it to be written.
+#[derive(Clone, PartialEq, Message)]
+pub struct LinkGet {
+    #[prost(bytes = "vec", tag = "1")]
+    pub rendezvous: Vec<u8>,
+    #[prost(uint32, tag = "2")]
+    pub slot: u32,
+    #[prost(uint32, tag = "3")]
+    pub wait_ms: u32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct LinkSlot {
+    /// False if the wait ended before the slot was written.
+    #[prost(bool, tag = "1")]
+    pub present: bool,
+    #[prost(bytes = "vec", tag = "2")]
     pub payload: Vec<u8>,
 }
 
@@ -646,6 +717,64 @@ mod tests {
         assert_eq!(ClientFrame::decode(f.encode_to_vec().as_slice()).expect("decode"), f);
     }
 
+    /// The oneof `tags` lists repeat each variant's field number by hand. A
+    /// number missing from a list would make that variant vanish on decode,
+    /// so every variant must survive a round trip.
+    #[test]
+    fn every_variant_roundtrips() {
+        let requests = vec![
+            Request::Register(Register::default()),
+            Request::Auth(Auth::default()),
+            Request::Directory(Directory::default()),
+            Request::AppendChain(AppendChain::default()),
+            Request::UploadKeyPackages(UploadKeyPackages::default()),
+            Request::FetchMailbox(FetchMailbox::default()),
+            Request::AckMailbox(AckMailbox::default()),
+            Request::GetTokenKey(GetTokenKey::default()),
+            Request::IssueTokens(IssueTokens::default()),
+            Request::CreateGroup(CreateGroup::default()),
+            Request::Send(Send::default()),
+            Request::Commit(Commit::default()),
+            Request::FetchGroups(FetchGroups::default()),
+            Request::Subscribe(Subscribe::default()),
+            Request::ClaimKeyPackages(ClaimKeyPackages::default()),
+            Request::SendEphemeral(SendEphemeral::default()),
+            Request::LinkPut(LinkPut::default()),
+            Request::LinkGet(LinkGet::default()),
+        ];
+        for r in requests {
+            let f = ClientFrame { id: 1, request: Some(r) };
+            assert_eq!(ClientFrame::decode(f.encode_to_vec().as_slice()).expect("decode"), f);
+        }
+        let replies = vec![
+            Reply::Error(Error::default()),
+            Reply::Empty(Empty::default()),
+            Reply::Authenticated(Authenticated::default()),
+            Reply::DirectoryUpdate(DirectoryUpdate::default()),
+            Reply::KeyPackageCount(KeyPackageCount::default()),
+            Reply::Mailbox(Mailbox::default()),
+            Reply::TokenKey(TokenKey::default()),
+            Reply::IssuedTokens(IssuedTokens::default()),
+            Reply::ClaimedKeyPackages(ClaimedKeyPackages::default()),
+            Reply::Accepted(Accepted::default()),
+            Reply::GroupBatch(GroupBatch::default()),
+            Reply::GroupCreated(GroupCreated::default()),
+            Reply::LinkSlot(LinkSlot::default()),
+        ];
+        for r in replies {
+            let f = ServerFrame { kind: Some(ServerKind::Response(Response { id: 1, reply: Some(r) })) };
+            assert_eq!(ServerFrame::decode(f.encode_to_vec().as_slice()).expect("decode"), f);
+        }
+        for k in [
+            ServerKind::Hello(Hello::default()),
+            ServerKind::Wake(Wake::default()),
+            ServerKind::Ephemeral(Ephemeral::default()),
+        ] {
+            let f = ServerFrame { kind: Some(k) };
+            assert_eq!(ServerFrame::decode(f.encode_to_vec().as_slice()).expect("decode"), f);
+        }
+    }
+
     #[test]
     fn auth_message_binds_domain() {
         assert_ne!(auth_message("a.example", &[0; 32]), auth_message("b.example", &[0; 32]));
@@ -659,5 +788,8 @@ mod tests {
         assert!(!Request::Send(Send::default()).is_session());
         assert!(!Request::ClaimKeyPackages(ClaimKeyPackages::default()).is_session());
         assert!(!Request::FetchGroups(FetchGroups::default()).is_session());
+        // A device being linked has no account to log in with.
+        assert!(!Request::LinkPut(LinkPut::default()).is_session());
+        assert!(!Request::LinkGet(LinkGet::default()).is_session());
     }
 }
