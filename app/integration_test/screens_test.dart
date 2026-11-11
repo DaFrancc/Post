@@ -228,6 +228,36 @@ void main() {
       await settle(t);
       expect(watch.elapsedMilliseconds, lessThan(4000));
     }
+
+    // A message's hover toolbar rides over the row above it, drawn on top of
+    // it and taking the pointer there (the list paints older rows over newer
+    // ones, and once drew the row above over the toolbar).
+    final mouse = await t.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    final ripple = find.text('a ripple across the line');
+    await mouse.moveTo(t.getCenter(ripple));
+    await settle(t, 400);
+    final copy = find.byTooltip('Copy text');
+    expect(copy, findsOneWidget, reason: 'only the hovered row shows its toolbar');
+    final above = t.getRect(find.textContaining('typed out one letter')).bottom;
+    final copyRect = t.getRect(copy);
+    expect(copyRect.top, lessThan(t.getRect(ripple).top - 8), reason: 'the toolbar sits over the top edge of its row');
+    final hit = HitTestResult();
+    t.binding.hitTestInView(hit, copyRect.topCenter + const Offset(0, 2), t.view.viewId);
+    final copyBox = t.renderObject(copy);
+    expect(hit.path.any((e) => e.target == copyBox), isTrue, reason: 'the toolbar is on top of the row above it');
+    await _shot(t, '03d-hover-toolbar');
+    // Onto the toolbar, which keeps it showing; then away, and it goes.
+    await mouse.moveTo(copyRect.center);
+    await settle(t, 400);
+    expect(copy, findsOneWidget, reason: 'moving onto the toolbar keeps it');
+    await mouse.moveTo(Offset(copyRect.center.dx, above - 30));
+    await settle(t, 400);
+    await mouse.moveTo(Offset.zero);
+    await settle(t, 400);
+    expect(find.byTooltip('Copy text'), findsNothing, reason: 'the toolbar goes once the pointer leaves');
+    await mouse.removePointer();
+
     await h.cli('carol', ['typing', group]);
     await waitFor(t, find.textContaining('typing'));
 

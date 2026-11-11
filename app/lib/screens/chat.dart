@@ -664,38 +664,44 @@ class _ChatViewState extends State<ChatView> {
                 ? const Center(child: PSpinner())
                 : Stack(
                     children: [
-                      NotificationListener<ScrollNotification>(
-                        onNotification: _onScroll,
-                        // Text can be selected and copied with Ctrl+C; a
-                        // right-click opens the message's own menu instead
-                        // of the selection's. The selection still asks for
-                        // its menu on a right-click and requires a builder
-                        // (null crashes it), so it gets one that draws
-                        // nothing.
-                        child: SelectionArea(
-                          contextMenuBuilder: (context, selection) => const SizedBox.shrink(),
-                          child: ListView.builder(
-                            controller: _scroll,
-                            reverse: true,
-                            padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-                            itemCount: items.length + 1,
-                            // Find each row by its key, not its position: a new
-                            // message enters at position 0 (the list runs
-                            // newest first) and moves every other row along.
-                            findChildIndexCallback: (key) => positions[key],
-                            itemBuilder: (context, i) {
-                              if (i == items.length) {
-                                return _hasMore
-                                    ? const Padding(
-                                        key: ValueKey('more'),
-                                        padding: EdgeInsets.all(16),
-                                        child: Center(child: PSpinner()),
-                                      )
-                                    : _Beginning(key: const ValueKey('beginning'), conversation: c);
-                              }
-                              final item = items[items.length - 1 - i];
-                              return KeyedSubtree(key: item.key, child: _itemView(item));
-                            },
+                      // A message's hover toolbar floats in this overlay:
+                      // above every row (the list paints older rows over
+                      // newer ones, so it would sit under the row above),
+                      // unclipped by its own row, but kept inside the list.
+                      Overlay.wrap(
+                        child: NotificationListener<ScrollNotification>(
+                          onNotification: _onScroll,
+                          // Text can be selected and copied with Ctrl+C; a
+                          // right-click opens the message's own menu instead
+                          // of the selection's. The selection still asks for
+                          // its menu on a right-click and requires a builder
+                          // (null crashes it), so it gets one that draws
+                          // nothing.
+                          child: SelectionArea(
+                            contextMenuBuilder: (context, selection) => const SizedBox.shrink(),
+                            child: ListView.builder(
+                              controller: _scroll,
+                              reverse: true,
+                              padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+                              itemCount: items.length + 1,
+                              // Find each row by its key, not its position: a new
+                              // message enters at position 0 (the list runs
+                              // newest first) and moves every other row along.
+                              findChildIndexCallback: (key) => positions[key],
+                              itemBuilder: (context, i) {
+                                if (i == items.length) {
+                                  return _hasMore
+                                      ? const Padding(
+                                          key: ValueKey('more'),
+                                          padding: EdgeInsets.all(16),
+                                          child: Center(child: PSpinner()),
+                                        )
+                                      : _Beginning(key: const ValueKey('beginning'), conversation: c);
+                                }
+                                final item = items[items.length - 1 - i];
+                                return KeyedSubtree(key: item.key, child: _itemView(item));
+                              },
+                            ),
                           ),
                         ),
                       ),
@@ -1405,8 +1411,58 @@ class _MessageTile extends StatefulWidget {
   State<_MessageTile> createState() => _MessageTileState();
 }
 
-class _MessageTileState extends State<_MessageTile> with SingleTickerProviderStateMixin {
-  bool _hover = false;
+class _MessageTileState extends State<_MessageTile> with TickerProviderStateMixin {
+  // The toolbar floats in the list's overlay, outside the row, so the
+  // pointer moving onto it leaves the row; over either counts as hovering.
+  bool _overRow = false;
+  bool _overBar = false;
+  bool get _hover => _overRow || _overBar;
+
+  final _barLink = LayerLink();
+  final _bar = OverlayPortalController();
+  late final AnimationController _barIn = AnimationController(vsync: this, duration: PMotion.fast)
+    ..addStatusListener((s) {
+      if (s == AnimationStatus.dismissed && _bar.isShowing) _bar.hide();
+    });
+
+  /// The row's top is near the list's: the toolbar sits inside the row
+  /// rather than over its top edge, where the list would cut it off.
+  bool _barInside = false;
+  ScrollPosition? _watching;
+
+  void _setOver({bool? row, bool? bar}) {
+    if (!mounted) return;
+    final was = _hover;
+    setState(() {
+      _overRow = row ?? _overRow;
+      _overBar = bar ?? _overBar;
+      if (_hover) _barInside = _nearTop();
+    });
+    if (_hover == was) return;
+    // Rows move under a still pointer as the list scrolls.
+    _watching?.removeListener(_replace);
+    _watching = null;
+    if (_hover) {
+      _watching = Scrollable.maybeOf(context)?.position?..addListener(_replace);
+      _bar.show();
+      _barIn.forward();
+    } else {
+      _barIn.reverse();
+    }
+  }
+
+  void _replace() {
+    final inside = _nearTop();
+    if (inside != _barInside) setState(() => _barInside = inside);
+  }
+
+  bool _nearTop() {
+    final row = _rowKey.currentContext?.findRenderObject();
+    final view = Scrollable.maybeOf(context)?.context.findRenderObject();
+    if (row is! RenderBox || view is! RenderBox || !row.attached || !view.attached) return false;
+    return row.localToGlobal(Offset.zero, ancestor: view).dy < 16;
+  }
+
   // Instant means no animation at all: not even the row opening.
   late final AnimationController _in = AnimationController(
     vsync: this,
@@ -1450,12 +1506,15 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
         },
       ),
     );
-    Overlay.of(context).insert(_flying!);
+    // The navigator's overlay: the list's own would clip the flight to it.
+    Navigator.of(context).overlay!.insert(_flying!);
   }
 
   @override
   void dispose() {
     _flying?.remove();
+    _watching?.removeListener(_replace);
+    _barIn.dispose();
     _in.dispose();
     super.dispose();
   }
@@ -1555,9 +1614,10 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
       ],
     );
 
+    final showBar = actions.isNotEmpty && !widget.editing;
     return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
+      onEnter: (_) => _setOver(row: true),
+      onExit: (_) => _setOver(row: false),
       child: PRightClick(
         onMenu: widget.editing ? null : widget.onMenu,
         // The space above is outside the row's box, so a flight settles
@@ -1565,95 +1625,114 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
         child: AnimatedPadding(
           duration: PMotion.fast,
           padding: EdgeInsets.only(top: widget.startsGroup ? 10 : 0),
-          child: AnimatedContainer(
-            key: _rowKey,
-            // Lit at once, fading slowly back.
-            duration: widget.highlighted ? PMotion.fast : const Duration(milliseconds: 900),
-            curve: PMotion.curve,
-            padding: const EdgeInsets.fromLTRB(10, 3, 10, 3),
-            decoration: BoxDecoration(
-              color: widget.highlighted ? const Color(0xFF1A2142) : (_hover || widget.editing ? PColors.messageHover : PColors.panel),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                // Opened from a search: an accent bar down its left edge.
-                Positioned(
-                  left: -10,
-                  top: -3,
-                  bottom: -3,
-                  child: AnimatedOpacity(
-                    opacity: widget.highlighted ? 1 : 0,
-                    duration: widget.highlighted ? PMotion.fast : const Duration(milliseconds: 900),
-                    child: Container(
-                      width: 3,
-                      decoration: const BoxDecoration(
-                        color: PColors.accent,
-                        borderRadius: BorderRadius.horizontal(left: Radius.circular(12)),
-                      ),
-                    ),
-                  ),
+          child: OverlayPortal(
+            controller: _bar,
+            overlayChildBuilder: (context) => showBar ? _toolbar(actions) : const SizedBox.shrink(),
+            child: CompositedTransformTarget(
+              link: _barLink,
+              child: AnimatedContainer(
+                key: _rowKey,
+                // Lit at once, fading slowly back.
+                duration: widget.highlighted ? PMotion.fast : const Duration(milliseconds: 900),
+                curve: PMotion.curve,
+                padding: const EdgeInsets.fromLTRB(10, 3, 10, 3),
+                decoration: BoxDecoration(
+                  color: widget.highlighted ? const Color(0xFF1A2142) : (_hover || widget.editing ? PColors.messageHover : PColors.panel),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                Opacity(
-                  opacity: m.pending ? 0.55 : 1,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        width: 40,
-                        child: widget.startsGroup
-                            ? Padding(
-                                padding: const EdgeInsets.only(top: 2),
-                                child: _PersonLink(
-                                  onTap: widget.onPerson,
-                                  child: PAvatar(name: m.sender, colorKey: m.senderUsername, size: 40),
-                                ),
-                              )
-                            : (_hover
-                                  ? Padding(
-                                      padding: const EdgeInsets.only(top: 4),
-                                      child: Text(
-                                        clockTime(m.sentAtMs),
-                                        textAlign: TextAlign.center,
-                                        style: const TextStyle(fontSize: 10.5, color: PColors.textFaint),
-                                      ),
-                                    )
-                                  : null),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(child: body),
-                    ],
-                  ),
-                ),
-                if (actions.isNotEmpty && !widget.editing)
-                  Positioned(
-                    right: 4,
-                    top: widget.startsGroup ? -14 : -18,
-                    child: IgnorePointer(
-                      ignoring: !_hover,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    // Opened from a search: an accent bar down its left edge.
+                    Positioned(
+                      left: -10,
+                      top: -3,
+                      bottom: -3,
                       child: AnimatedOpacity(
-                        opacity: _hover ? 1 : 0,
-                        duration: PMotion.fast,
-                        child: AnimatedSlide(
-                          offset: _hover ? Offset.zero : const Offset(0, 0.15),
-                          duration: PMotion.fast,
-                          curve: PMotion.curve,
-                          child: Container(
-                            padding: const EdgeInsets.all(3),
-                            decoration: BoxDecoration(
-                              color: PColors.panelRaised,
-                              border: Border.all(color: PColors.borderStrong),
-                              borderRadius: BorderRadius.circular(12),
-                              boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 12, offset: Offset(0, 4))],
-                            ),
-                            child: Row(mainAxisSize: MainAxisSize.min, children: actions),
+                        opacity: widget.highlighted ? 1 : 0,
+                        duration: widget.highlighted ? PMotion.fast : const Duration(milliseconds: 900),
+                        child: Container(
+                          width: 3,
+                          decoration: const BoxDecoration(
+                            color: PColors.accent,
+                            borderRadius: BorderRadius.horizontal(left: Radius.circular(12)),
                           ),
                         ),
                       ),
                     ),
+                    Opacity(
+                      opacity: m.pending ? 0.55 : 1,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            width: 40,
+                            child: widget.startsGroup
+                                ? Padding(
+                                    padding: const EdgeInsets.only(top: 2),
+                                    child: _PersonLink(
+                                      onTap: widget.onPerson,
+                                      child: PAvatar(name: m.sender, colorKey: m.senderUsername, size: 40),
+                                    ),
+                                  )
+                                : (_hover
+                                      ? Padding(
+                                          padding: const EdgeInsets.only(top: 4),
+                                          child: Text(
+                                            clockTime(m.sentAtMs),
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(fontSize: 10.5, color: PColors.textFaint),
+                                          ),
+                                        )
+                                      : null),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(child: body),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The hover toolbar, over the row's top-right corner: half above it,
+  /// over whatever is there.
+  Widget _toolbar(List<Widget> actions) {
+    // The overlay gives its children its whole size; the toolbar takes its own.
+    return Align(
+      alignment: Alignment.topLeft,
+      child: CompositedTransformFollower(
+        link: _barLink,
+        showWhenUnlinked: false,
+        targetAnchor: Alignment.topRight,
+        followerAnchor: Alignment.topRight,
+        offset: Offset(-14, _barInside ? 4 : (widget.startsGroup ? -11 : -15)),
+        child: IgnorePointer(
+          ignoring: !_hover,
+          child: MouseRegion(
+            onEnter: (_) => _setOver(bar: true),
+            onExit: (_) => _setOver(bar: false),
+            child: FadeTransition(
+              opacity: _barIn,
+              child: SlideTransition(
+                position: Tween(begin: const Offset(0, 0.15), end: Offset.zero).animate(CurvedAnimation(parent: _barIn, curve: PMotion.curve)),
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: PColors.panelRaised,
+                    border: Border.all(color: PColors.borderStrong),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 12, offset: Offset(0, 4))],
                   ),
-              ],
+                  child: Row(mainAxisSize: MainAxisSize.min, children: actions),
+                ),
+              ),
             ),
           ),
         ),

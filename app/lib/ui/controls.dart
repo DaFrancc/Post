@@ -766,7 +766,7 @@ class PRightClick extends StatelessWidget {
 /// overlay, which sits inside the window frame (below the title bar, inside
 /// the margin), so the point is converted.
 RelativeRect menuAt(BuildContext context, Offset globalPosition) {
-  final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
+  final overlay = Navigator.of(context).overlay!.context.findRenderObject()! as RenderBox;
   final at = overlay.globalToLocal(globalPosition);
   return RelativeRect.fromRect(at & const Size(1, 1), Offset.zero & overlay.size);
 }
