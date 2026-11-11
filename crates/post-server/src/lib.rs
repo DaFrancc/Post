@@ -7,8 +7,11 @@
 
 pub mod db;
 mod link;
+mod releases;
 mod session;
 mod tokens;
+
+pub use releases::ReleaseConfig;
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::net::SocketAddr;
@@ -37,6 +40,8 @@ pub struct Config {
     pub db_path: PathBuf,
     /// Key encrypting the database at rest.
     pub db_key: Zeroizing<[u8; 32]>,
+    /// The app releases to hand out.
+    pub releases: ReleaseConfig,
 }
 
 /// Shared server state.
@@ -45,6 +50,7 @@ pub(crate) struct State {
     pub db: Db,
     pub hub: Hub,
     pub links: link::Links,
+    pub releases: Arc<releases::Releases>,
 }
 
 /// The database, used from blocking threads one request at a time.
@@ -213,6 +219,43 @@ impl Running {
     pub fn url(&self) -> String {
         format!("ws://{}/v1/ws", self.addr)
     }
+
+    /// The plain HTTP address, for releases.
+    pub fn http_url(&self) -> String {
+        format!("http://{}", self.addr)
+    }
+}
+
+/// The newest release for a platform: its manifest and signature, exactly
+/// as signed (base64), for the app to check itself.
+async fn latest_release(axum::extract::Path(platform): axum::extract::Path<String>, AxState(state): AxState<Arc<State>>) -> axum::response::Response {
+    use base64::Engine as _;
+    let b64 = base64::engine::general_purpose::STANDARD;
+    match state.releases.latest(&platform) {
+        Some(p) => axum::Json(serde_json::json!({
+            "version": p.manifest.version,
+            "manifest": b64.encode(&p.manifest_bytes),
+            "signature": b64.encode(&p.signature),
+        }))
+        .into_response(),
+        None => axum::http::StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// A file of the release being handed out, with ranges, so a download can
+/// resume where it stopped.
+async fn release_file(
+    axum::extract::Path((platform, version, name)): axum::extract::Path<(String, String, String)>,
+    AxState(state): AxState<Arc<State>>,
+    request: axum::extract::Request,
+) -> axum::response::Response {
+    let Some(path) = state.releases.file_path(&platform, &version, &name) else {
+        return axum::http::StatusCode::NOT_FOUND.into_response();
+    };
+    match tower_http::services::ServeFile::new(path).try_call(request).await {
+        Ok(res) => res.map(axum::body::Body::new).into_response(),
+        Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
 }
 
 impl Drop for Running {
@@ -239,17 +282,25 @@ pub enum StartError {
 pub fn spawn(listener: TcpListener, config: Config) -> Result<Running, StartError> {
     post_identity::chain::validate_domain(&config.server_domain).map_err(|_| StartError::Domain)?;
     let conn = db::open(&config.db_path, &config.db_key)?;
+    let releases = Arc::new(releases::Releases::new(config.releases));
+    releases.load();
     let state = Arc::new(State {
         domain: config.server_domain,
         db: Db(Arc::new(Mutex::new(conn))),
         hub: Hub::default(),
         links: link::Links::default(),
+        releases: releases.clone(),
     });
     let addr = listener.local_addr()?;
 
     let gc_db = state.db.clone();
-    let app = Router::new().route("/v1/ws", get(ws_handler)).with_state(state);
+    let app = Router::new()
+        .route("/v1/ws", get(ws_handler))
+        .route("/v1/releases/{platform}", get(latest_release))
+        .route("/v1/releases/{platform}/{version}/{name}", get(release_file))
+        .with_state(state);
     let task = tokio::spawn(async move {
+        let fetcher = tokio::spawn(releases.keep_fetching());
         let gc = tokio::spawn(async move {
             let mut every = tokio::time::interval(Duration::from_secs(3600));
             loop {
@@ -270,6 +321,7 @@ pub fn spawn(listener: TcpListener, config: Config) -> Result<Running, StartErro
             tracing::error!(error = %e, "server stopped");
         }
         gc.abort();
+        fetcher.abort();
     });
     Ok(Running { addr, task })
 }

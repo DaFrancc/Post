@@ -69,7 +69,12 @@ async fn a_bot_drives_post_through_json_rpc() {
     let key = [9u8; 32];
     let running = post_server::spawn(
         listener,
-        post_server::Config { server_domain: format!("127.0.0.1:{port}"), db_path: db.clone(), db_key: Zeroizing::new(key) },
+        post_server::Config {
+            server_domain: format!("127.0.0.1:{port}"),
+            db_path: db.clone(),
+            db_key: Zeroizing::new(key),
+            releases: post_server::ReleaseConfig::none(),
+        },
     )
     .expect("server");
     let invite = |bot| {

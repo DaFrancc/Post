@@ -54,6 +54,14 @@ enum Command {
         /// Address to listen on. Put a TLS proxy (Caddy) in front.
         #[arg(long, env = "POST_LISTEN", default_value = "127.0.0.1:8080")]
         listen: String,
+        /// Where app releases are kept, to hand out to apps. Releases can
+        /// also be copied in by hand (a folder per version).
+        #[arg(long, env = "POST_RELEASES_DIR", default_value = "/var/lib/post/releases")]
+        releases_dir: PathBuf,
+        /// The GitHub repository to fetch signed releases from; empty to
+        /// fetch none.
+        #[arg(long, env = "POST_RELEASES_FROM", default_value = "DaFrancc/Post")]
+        releases_from: String,
     },
     /// Create a single-use invite code.
     Invite {
@@ -138,10 +146,24 @@ async fn main() -> anyhow::Result<()> {
         .init();
     match Cli::parse().command {
         Command::Keygen { path } => keygen(&path)?,
-        Command::Serve { domain, db, listen } => {
+        Command::Serve { domain, db, listen, releases_dir, releases_from } => {
             let db_key = read_key(&db)?;
             let listener = tokio::net::TcpListener::bind(&listen).await.with_context(|| format!("binding {listen}"))?;
-            let config = post_server::Config { server_domain: domain.clone(), db_path: db.db, db_key };
+            let key = match post_release::release_key() {
+                Ok(k) => Some(k),
+                Err(e) => {
+                    tracing::warn!(error = %e, "no app releases will be handed out");
+                    None
+                }
+            };
+            let releases = post_server::ReleaseConfig {
+                dir: releases_dir,
+                github_repo: (!releases_from.is_empty()).then_some(releases_from),
+                github_api: "https://api.github.com".into(),
+                key,
+                every: std::time::Duration::from_secs(3600),
+            };
+            let config = post_server::Config { server_domain: domain.clone(), db_path: db.db, db_key, releases };
             let running = post_server::spawn(listener, config)?;
             tracing::info!(addr = %running.addr, %domain, "postd listening");
             shutdown_signal().await?;

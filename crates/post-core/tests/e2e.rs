@@ -28,6 +28,7 @@ impl Server {
             server_domain: format!("127.0.0.1:{}", addr.port()),
             db_path: db.clone(),
             db_key: Zeroizing::new(key),
+            releases: post_server::ReleaseConfig::none(),
         };
         let running = post_server::spawn(listener, config).expect("server starts");
         Self { url: running.url(), _running: running, db, key, _dir: dir }

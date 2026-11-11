@@ -27,7 +27,12 @@ impl Server {
         let key = [3u8; 32];
         let running = post_server::spawn(
             listener,
-            post_server::Config { server_domain: domain.clone(), db_path: db.clone(), db_key: Zeroizing::new(key) },
+            post_server::Config {
+                server_domain: domain.clone(),
+                db_path: db.clone(),
+                db_key: Zeroizing::new(key),
+                releases: post_server::ReleaseConfig::none(),
+            },
         )
         .expect("start");
         Self { running, domain, db, key, _dir: dir }

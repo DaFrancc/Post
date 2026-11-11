@@ -87,6 +87,20 @@ openssl s_client -connect chat.example.org:443 -groups X25519MLKEM768 </dev/null
 It should name `X25519MLKEM768`. The Post client prefers this group, so it
 is what clients use whenever the server offers it.
 
+## App updates
+
+Apps get updates from their own server, so nobody else sees who runs Post.
+Every hour `postd` checks GitHub (`DaFrancc/Post`) for a newly published
+release. It downloads the release into `/var/lib/post/releases` and serves it
+only once its signature and files check out. Apps check everything again
+themselves before installing.
+
+- `POST_RELEASES_FROM=owner/repo` fetches from another repository. Leave it
+  empty to fetch nothing.
+- With fetching off, copy a release in by hand instead: a folder named after
+  its version, holding its files, `manifest-<platform>.json` and the
+  `.sig` file, then restart the pod.
+
 ## Backups
 
 Back up the `post-data` volume (a SQLite database in WAL mode; stop the pod

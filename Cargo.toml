@@ -47,6 +47,12 @@ tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
 # X25519MLKEM768 group tried first (design section 8, Transport).
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "prefer-post-quantum", "std"] }
 futures-util = { version = "0.3", features = ["sink"] }
+# HTTPS for releases (design section 12): servers fetch them from GitHub,
+# apps download them from their server. rustls with aws-lc-rs, as above, and
+# the system's trusted certificates.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "stream"] }
+# Serving release files, with ranges so downloads resume.
+tower-http = { version = "0.6", features = ["fs"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 schemars = "1.2"
