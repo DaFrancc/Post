@@ -106,9 +106,16 @@ class _RootState extends State<Root> {
     _open();
   }
 
+  /// Spellcheck dictionaries, shared by every profile on this computer.
+  /// `POST_DICTIONARIES` picks another folder (tests keep theirs between
+  /// runs, so they download once).
+  String _dictionaries = '';
+
   Future<void> _open() async {
     try {
-      final dir = widget.profileDir ?? '${(await getApplicationSupportDirectory()).path}/profile';
+      final support = (await getApplicationSupportDirectory()).path;
+      _dictionaries = Platform.environment['POST_DICTIONARIES'] ?? '$support/dictionaries';
+      final dir = widget.profileDir ?? '$support/profile';
       final client = await Client.open(profileDir: dir, keyFile: widget.keyFile);
       final me = await client.identity();
       setState(() {
@@ -128,7 +135,7 @@ class _RootState extends State<Root> {
   void _signedIn(Identity me) {
     final client = _client;
     if (client == null) return;
-    setState(() => _app = AppState(client, me));
+    setState(() => _app = AppState(client, me, dictionaries: _dictionaries));
   }
 
   @override

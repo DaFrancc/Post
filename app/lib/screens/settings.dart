@@ -6,13 +6,14 @@ import 'package:flutter/material.dart';
 import 'package:post/src/rust/api/client.dart';
 
 import '../state/app_state.dart';
+import '../state/spelling.dart';
 import '../theme.dart';
 import '../ui/arrival.dart';
 import '../ui/controls.dart';
 import '../ui/format.dart';
 import 'dialogs.dart';
 
-enum SettingsSection { profile, devices, security, about }
+enum SettingsSection { profile, spelling, devices, security, about }
 
 Future<void> showSettings(BuildContext context, AppState state, {SettingsSection section = SettingsSection.profile}) => showDialog(
   context: context,
@@ -85,6 +86,7 @@ class _SettingsState extends State<_Settings> {
                     child: switch (_section) {
                       SettingsSection.profile => _ProfileSettings(state: widget.state),
                       SettingsSection.devices => _DeviceSettings(state: widget.state),
+                      SettingsSection.spelling => _SpellingSettings(spelling: widget.state.spelling),
                       SettingsSection.security => _SecuritySettings(state: widget.state),
                       SettingsSection.about => _About(state: widget.state),
                     },
@@ -101,6 +103,7 @@ class _SettingsState extends State<_Settings> {
   static String _title(SettingsSection s) => switch (s) {
     SettingsSection.profile => 'Profile',
     SettingsSection.devices => 'Devices',
+    SettingsSection.spelling => 'Spelling',
     SettingsSection.security => 'Security',
     SettingsSection.about => 'Account',
   };
@@ -125,6 +128,7 @@ class _NavItemState extends State<_NavItem> {
     final (icon, label) = switch (widget.section) {
       SettingsSection.profile => (Icons.person_outline_rounded, 'Profile'),
       SettingsSection.devices => (Icons.devices_outlined, 'Devices'),
+      SettingsSection.spelling => (Icons.spellcheck_rounded, 'Spelling'),
       SettingsSection.security => (Icons.shield_outlined, 'Security'),
       SettingsSection.about => (Icons.info_outline_rounded, 'Account'),
     };
@@ -511,6 +515,153 @@ class _CheckRow extends StatelessWidget {
                 ],
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------- spelling
+
+class _SpellingSettings extends StatefulWidget {
+  const _SpellingSettings({required this.spelling});
+
+  final Spelling spelling;
+
+  @override
+  State<_SpellingSettings> createState() => _SpellingSettingsState();
+}
+
+class _SpellingSettingsState extends State<_SpellingSettings> {
+  final _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  static String _size(BigInt bytes) {
+    final mb = bytes.toDouble() / (1024 * 1024);
+    return mb >= 1 ? '${mb.toStringAsFixed(1)} MB' : '${(bytes.toDouble() / 1024).round()} KB';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.spelling;
+    return ListenableBuilder(
+      listenable: s,
+      builder: (context, _) {
+        final q = _search.text.trim().toLowerCase();
+        // Chosen first, then the rest, each alphabetical.
+        final shown = [...s.catalog.where((l) => q.isEmpty || l.name.toLowerCase().contains(q) || l.code.toLowerCase().contains(q))]
+          ..sort((a, b) {
+            final ca = s.languages.contains(a.code), cb = s.languages.contains(b.code);
+            if (ca != cb) return ca ? -1 : 1;
+            return a.name.compareTo(b.name);
+          });
+        return _Page(
+          children: [
+            _CheckRow(
+              value: s.enabled,
+              label: 'Check spelling as I type',
+              help: 'Words no chosen dictionary knows get a red underline. Right-click one for suggestions.',
+              onChanged: (v) => unawaited(s.setEnabled(v)),
+            ),
+            if (s.error != null) ...[const SizedBox(height: 12), PErrorBox(s.error!)],
+            const SizedBox(height: 24),
+            const Text('Languages', style: PType.name),
+            const SizedBox(height: 4),
+            const Text(
+              'Check in several at once. A dictionary downloads the first time you choose it: Google learns only that it was downloaded.',
+              style: TextStyle(fontSize: 12.5, color: PColors.textFaint),
+            ),
+            const SizedBox(height: 10),
+            PField(label: '', controller: _search, hint: 'Search languages', onChanged: (_) => setState(() {})),
+            const SizedBox(height: 6),
+            for (final l in shown)
+              _LanguageRow(
+                name: l.name,
+                detail: s.downloading.contains(l.code) ? 'Downloading…' : (l.installed ? 'Downloaded' : _size(l.bytes)),
+                chosen: s.languages.contains(l.code),
+                busy: s.downloading.contains(l.code),
+                enabled: s.enabled,
+                onChanged: (v) => unawaited(s.setLanguage(l.code, v)),
+                onRemove: l.installed && !s.languages.contains(l.code) ? () => unawaited(s.remove(l.code)) : null,
+              ),
+            const SizedBox(height: 24),
+            const Text('Your dictionary', style: PType.name),
+            const SizedBox(height: 4),
+            Text(
+              s.words.isEmpty ? 'Words you add from the right-click menu show here.' : 'Never marked as misspelled. Click one to remove it.',
+              style: const TextStyle(fontSize: 12.5, color: PColors.textFaint),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final w in (s.words.toList()..sort()))
+                  InputChip(
+                    label: Text(w, style: const TextStyle(fontSize: 13)),
+                    onDeleted: () => unawaited(s.removeWord(w)),
+                    deleteButtonTooltipMessage: 'Remove',
+                    backgroundColor: PColors.panelRaised,
+                    side: const BorderSide(color: PColors.borderStrong),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _LanguageRow extends StatelessWidget {
+  const _LanguageRow({
+    required this.name,
+    required this.detail,
+    required this.chosen,
+    required this.busy,
+    required this.enabled,
+    required this.onChanged,
+    this.onRemove,
+  });
+
+  final String name;
+  final String detail;
+  final bool chosen;
+  final bool busy;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  /// Delete it from this computer (only offered when not in use).
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Opacity(
+        opacity: enabled ? 1 : 0.5,
+        child: Row(
+          children: [
+            Expanded(
+              child: _CheckRow(value: chosen, label: name, onChanged: enabled && !busy ? onChanged : (_) {}),
+            ),
+            if (busy)
+              const Padding(
+                padding: EdgeInsets.only(right: 8),
+                child: SizedBox(width: 14, height: 14, child: PSpinner()),
+              ),
+            Text(detail, style: const TextStyle(fontSize: 12, color: PColors.textFaint)),
+            if (onRemove != null)
+              PIconButton(icon: Icons.delete_outline_rounded, tooltip: 'Delete from this computer', size: 28, iconSize: 15, onPressed: onRemove!)
+            else
+              const SizedBox(width: 28),
           ],
         ),
       ),

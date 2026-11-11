@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderEditable;
 import 'package:flutter/services.dart';
@@ -155,12 +156,16 @@ class _ChatViewState extends State<ChatView> {
     unawaited(_load());
     unawaited(_loadMembers());
     _composerFocus.requestFocus();
+    _composer.addListener(_spellSoon);
+    _state.spelling.addListener(_spellSoon);
   }
 
   @override
   void dispose() {
     _events.cancel();
     _composerHoldTimer?.cancel();
+    _spellTimer?.cancel();
+    _state.spelling.removeListener(_spellSoon);
     HardwareKeyboard.instance.removeHandler(_typeToCompose);
     _composer.dispose();
     _composerFocus.dispose();
@@ -378,6 +383,33 @@ class _ChatViewState extends State<ChatView> {
       }
     }
     return KeyEventResult.ignored;
+  }
+
+  // ---------------------------------------------------------------- spelling
+
+  Timer? _spellTimer;
+  int _spellRun = 0;
+
+  /// Check the composer a moment after it changes (text, cursor, or the
+  /// dictionaries), not on every keystroke.
+  void _spellSoon() {
+    _spellTimer?.cancel();
+    _spellTimer = Timer(const Duration(milliseconds: 150), () => unawaited(_spellNow()));
+  }
+
+  Future<void> _spellNow() async {
+    final run = ++_spellRun;
+    final text = _composer.text;
+    final found = await _state.spelling.check(text);
+    if (!mounted || run != _spellRun || _composer.text != text) return;
+    // The word being typed is left alone until you move on from it.
+    final sel = _composer.selection;
+    final typingAt = sel.isValid && sel.isCollapsed ? sel.baseOffset : -1;
+    final ranges = [
+      for (final m in found)
+        if (m.end != typingAt) TextRange(start: m.start, end: m.end),
+    ];
+    if (!listEquals(ranges, _composer.misspelled)) _composer.misspelled = ranges;
   }
 
   /// Apply a formatting command to the composer's selection (or, with no
@@ -1708,7 +1740,9 @@ class _FormatToolbarState extends State<_FormatToolbar> {
   }
 
   void _update() {
-    // After this frame's layout, so the selection's place on screen is known.
+    // After the next frame's layout, so the selection's place on screen is
+    // known; and make sure there is a next frame.
+    WidgetsBinding.instance.ensureVisualUpdate();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (_wanted) {

@@ -9,6 +9,7 @@ import 'package:post/src/rust/api/client.dart';
 import 'package:post/src/rust/api/error.dart';
 
 import '../ui/arrival.dart';
+import 'spelling.dart';
 
 /// One sentence to show for a failed call. Screens throw [ArgumentError]
 /// for their own checks, with the sentence as its message.
@@ -22,7 +23,7 @@ String errorText(Object e) => switch (e) {
 const typingShownFor = Duration(seconds: 6);
 
 class AppState extends ChangeNotifier {
-  AppState(this.client, this.me) {
+  AppState(this.client, this.me, {required String dictionaries}) : spelling = Spelling(client, dictionaries) {
     unawaited(client.run());
     _events = client.events().listen(_onEvent);
     unawaited(refreshConversations());
@@ -35,6 +36,9 @@ class AppState extends ChangeNotifier {
 
   final Client client;
   final Identity me;
+
+  /// Spellchecking in the composer.
+  final Spelling spelling;
 
   /// Live conversations, most recent first.
   List<ConversationInfo> conversations = const [];
@@ -301,6 +305,7 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _events.cancel();
     _relay.close();
+    spelling.dispose();
     _typingSweep?.cancel();
     _refreshSoon?.cancel();
     _connectionTimer.cancel();

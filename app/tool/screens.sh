@@ -19,5 +19,7 @@ cleanup() {
   rm -f "$pids"
 }
 trap cleanup EXIT
+# Spellcheck dictionaries download once and are kept between runs.
+export POST_DICTIONARIES="$app/build/dictionaries"
 flutter test integration_test/screens_test.dart -d linux --dart-define=SHOTS="$out" "${@:2}"
 echo "screenshots in $out"
