@@ -153,6 +153,13 @@ enum GroupCommand {
     },
     /// As an admin: rename a group.
     Rename { conversation: String, name: String },
+    /// Leave a group, with all your devices.
+    Leave {
+        conversation: String,
+        /// Leave without asking.
+        #[arg(long)]
+        yes: bool,
+    },
     /// As an admin: make a member an admin (or, with --revoke, stop them being one).
     Admin {
         conversation: String,
@@ -278,6 +285,7 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         Command::Group { cmd: GroupCommand::Remove { conversation, members } } => {
             ("remove_members", json!({ "conversation": conversation, "members": members }))
         }
+        Command::Group { cmd: GroupCommand::Leave { conversation, .. } } => ("leave_group", json!({ "conversation": conversation })),
         Command::Group { cmd: GroupCommand::Rename { conversation, name } } => {
             ("rename_group", json!({ "conversation": conversation, "name": name }))
         }
@@ -457,6 +465,17 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         }
     }
 
+    if let Command::Group { cmd: GroupCommand::Leave { conversation, yes: false } } = &cli.command {
+        let title = conversation
+            .parse()
+            .ok()
+            .and_then(|id| core.conversation(id).ok())
+            .map_or_else(|| conversation.clone(), |c| format!("\"{}\"", c.title));
+        if !confirm(&format!("Leave {title}? You will need an admin to add you back."))? {
+            anyhow::bail!("still in the group");
+        }
+    }
+
     let (method, params) = to_call(&cli.command).context("unknown command")?;
     let info = postern_api::method(method).context("unknown method")?;
     if info.needs == Needs::Connection {
@@ -572,6 +591,7 @@ mod tests {
             Command::Group { cmd: GroupCommand::Add { conversation: "00".into(), members: vec!["a".into()] } },
             Command::Group { cmd: GroupCommand::Remove { conversation: "00".into(), members: vec!["a".into()] } },
             Command::Group { cmd: GroupCommand::Rename { conversation: "00".into(), name: "n".into() } },
+            Command::Group { cmd: GroupCommand::Leave { conversation: "00".into(), yes: true } },
             Command::Group { cmd: GroupCommand::Admin { conversation: "00".into(), username: "a".into(), revoke: false } },
             Command::Group { cmd: GroupCommand::History { conversation: "00".into(), shared: true, hidden: false, days: 7 } },
             Command::Devices { cmd: Some(DevicesCommand::Rename { device: "abcd".into(), name: "x".into() }) },

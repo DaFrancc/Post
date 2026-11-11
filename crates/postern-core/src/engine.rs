@@ -81,6 +81,8 @@ struct Plan {
     add: Vec<DeviceId>,
     /// Leaves of devices their accounts have removed.
     remove: Vec<LeafNodeIndex>,
+    /// Members' proposals (people leaving) wait to be committed.
+    proposals: bool,
 }
 
 /// KeyPackages claimed for one device. One-time packages are used first; the
@@ -1144,6 +1146,133 @@ impl Engine {
         .await
     }
 
+    /// Leave a group, with all of this account's devices (design section 6,
+    /// "Group policy"). A member cannot commit its own removal, so this
+    /// proposes it and another member commits it; until then this device
+    /// keeps proposing in each new epoch, and shows the group as left.
+    pub async fn leave_group(&mut self, gid: [u8; 16]) -> Result<()> {
+        let conv = store::conversation(&self.conn, &gid)?.filter(|c| c.following).ok_or(Error::NotFound("conversation"))?;
+        if conv.kind != KIND_GROUP {
+            return Err(Error::NotAllowed("only group chats can be left"));
+        }
+        if conv.leaving {
+            return Ok(());
+        }
+        let mine = self.me()?.account;
+        let (meta, members) = group_members(&self.conn, &gid)?;
+        let others: Vec<AccountId> = members.iter().map(|(a, _)| *a).filter(|a| *a != mine).collect();
+        if let Some(heir) = others.first().copied() {
+            // Hand the group on first if we are its only admin among members,
+            // or nobody could manage it (and other clients would refuse the
+            // removal). The heir is the longest-standing other member.
+            let another_admin = meta.admins.iter().any(|a| others.iter().any(|o| a[..] == o.0));
+            if !another_admin {
+                self.change_group(gid, &[], &[], |m| {
+                    m.admins.push(heir.0.to_vec());
+                    Ok(())
+                })
+                .await?;
+            }
+        }
+        {
+            let tx = self.conn.transaction()?;
+            store::set_leaving(&tx, &gid)?;
+            if others.is_empty() {
+                // Nobody is left to commit a removal.
+                store::stop_following(&tx, &gid)?;
+            }
+            tx.commit()?;
+        }
+        self.emit_outcome(gid, Outcome::Conversation)?;
+        if others.is_empty() {
+            return Ok(());
+        }
+        self.propose_leaving(gid)?;
+        match self.flush_proposals().await {
+            Ok(()) | Err(Error::NotConnected | Error::Network(_)) => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Propose removing each of this account's leaves that this device has
+    /// not already proposed in the current epoch.
+    fn propose_leaving(&mut self, gid: [u8; 16]) -> Result<()> {
+        let me = self.me.as_ref().ok_or(Error::NotRegistered)?;
+        let tx = self.conn.transaction()?;
+        {
+            let provider = Provider::on(&tx);
+            let mut group = load_group(&provider, &gid)?;
+            if group.pending_commit().is_some() {
+                return Ok(());
+            }
+            let own = group.own_leaf_index();
+            let proposed: HashSet<LeafNodeIndex> = group
+                .pending_proposals()
+                .filter(|p| matches!(p.sender(), Sender::Member(i) if *i == own))
+                .filter_map(|p| match p.proposal() {
+                    Proposal::Remove(r) => Some(r.removed()),
+                    _ => None,
+                })
+                .collect();
+            let ours: Vec<LeafNodeIndex> = group
+                .members()
+                .filter(|m| leaf_of_member(m).is_ok_and(|l| l.account == me.account) && !proposed.contains(&m.index))
+                .map(|m| m.index)
+                .collect();
+            let access_key = access_key_of(&group, &provider)?;
+            let epoch = group.epoch().as_u64();
+            for leaf in ours {
+                let (msg, _) = group.propose_remove_member(&provider, &me.signer, leaf).map_err(mls)?;
+                let id = random16()?;
+                // Our own proposal comes back in the log, and this device
+                // cannot decrypt its own messages: recognise it by id.
+                store::record_own_send(&tx, &gid, &id)?;
+                let req = proto::Send {
+                    group_id: gid.to_vec(),
+                    access_key: access_key.clone(),
+                    client_msg_id: id.to_vec(),
+                    message: msg.tls_serialize_detached().map_err(mls)?,
+                };
+                store::proposal_push(&tx, &id, &gid, epoch, &req.encode_to_vec())?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Send waiting proposals. One whose epoch has passed is dropped.
+    async fn flush_proposals(&mut self) -> Result<()> {
+        for w in store::proposals_waiting(&self.conn)? {
+            let id = w.client_msg_id;
+            let current = {
+                let provider = Provider::on(&self.conn);
+                load_group(&provider, &w.group_id).map(|g| g.epoch().as_u64()).ok()
+            };
+            if current != Some(w.epoch) {
+                store::proposal_remove(&self.conn, &id)?;
+                continue;
+            }
+            let req = proto::Send::decode(w.request.as_slice()).map_err(|_| Error::Corrupt("waiting proposal"))?;
+            match self.anon()?.request(Request::Send(req)).await {
+                Ok(_) => store::proposal_remove(&self.conn, &id)?,
+                Err(Error::Server(e)) if matches!(e.code(), ErrorCode::WrongEpoch | ErrorCode::BadAccessKey) => {
+                    store::proposal_remove(&self.conn, &id)?;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+
+    /// For each group being left: propose again if a new epoch began, and
+    /// send what is waiting.
+    async fn continue_leaving(&mut self) -> Result<()> {
+        for gid in store::leaving_groups(&self.conn)? {
+            self.propose_leaving(gid)?;
+        }
+        self.flush_proposals().await
+    }
+
     /// Build a group with `meta` and the devices behind `kps`, and register it.
     async fn create_conversation(&mut self, meta: GroupMeta, kps: Vec<KeyPackage>) -> Result<[u8; 16]> {
         let gid = random16()?;
@@ -1347,7 +1476,8 @@ impl Engine {
             let mut lost_race = false;
             for p in plans {
                 let adds: Vec<KeyPackage> = p.add.iter().filter_map(|d| pools.get_mut(d).and_then(KpPool::take)).collect();
-                if adds.is_empty() && p.remove.is_empty() {
+                // A commit takes every pending proposal along with it.
+                if adds.is_empty() && p.remove.is_empty() && !p.proposals {
                     continue;
                 }
                 lost_race |= !self.commit_changes(p.gid, adds, p.remove, None).await?;
@@ -1374,6 +1504,17 @@ impl Engine {
                 continue;
             }
             let group = load_group(&provider, &c.group_id)?;
+            // This account is leaving: another member must commit that, and
+            // no device of ours may be added back meanwhile.
+            let own = group.own_leaf_index();
+            let ours_proposed = group.pending_proposals().any(|p| match p.proposal() {
+                Proposal::Remove(r) => r.removed() == own,
+                _ => false,
+            });
+            if ours_proposed || c.leaving {
+                continue;
+            }
+            let proposals = group.pending_proposals().next().is_some();
             let mut present = HashSet::new();
             let mut remove = Vec::new();
             for m in group.members() {
@@ -1392,8 +1533,8 @@ impl Engine {
             } else {
                 Vec::new()
             };
-            if !add.is_empty() || !remove.is_empty() {
-                out.push(Plan { gid: c.group_id, add, remove });
+            if !add.is_empty() || !remove.is_empty() || proposals {
+                out.push(Plan { gid: c.group_id, add, remove, proposals });
             }
         }
         Ok(out)
@@ -1510,7 +1651,7 @@ impl Engine {
     fn queue_body(&mut self, gid: [u8; 16], body: Body) -> Result<[u8; 16]> {
         let gid = self.live_group(gid)?;
         let conv = store::conversation(&self.conn, &gid)?.ok_or(Error::NotFound("conversation"))?;
-        if !conv.following {
+        if !conv.following || conv.leaving {
             return Err(Error::InvalidInput("you are no longer in this conversation".into()));
         }
         if !body_allowed(&body, conv.kind == KIND_SELF) {
@@ -1676,6 +1817,7 @@ impl Engine {
             Err(Error::NoTokens) => tracing::warn!("no tokens left to update group members"),
             r => r?,
         }
+        self.continue_leaving().await?;
         self.flush_outbox().await?;
         self.resubscribe().await?;
         if joined > 0 {
@@ -2255,7 +2397,19 @@ fn process_in_tx(
             let outcome = if adds_accounts && !removed { Outcome::NewMembers } else { Outcome::Conversation };
             Ok((outcome, None))
         }
-        _ => Err(reject("an unsupported proposal was skipped")),
+        ProcessedMessageContent::ProposalMessage(p) => {
+            // The only proposal Postern sends: a member leaving, removing its
+            // own account's devices. Anything else is refused here, before it
+            // can reach the proposal store and ride along in someone's commit.
+            let Proposal::Remove(r) = p.proposal() else { return Err(reject("an unsupported proposal was skipped")) };
+            let target = group.members().find(|m| m.index == r.removed()).ok_or_else(|| reject("a proposal named no member"))?;
+            if leaf_of_member(&target)?.account != sender {
+                return Err(reject("someone proposed removing another member"));
+            }
+            group.store_pending_proposal(provider.storage(), *p).map_err(fatal)?;
+            Ok((Outcome::Nothing, None))
+        }
+        _ => Err(reject("an unsupported message was skipped")),
     }
 }
 
@@ -2313,7 +2467,13 @@ fn check_commit(
         let Some(m) = group.members().find(|m| m.index == idx) else { return Err(reject("a removal named no member")) };
         let leaf = leaf_of_member(&m)?;
         let device_removed = chains.get(&leaf.account).is_some_and(|c| !c.device(&leaf.device).is_some_and(|d| d.is_active()));
-        if !(leaf.account == *committer || device_removed || (!is_dm && !is_self && is_admin)) {
+        // Who asked: the committer, or the member whose proposal it commits.
+        let proposer = match rem.sender() {
+            Sender::Member(i) => group.members().find(|m| m.index == *i).and_then(|m| leaf_of_member(&m).ok()).map(|l| l.account),
+            _ => None,
+        };
+        let leaving = proposer == Some(leaf.account);
+        if !(leaf.account == *committer || leaving || device_removed || (!is_dm && !is_self && is_admin)) {
             // Perhaps the removal is in a chain link this device has not
             // fetched yet; the caller refreshes the directory and retries once.
             return Err(Fail::NeedDirectory);
@@ -2353,7 +2513,13 @@ fn handle_content(
         return Err(reject("a message's id did not match its delivery"));
     }
     let id: [u8; 16] = c.id.as_slice().try_into().map_err(|_| reject("bad message id"))?;
-    let in_self_group = store::conversation(tx, gid)?.is_some_and(|conv| conv.kind == KIND_SELF);
+    let conv = store::conversation(tx, gid)?;
+    if conv.as_ref().is_some_and(|conv| conv.leaving) {
+        // The user left: this device only follows the group until its
+        // removal lands, and keeps nothing more from it.
+        return Ok(Outcome::Nothing);
+    }
+    let in_self_group = conv.is_some_and(|conv| conv.kind == KIND_SELF);
     match &c.body {
         Some(b) if !body_allowed(b, in_self_group) => return Err(reject("a message of the wrong kind was skipped")),
         // A newer client's self-group data: nothing to show, nothing to store.

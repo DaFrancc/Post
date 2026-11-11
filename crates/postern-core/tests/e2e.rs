@@ -447,6 +447,50 @@ async fn group_admins() {
     bob.set_history(g.id, true, 30).await.expect("history");
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn leaving_a_group() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let carol = server.client(dir.path(), "carol").await;
+    let bob_phone = link(&server, dir.path(), &bob, "bob-phone").await;
+    let g = alice.create_group("trip", &["bob".into(), "carol".into()]).await.expect("create");
+    for c in [&bob, &bob_phone, &carol] {
+        c.sync().await.expect("sync");
+    }
+    let following = |c: &Core| c.conversations().expect("conversations").into_iter().find(|x| x.id == g.id).map(|x| x.following);
+    let usernames = |ms: Vec<postern_core::Member>| ms.into_iter().map(|m| m.username).collect::<Vec<_>>();
+
+    // DMs cannot be left; groups can.
+    let dm = alice.start_dm("carol").await.expect("dm");
+    assert!(alice.leave_group(dm.id).await.is_err());
+
+    // Bob leaves from his laptop: it shows as left at once, and he cannot send.
+    bob.leave_group(g.id).await.expect("leave");
+    assert_eq!(following(&bob), Some(false));
+    assert!(bob.send_text(g.id, "wait").await.is_err());
+
+    // The next member to sync commits his removal, with both his devices.
+    alice.sync().await.expect("alice sync");
+    assert_eq!(usernames(alice.members(g.id).await.expect("members")), vec!["alice", "carol"]);
+    alice.send_text(g.id, "bob left").await.expect("send");
+    for c in [&bob, &bob_phone] {
+        c.sync().await.expect("sync");
+        assert_eq!(following(c), Some(false));
+        assert_ne!(last_in(c, g.id).as_deref(), Some("bob left"));
+    }
+    carol.sync().await.expect("carol sync");
+    assert_eq!(last_in(&carol, g.id).as_deref(), Some("bob left"));
+
+    // The only admin leaving hands the group to the longest-standing member.
+    alice.leave_group(g.id).await.expect("alice leaves");
+    carol.sync().await.expect("carol sync");
+    let members = carol.members(g.id).await.expect("members");
+    assert_eq!(members.iter().map(|m| (m.username.as_str(), m.admin)).collect::<Vec<_>>(), vec![("carol", true)]);
+    carol.rename_group(g.id, "carol's trip").await.expect("carol can manage it");
+}
+
 fn last_in(c: &Core, conv: postern_core::ConversationId) -> Option<String> {
     c.messages(conv, 10).expect("messages").last().and_then(|m| m.body.clone())
 }

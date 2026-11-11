@@ -370,7 +370,7 @@ pub(crate) fn conversation_from_row(conn: &Connection, c: &store::ConversationRo
         title,
         peer,
         last_activity_ms: c.last_activity as u64,
-        following: c.following,
+        following: c.following && !c.leaving,
     })
 }
 
@@ -579,6 +579,12 @@ impl Core {
         self.engine.lock().await.set_history(conversation.0, shared, days).await
     }
 
+    /// Leave a group, with all your devices. It shows as left at once; the
+    /// other members' devices complete the removal.
+    pub async fn leave_group(&self, conversation: ConversationId) -> Result<()> {
+        self.engine.lock().await.leave_group(conversation.0).await
+    }
+
     /// The members of a conversation, by the name you see for them.
     pub async fn members(&self, conversation: ConversationId) -> Result<Vec<Member>> {
         let me = self.engine.lock().await.me.as_ref().ok_or(Error::NotRegistered)?.account;
@@ -764,6 +770,7 @@ fn core_futures_are_send(c: &Core, conv: ConversationId, msg: MessageId) {
     send(c.rename_group(conv, ""));
     send(c.set_admin(conv, "", true));
     send(c.set_history(conv, true, 0));
+    send(c.leave_group(conv));
     send(c.send_text(conv, ""));
     send(c.edit_message(conv, msg, ""));
     send(c.delete_message(conv, msg));

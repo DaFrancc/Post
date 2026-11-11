@@ -692,23 +692,28 @@ fn append_log(tx: &Connection, group: &[u8], seq: u64, epoch: u64, kind: proto::
     Ok(())
 }
 
-/// Append an application message. Returns (seq, epoch, newly appended).
+/// Append an application message or a proposal. Returns (seq, epoch, newly
+/// appended).
 pub fn send(conn: &mut Connection, req: &proto::Send) -> Result<(u64, u64, bool)> {
     check_len(&req.client_msg_id, 16, "client_msg_id")?;
     let header = postern_mls::parse_header(&req.message).map_err(|e| err(ErrorCode::BadRequest, e.to_string()))?;
+    let (content_type, kind) = match header.content_type {
+        ContentType::Proposal => (ContentType::Proposal, proto::EntryKind::Proposal),
+        _ => (ContentType::Application, proto::EntryKind::Application),
+    };
     let tx = write_tx(conn)?;
     // Idempotent retry: answered before the access check, since a retry may
     // come after a commit has changed the key. The id is a 16-byte secret.
-    if let Some((seq, epoch, kind)) = existing_entry(&tx, &req.group_id, &req.client_msg_id)? {
-        if kind != proto::EntryKind::Application as i32 {
-            return Err(err(ErrorCode::BadRequest, "client_msg_id already used for a commit"));
+    if let Some((seq, epoch, existing)) = existing_entry(&tx, &req.group_id, &req.client_msg_id)? {
+        if existing != kind as i32 {
+            return Err(err(ErrorCode::BadRequest, "client_msg_id already used for something else"));
         }
         return Ok((seq, epoch, false));
     }
     let (epoch, next_seq) = current_epoch(&tx, &req.group_id)?;
     check_access(&tx, &req.group_id, epoch, &req.access_key)?;
-    check_header(&header, &req.group_id, epoch, ContentType::Application)?;
-    append_log(&tx, &req.group_id, next_seq, epoch, proto::EntryKind::Application, &req.client_msg_id, &req.message)?;
+    check_header(&header, &req.group_id, epoch, content_type)?;
+    append_log(&tx, &req.group_id, next_seq, epoch, kind, &req.client_msg_id, &req.message)?;
     tx.commit().db()?;
     Ok((next_seq, epoch, true))
 }

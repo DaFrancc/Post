@@ -551,6 +551,7 @@ methods! {
     "rename_group", Connection, RenameGroupParams, Done, "As an admin: rename a group.";
     "set_admin", Connection, SetAdminParams, Done, "As an admin: make a member an admin, or stop them being one.";
     "set_history", Connection, SetHistoryParams, Done, "As an admin: whether new members are shown past messages.";
+    "leave_group", Connection, ConversationParams, Done, "Leave a group, with all your devices.";
     "conversations", Local, NoParams, Vec<Conversation>, "Your conversations, most recent first.";
     "messages", Local, MessagesParams, Vec<Message>, "The newest messages of a conversation, oldest first.";
     "send", Connection, SendParams, Message, "Send a text message.";
@@ -699,6 +700,11 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
         "set_history" => {
             let p: SetHistoryParams = params(p)?;
             core.set_history(id(&p.conversation)?, p.shared, p.days).await?;
+            ok(Done {})
+        }
+        "leave_group" => {
+            let p: ConversationParams = params(p)?;
+            core.leave_group(id(&p.conversation)?).await?;
             ok(Done {})
         }
         "conversations" => {
