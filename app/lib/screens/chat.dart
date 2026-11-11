@@ -2031,29 +2031,29 @@ class _ComposerMenuState extends State<_ComposerMenu> {
       // Clicks in the menu count as clicks in the field: it keeps focus.
       child: TextFieldTapRegion(
         // Opening as the other menus do: quickly, with a long ease-out.
-        child: TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0, end: 1),
-          duration: pMenuAnimation.duration!,
-          curve: pMenuAnimation.curve!,
-          builder: (context, v, child) => Opacity(
-            opacity: (v * 3).clamp(0.0, 1.0),
-            // Unrolls away from the pointer: opening up, its bottom stays put
-            // and its top rises. widthFactor 1: as wide as the menu, not the
-            // window.
-            child: Align(alignment: up ? Alignment.bottomLeft : Alignment.topLeft, widthFactor: 1, heightFactor: v, child: child),
-          ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minWidth: 200, maxWidth: 280),
-            child: IntrinsicWidth(
-              child: Material(
-                color: theme.color,
-                shape: theme.shape,
-                elevation: theme.elevation ?? 8,
-                clipBehavior: Clip.antiAlias,
-                child: Padding(
-                  padding: const EdgeInsets.all(6),
-                  child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: rows),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 200, maxWidth: 280),
+          child: IntrinsicWidth(
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: pMenuAnimation.duration!,
+              curve: pMenuAnimation.curve!,
+              builder: (context, v, child) => Opacity(
+                opacity: (v * 3).clamp(0.0, 1.0),
+                // The panel itself grows (it clips its entries), unrolling
+                // away from the pointer: opening up, its bottom stays put
+                // and its top rises.
+                child: Material(
+                  color: theme.color,
+                  shape: theme.shape,
+                  elevation: theme.elevation ?? 8,
+                  clipBehavior: Clip.antiAlias,
+                  child: Align(alignment: up ? Alignment.bottomLeft : Alignment.topLeft, widthFactor: 1, heightFactor: v, child: child),
                 ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: rows),
               ),
             ),
           ),
