@@ -50,6 +50,15 @@ impl Server {
         conn.query_row("SELECT COUNT(*) FROM group_log", [], |r| r.get(0)).expect("count")
     }
 
+    /// Make a device look unseen for `days`, and run the server's hourly
+    /// stale-device check.
+    fn age_device(&self, device_hex: &str, days: i64) {
+        let mut conn = postern_server::db::open(&self.db, &self.key).expect("open server db");
+        let id = hex::decode(device_hex).expect("hex");
+        conn.execute("UPDATE devices SET last_seen_day = last_seen_day - ?1 WHERE device_id = ?2", (days, id)).expect("age");
+        postern_server::db::mark_stale_devices(&mut conn).expect("mark stale");
+    }
+
     async fn client(&self, dir: &Path, username: &str) -> Core {
         let core = Core::open(&dir.join(username), &DbKey::from_bytes([7; 32])).expect("open profile");
         core.register(&self.url, &self.invite(false), username, false).await.expect("register");
@@ -614,6 +623,70 @@ async fn typing_and_presence() {
     // None of it was stored on the server.
     assert_eq!(server.log_entries(), entries, "signals never enter a group log");
     listener.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stale_devices_leave_and_return() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let phone = link(&server, dir.path(), &bob, "bob-phone").await;
+    let dm = alice.start_dm("bob").await.expect("dm");
+    let g = alice.create_group("climbing", &["bob".into()]).await.expect("group");
+    phone.sync().await.expect("phone sync");
+    bob.sync().await.expect("bob sync");
+    let phone_id = phone.identity().await.expect("id").device_id;
+    drop(phone);
+    let bob_devices = |c: &Core, conv: postern_core::ConversationId| {
+        let c = c.clone();
+        async move { c.members(conv).await.expect("members").into_iter().find(|m| m.username == "bob").map(|m| m.devices) }
+    };
+    assert_eq!(bob_devices(&alice, dm.id).await, Some(2));
+    assert_eq!(bob_devices(&alice, g.id).await, Some(2));
+
+    // The phone has not been seen for 31 days. In the group, Alice is admin
+    // and removes its leaf; in the DM, only Bob's own laptop may.
+    server.age_device(&phone_id, 31);
+    alice.sync().await.expect("alice sync");
+    assert_eq!(bob_devices(&alice, g.id).await, Some(1), "the admin removed the stale phone");
+    assert_eq!(bob_devices(&alice, dm.id).await, Some(2), "a DM partner does not");
+    let mut bob_events = bob.subscribe();
+    bob.sync().await.expect("bob sync");
+    alice.sync().await.expect("alice sync");
+    assert_eq!(bob_devices(&alice, dm.id).await, Some(1), "Bob's laptop removed it from the DM");
+    while let Ok(e) = bob_events.try_recv() {
+        assert!(!matches!(e, Event::Notice { .. }), "bob refused something: {e:?}");
+    }
+
+    // An account's last device is never removed: Bob's laptop going stale
+    // too leaves him in the group.
+    let laptop_id = bob.identity().await.expect("id").device_id;
+    server.age_device(&laptop_id, 31);
+    alice.sync().await.expect("alice sync");
+    assert_eq!(bob_devices(&alice, g.id).await, Some(1));
+
+    // Both of Bob's devices come back; logging in clears a device's flag.
+    // The laptop adds the phone back to both conversations, and the phone,
+    // having first seen its removals, rejoins them.
+    drop(bob);
+    let bob = Core::open(&dir.path().join("bob"), &DbKey::from_bytes([7; 32])).expect("reopen laptop");
+    bob.connect().await.expect("laptop logs in");
+    let phone = Core::open(&dir.path().join("bob-phone"), &DbKey::from_bytes([7; 32])).expect("reopen");
+    let mut phone_events = phone.subscribe();
+    phone.connect().await.expect("phone logs in");
+    bob.sync().await.expect("bob sync");
+    phone.sync().await.expect("phone sync");
+    while let Ok(e) = phone_events.try_recv() {
+        assert!(!matches!(e, Event::Notice { .. }), "the phone refused something: {e:?}");
+    }
+    alice.sync().await.expect("alice sync");
+    for conv in [dm.id, g.id] {
+        assert_eq!(bob_devices(&alice, conv).await, Some(2), "the phone is back");
+        alice.send_text(conv, "welcome back phone").await.expect("send");
+        phone.sync().await.expect("phone sync");
+        assert_eq!(last_in(&phone, conv).as_deref(), Some("welcome back phone"));
+    }
 }
 
 fn last_in(c: &Core, conv: postern_core::ConversationId) -> Option<String> {

@@ -206,6 +206,11 @@ const MIGRATIONS: &[&str] = &[
     // weekly key refresh (design section 6, "Key refresh").
     "ALTER TABLE conversations ADD COLUMN refreshed_at INTEGER NOT NULL DEFAULT 0;
      UPDATE conversations SET refreshed_at = created_at;",
+    // 5: devices the directory lists as stale (unseen for 30 days).
+    "CREATE TABLE stale_devices (
+         device_id   BLOB PRIMARY KEY,
+         account_id  BLOB NOT NULL
+     );",
 ];
 
 /// Create tables, both ours and OpenMLS's, and bring old databases up to date.
@@ -313,6 +318,21 @@ pub fn upsert_account(conn: &Connection, account: &AccountId, username: &str, di
         params![&account.0[..], username, disabled, i64_of(now_ms())],
     )?;
     Ok(())
+}
+
+/// Replace an account's stale devices with what the directory says now.
+pub fn set_stale_devices(conn: &Connection, account: &AccountId, devices: &[DeviceId]) -> Result<()> {
+    conn.execute("DELETE FROM stale_devices WHERE account_id = ?1", [&account.0[..]])?;
+    for d in devices {
+        conn.execute("INSERT OR REPLACE INTO stale_devices (device_id, account_id) VALUES (?1, ?2)", params![&d.0[..], &account.0[..]])?;
+    }
+    Ok(())
+}
+
+pub fn stale_devices(conn: &Connection) -> Result<std::collections::HashSet<DeviceId>> {
+    let mut stmt = conn.prepare("SELECT device_id FROM stale_devices")?;
+    let rows: Vec<Vec<u8>> = stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    Ok(rows.iter().filter_map(|d| DeviceId::from_slice(d).ok()).collect())
 }
 
 pub fn account_by_username(conn: &Connection, username: &str) -> Result<Option<(AccountId, bool)>> {

@@ -259,6 +259,11 @@ pub fn spawn(listener: TcpListener, config: Config) -> Result<Running, StartErro
                     Ok(_) => {}
                     Err(e) => tracing::error!(error = %e, "garbage collection failed"),
                 }
+                match gc_db.run(db::mark_stale_devices).await {
+                    Ok(n) if n > 0 => tracing::info!(devices = n, "devices marked stale"),
+                    Ok(_) => {}
+                    Err(e) => tracing::error!(error = %e, "marking stale devices failed"),
+                }
             }
         });
         if let Err(e) = axum::serve(listener, app).await {

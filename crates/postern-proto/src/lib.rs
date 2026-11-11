@@ -325,6 +325,11 @@ pub struct DirectoryAccount {
     pub chain: Vec<Vec<u8>>,
     #[prost(bool, tag = "4")]
     pub disabled: bool,
+    /// Active devices not seen for 30 days. Their accounts' other devices,
+    /// or any member, remove their leaves from groups the account keeps
+    /// another device in; they are added back when they return.
+    #[prost(bytes = "vec", repeated, tag = "5")]
+    pub stale_devices: Vec<Vec<u8>>,
 }
 
 #[derive(Clone, PartialEq, Message)]

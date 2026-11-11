@@ -49,6 +49,15 @@ const MAX_FETCH_ROUNDS: usize = 10_000;
 /// After a claim finds no KeyPackages for a device, wait this long before
 /// spending another token on it.
 const KP_BACKOFF: std::time::Duration = std::time::Duration::from_secs(600);
+/// Whether a leaf belongs to a stale device whose account keeps another,
+/// non-stale device in the same group. Its account's other devices, or a
+/// group admin, remove such leaves (design section 6, "Stale devices"); an
+/// account's last leaf never is, so an account stays a member while all its
+/// devices are away.
+fn stale_and_replaceable(stale: &HashSet<DeviceId>, leaves: &[(LeafNodeIndex, LeafIdentity)], leaf: &LeafIdentity) -> bool {
+    stale.contains(&leaf.device) && leaves.iter().any(|(_, l)| l.account == leaf.account && l.device != leaf.device && !stale.contains(&l.device))
+}
+
 /// How often a device replaces its own leaf in each group (design section 6,
 /// "Key refresh"). Each group is due somewhat earlier, by a spread derived
 /// from its ID, so a device's refreshes do not all land at once.
@@ -279,6 +288,8 @@ pub(crate) struct Engine {
     no_key_packages: HashMap<DeviceId, std::time::Instant>,
     /// Chain heads already warned about, so one problem is reported once.
     gossip_warned: HashSet<(AccountId, u64)>,
+    /// Devices the directory lists as stale.
+    stale: HashSet<DeviceId>,
     /// Leaves last refreshed before this time (Unix ms) are due now; set by
     /// an explicit refresh.
     refresh_before: u64,
@@ -293,6 +304,7 @@ pub(crate) struct Engine {
 impl Engine {
     pub fn new(conn: Connection, events: broadcast::Sender<Event>) -> Result<Self> {
         let chains = store::load_chains(&conn)?;
+        let stale = store::stale_devices(&conn)?;
         let mut e = Self {
             conn,
             me: None,
@@ -303,6 +315,7 @@ impl Engine {
             subscribed: Vec::new(),
             no_key_packages: HashMap::new(),
             gossip_warned: HashSet::new(),
+            stale,
             refresh_before: 0,
             typing_sent: HashMap::new(),
             presence: HashMap::new(),
@@ -854,7 +867,13 @@ impl Engine {
                 Err(e) => return Err(e),
             }
             store::save_chain(&tx, &verified)?;
+            let stale: Vec<DeviceId> = a.stale_devices.iter().filter_map(|d| DeviceId::from_slice(d).ok()).collect();
+            store::set_stale_devices(&tx, &account, &stale)?;
             tx.commit()?;
+            for d in verified.devices() {
+                self.stale.remove(&d.id);
+            }
+            self.stale.extend(stale);
             if let Some(before) = before {
                 let after: HashSet<DeviceId> = verified.active_devices().map(|d| d.id).collect();
                 let (added, removed) = (after.difference(&before).count() as u32, before.difference(&after).count() as u32);
@@ -1578,21 +1597,28 @@ impl Engine {
                 continue;
             }
             let proposals = group.pending_proposals().next().is_some();
-            let mut present = HashSet::new();
+            let leaves: Vec<(LeafNodeIndex, LeafIdentity)> =
+                group.members().filter_map(|m| leaf_of_member(&m).ok().map(|l| (m.index, l))).collect();
+            let present: HashSet<DeviceId> = leaves.iter().filter(|(_, l)| l.account == me.account).map(|(_, l)| l.device).collect();
+            // Stale leaves are ours to remove if they are our own devices, or
+            // anyone's if we administer this group.
+            let meta = GroupMeta::from_extensions(group.extensions()).map_err(mls)?;
+            let group_admin = c.kind == KIND_GROUP && meta.admins.iter().any(|a| a[..] == me.account.0);
             let mut remove = Vec::new();
-            for m in group.members() {
-                let Ok(leaf) = leaf_of_member(&m) else { continue };
-                if leaf.account == me.account {
-                    present.insert(leaf.device);
-                }
+            for (index, leaf) in &leaves {
                 let removed = self.chains.get(&leaf.account).is_some_and(|ch| !ch.device(&leaf.device).is_some_and(|d| d.is_active()));
-                if removed {
-                    remove.push(m.index);
+                let may_remove_stale = leaf.account == me.account || group_admin;
+                if removed || (may_remove_stale && stale_and_replaceable(&self.stale, &leaves, leaf)) {
+                    remove.push(*index);
                 }
             }
-            // A retired duplicate DM only needs its stale devices removed.
+            // A retired duplicate DM only needs stale leaves removed. Stale
+            // devices of ours are added back once they return.
             let add: Vec<DeviceId> = if c.active {
-                mine.active_devices().map(|d| d.id).filter(|d| !present.contains(d) && !self.backing_off(d)).collect()
+                mine.active_devices()
+                    .map(|d| d.id)
+                    .filter(|d| !present.contains(d) && !self.backing_off(d) && !self.stale.contains(d))
+                    .collect()
             } else {
                 Vec::new()
             };
@@ -1874,6 +1900,9 @@ impl Engine {
     /// Fetch and process everything new: mailbox, then groups, then send
     /// what is queued, then keep subscriptions current.
     pub async fn sync(&mut self) -> Result<()> {
+        // The directory first: device changes and stale devices decide what
+        // membership should be. It is one small request when nothing changed.
+        self.sync_directory().await?;
         // Group logs before Welcomes: a device removed and added back while
         // it was offline must see its removal before the Welcome, which only
         // replaces a group the device is no longer in. Then the logs of
@@ -2732,6 +2761,12 @@ fn check_commit(
         }
         authorize(chains, std::slice::from_ref(&id))?;
     }
+    // Removals are justified by facts that do not change with time: the
+    // committer's own account, the member's own leave proposal, the device's
+    // removal from its chain, or an admin's decision. Staleness is not one of
+    // them: it comes and goes, and a device that came back would refuse its
+    // own earlier removal. Stale leaves are removed by their account's other
+    // devices or by an admin, which these rules already allow.
     for rem in staged.remove_proposals() {
         let idx = rem.remove_proposal().removed();
         let Some(m) = group.members().find(|m| m.index == idx) else { return Err(reject("a removal named no member")) };
