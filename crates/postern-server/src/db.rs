@@ -455,10 +455,18 @@ pub fn upload_key_packages(
     Ok(remaining)
 }
 
-/// Spend a token, then claim one KeyPackage per active device of an account:
-/// the oldest one-time package, else the last-resort one (not consumed).
-/// Devices with neither are left out.
+/// Spend a token, then claim KeyPackages.
+///
+/// For a whole account: one per active device, the oldest one-time package,
+/// else the last-resort one (not consumed). Devices with neither are left out.
+///
+/// For one device (`device_id` set): up to `count` one-time packages, oldest
+/// first, and the last-resort one too if there were fewer than `count`. The
+/// caller may use the last-resort package for every group it lacks one for.
 pub fn claim_key_packages(conn: &mut Connection, req: &proto::ClaimKeyPackages) -> Result<Vec<proto::ClaimedKeyPackage>> {
+    if !req.device_id.is_empty() {
+        return claim_for_device(conn, req);
+    }
     let tx = write_tx(conn)?;
     let exists: bool = tx
         .query_row(
@@ -488,6 +496,45 @@ pub fn claim_key_packages(conn: &mut Connection, req: &proto::ClaimKeyPackages) 
                 tx.execute("DELETE FROM key_packages WHERE id = ?1", [id]).db()?;
             }
             out.push(proto::ClaimedKeyPackage { device_id: d, key_package: kp });
+        }
+    }
+    tx.commit().db()?;
+    Ok(out)
+}
+
+fn claim_for_device(conn: &mut Connection, req: &proto::ClaimKeyPackages) -> Result<Vec<proto::ClaimedKeyPackage>> {
+    let device = device_id(&req.device_id)?;
+    let count = req.count.clamp(1, proto::MAX_CLAIM);
+    let tx = write_tx(conn)?;
+    let active: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM devices d JOIN accounts a USING (account_id)
+              WHERE d.device_id = ?1 AND d.account_id = ?2 AND d.active = 1 AND a.disabled_at IS NULL)",
+            params![&device.0[..], &req.account_id],
+            |r| r.get(0),
+        )
+        .db()?;
+    if !active {
+        return Err(err(ErrorCode::NotFound, "no such device"));
+    }
+    tokens::spend(&tx, req.token.as_ref())?;
+    let rows: Vec<(i64, Vec<u8>)> = {
+        let mut stmt =
+            tx.prepare_cached("SELECT id, kp FROM key_packages WHERE device_id = ?1 AND last_resort = 0 ORDER BY id LIMIT ?2").db()?;
+        stmt.query_map(params![&device.0[..], count], |r| Ok((r.get(0)?, r.get(1)?))).db()?.collect::<rusqlite::Result<_>>().db()?
+    };
+    let mut out = Vec::with_capacity(rows.len() + 1);
+    for (id, kp) in rows {
+        tx.execute("DELETE FROM key_packages WHERE id = ?1", [id]).db()?;
+        out.push(proto::ClaimedKeyPackage { device_id: device.0.to_vec(), key_package: kp });
+    }
+    if out.len() < count as usize {
+        let last: Option<Vec<u8>> = tx
+            .query_row("SELECT kp FROM key_packages WHERE device_id = ?1 AND last_resort = 1", [&device.0[..]], |r| r.get(0))
+            .optional()
+            .db()?;
+        if let Some(kp) = last {
+            out.push(proto::ClaimedKeyPackage { device_id: device.0.to_vec(), key_package: kp });
         }
     }
     tx.commit().db()?;
