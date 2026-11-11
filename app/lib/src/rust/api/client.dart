@@ -269,6 +269,9 @@ class ConversationInfo {
   /// Messages from others since the user last read it.
   final int unread;
 
+  /// How many of those mention the user.
+  final int mentions;
+
   /// The newest message, for a preview.
   final MessageInfo? lastMessage;
 
@@ -280,6 +283,7 @@ class ConversationInfo {
     required this.lastActivityMs,
     required this.following,
     required this.unread,
+    required this.mentions,
     this.lastMessage,
   });
 
@@ -292,6 +296,7 @@ class ConversationInfo {
       lastActivityMs.hashCode ^
       following.hashCode ^
       unread.hashCode ^
+      mentions.hashCode ^
       lastMessage.hashCode;
 
   @override
@@ -306,6 +311,7 @@ class ConversationInfo {
           lastActivityMs == other.lastActivityMs &&
           following == other.following &&
           unread == other.unread &&
+          mentions == other.mentions &&
           lastMessage == other.lastMessage;
 }
 
@@ -800,6 +806,9 @@ class SearchOptions {
   /// Only sent by this username.
   final String? from;
 
+  /// Only messages that mention this username.
+  final String? mentions;
+
   /// Only messages with a link.
   final bool hasLink;
 
@@ -822,6 +831,7 @@ class SearchOptions {
     required this.text,
     this.conversation,
     this.from,
+    this.mentions,
     required this.hasLink,
     this.afterMs,
     this.beforeMs,
@@ -835,6 +845,7 @@ class SearchOptions {
       text.hashCode ^
       conversation.hashCode ^
       from.hashCode ^
+      mentions.hashCode ^
       hasLink.hashCode ^
       afterMs.hashCode ^
       beforeMs.hashCode ^
@@ -850,6 +861,7 @@ class SearchOptions {
           text == other.text &&
           conversation == other.conversation &&
           from == other.from &&
+          mentions == other.mentions &&
           hasLink == other.hasLink &&
           afterMs == other.afterMs &&
           beforeMs == other.beforeMs &&

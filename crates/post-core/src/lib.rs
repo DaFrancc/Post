@@ -194,6 +194,8 @@ pub struct Conversation {
     pub following: bool,
     /// Messages from others since the user last read it.
     pub unread: u32,
+    /// How many of those mention the user.
+    pub mentions: u32,
     /// The newest message, for a preview.
     pub last_message: Option<Message>,
 }
@@ -369,6 +371,8 @@ pub struct SearchQuery {
     pub from: Option<String>,
     /// Only messages with a link.
     pub has_link: bool,
+    /// Only messages that mention this username.
+    pub mentions: Option<String>,
     /// Only sent at or after this (Unix ms).
     pub after_ms: Option<u64>,
     /// Only sent before this (Unix ms).
@@ -489,6 +493,10 @@ pub(crate) fn conversation_from_row(conn: &Connection, c: &store::ConversationRo
     let last_message = store::messages(conn, &groups, 1)?.first().map(|m| message_from_row(conn, m)).transpose()?;
     Ok(Conversation {
         unread: store::unread(conn, &groups)?,
+        mentions: match store::meta_str(conn, "username")? {
+            Some(me) => store::unread_mentions(conn, &groups, &me)?,
+            None => 0,
+        },
         last_message,
         id: ConversationId(c.group_id),
         kind: if c.kind == store::KIND_DM { ConversationKind::Dm } else { ConversationKind::Group },
@@ -909,7 +917,7 @@ impl Core {
     pub fn search(&self, query: &SearchQuery) -> Result<SearchResults> {
         let words: Vec<String> = query.text.split_whitespace().map(str::to_owned).collect();
         let nothing = SearchResults { total: 0, messages: Vec::new() };
-        if words.is_empty() && query.from.is_none() && !query.has_link && query.after_ms.is_none() && query.before_ms.is_none() {
+        if words.is_empty() && query.from.is_none() && query.mentions.is_none() && !query.has_link && query.after_ms.is_none() && query.before_ms.is_none() {
             return Ok(nothing);
         }
         self.read(|c| {
@@ -932,6 +940,7 @@ impl Core {
                 after: query.after_ms.map(store::i64_of),
                 before: query.before_ms.map(store::i64_of),
                 has_link: query.has_link,
+                mentions: query.mentions.as_deref(),
                 oldest_first: query.oldest_first,
             };
             let (total, rows) = store::search(c, &filter, query.limit, query.offset)?;

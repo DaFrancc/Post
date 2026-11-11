@@ -36,7 +36,7 @@ openmls_traits = { version = "=0.6.0", features = ["draft-ietf-mls-pq-ciphersuit
 openmls_sqlite_storage = { version = "=0.3.0", features = ["draft-ietf-mls-pq-ciphersuites"] }
 # Must match the version openmls_sqlite_storage uses, so they share one
 # Connection type. SQLCipher for client databases; harmless for the server.
-rusqlite = { version = "0.37", features = ["bundled-sqlcipher"] }
+rusqlite = { version = "0.37", features = ["bundled-sqlcipher", "functions"] }
 
 # Runtime, networking, interfaces.
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util", "io-std", "signal"] }

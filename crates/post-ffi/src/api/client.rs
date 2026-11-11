@@ -55,6 +55,8 @@ pub struct ConversationInfo {
     pub following: bool,
     /// Messages from others since the user last read it.
     pub unread: u32,
+    /// How many of those mention the user.
+    pub mentions: u32,
     /// The newest message, for a preview.
     pub last_message: Option<MessageInfo>,
 }
@@ -195,6 +197,8 @@ pub struct SearchOptions {
     pub conversation: Option<String>,
     /// Only sent by this username.
     pub from: Option<String>,
+    /// Only messages that mention this username.
+    pub mentions: Option<String>,
     /// Only messages with a link.
     pub has_link: bool,
     /// Only sent at or after this (Unix ms).
@@ -505,6 +509,7 @@ impl Client {
             text: query.text,
             conversation,
             from: query.from,
+            mentions: query.mentions,
             has_link: query.has_link,
             after_ms: query.after_ms,
             before_ms: query.before_ms,
@@ -648,6 +653,7 @@ fn conversation(c: core::Conversation) -> ConversationInfo {
         last_activity_ms: ms(c.last_activity_ms),
         following: c.following,
         unread: c.unread,
+        mentions: c.mentions,
         last_message: c.last_message.map(message),
     }
 }

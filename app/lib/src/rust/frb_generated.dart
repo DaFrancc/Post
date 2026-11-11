@@ -2579,8 +2579,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ConversationInfo dco_decode_conversation_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 8)
-      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
     return ConversationInfo(
       id: dco_decode_String(arr[0]),
       isGroup: dco_decode_bool(arr[1]),
@@ -2589,7 +2589,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       lastActivityMs: dco_decode_i_64(arr[4]),
       following: dco_decode_bool(arr[5]),
       unread: dco_decode_u_32(arr[6]),
-      lastMessage: dco_decode_opt_box_autoadd_message_info(arr[7]),
+      mentions: dco_decode_u_32(arr[7]),
+      lastMessage: dco_decode_opt_box_autoadd_message_info(arr[8]),
     );
   }
 
@@ -2896,18 +2897,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SearchOptions dco_decode_search_options(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 9)
-      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    if (arr.length != 10)
+      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
     return SearchOptions(
       text: dco_decode_String(arr[0]),
       conversation: dco_decode_opt_String(arr[1]),
       from: dco_decode_opt_String(arr[2]),
-      hasLink: dco_decode_bool(arr[3]),
-      afterMs: dco_decode_opt_box_autoadd_u_64(arr[4]),
-      beforeMs: dco_decode_opt_box_autoadd_u_64(arr[5]),
-      oldestFirst: dco_decode_bool(arr[6]),
-      limit: dco_decode_u_32(arr[7]),
-      offset: dco_decode_u_32(arr[8]),
+      mentions: dco_decode_opt_String(arr[3]),
+      hasLink: dco_decode_bool(arr[4]),
+      afterMs: dco_decode_opt_box_autoadd_u_64(arr[5]),
+      beforeMs: dco_decode_opt_box_autoadd_u_64(arr[6]),
+      oldestFirst: dco_decode_bool(arr[7]),
+      limit: dco_decode_u_32(arr[8]),
+      offset: dco_decode_u_32(arr[9]),
     );
   }
 
@@ -3116,6 +3118,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_lastActivityMs = sse_decode_i_64(deserializer);
     var var_following = sse_decode_bool(deserializer);
     var var_unread = sse_decode_u_32(deserializer);
+    var var_mentions = sse_decode_u_32(deserializer);
     var var_lastMessage = sse_decode_opt_box_autoadd_message_info(deserializer);
     return ConversationInfo(
       id: var_id,
@@ -3125,6 +3128,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       lastActivityMs: var_lastActivityMs,
       following: var_following,
       unread: var_unread,
+      mentions: var_mentions,
       lastMessage: var_lastMessage,
     );
   }
@@ -3522,6 +3526,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_text = sse_decode_String(deserializer);
     var var_conversation = sse_decode_opt_String(deserializer);
     var var_from = sse_decode_opt_String(deserializer);
+    var var_mentions = sse_decode_opt_String(deserializer);
     var var_hasLink = sse_decode_bool(deserializer);
     var var_afterMs = sse_decode_opt_box_autoadd_u_64(deserializer);
     var var_beforeMs = sse_decode_opt_box_autoadd_u_64(deserializer);
@@ -3532,6 +3537,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       text: var_text,
       conversation: var_conversation,
       from: var_from,
+      mentions: var_mentions,
       hasLink: var_hasLink,
       afterMs: var_afterMs,
       beforeMs: var_beforeMs,
@@ -3765,6 +3771,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_64(self.lastActivityMs, serializer);
     sse_encode_bool(self.following, serializer);
     sse_encode_u_32(self.unread, serializer);
+    sse_encode_u_32(self.mentions, serializer);
     sse_encode_opt_box_autoadd_message_info(self.lastMessage, serializer);
   }
 
@@ -4105,6 +4112,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.text, serializer);
     sse_encode_opt_String(self.conversation, serializer);
     sse_encode_opt_String(self.from, serializer);
+    sse_encode_opt_String(self.mentions, serializer);
     sse_encode_bool(self.hasLink, serializer);
     sse_encode_opt_box_autoadd_u_64(self.afterMs, serializer);
     sse_encode_opt_box_autoadd_u_64(self.beforeMs, serializer);

@@ -760,6 +760,20 @@ message Content {
 - MLS padding rounds ciphertext to a 256-byte multiple to blur message length.
 - Read receipts are sent in DMs and small groups only.
 
+### Mentions
+
+- A mention is `@` followed by a username in a message's text: no separate field, so
+  every client (and the CLI) reads it the same way, and older clients show it as text.
+- It counts only where nothing touches it (no letter, digit or `_` right before the
+  `@` or right after the name), outside inline code and code blocks, and not after a
+  backslash (`\@alice` is literal). `_` is part of usernames, so `_` italics cannot
+  wrap a mention; `*` italics can.
+- Each client works out who a message mentions from its latest text, so an edit can
+  add or remove a mention, and a deleted message mentions no one.
+- A conversation's unread count says how many unread messages mention the user. Apps
+  show that count on groups, where ordinary unread messages show only as a dot.
+- Search can narrow to messages mentioning someone (`mentions:alice`).
+
 ### Edits
 
 - `Edit { target, body }` replaces the text of message `target`. There is no time

@@ -228,6 +228,51 @@ async fn search_finds_messages() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn mentions_are_counted_and_found() {
+    use post_core::SearchQuery;
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let _carol = server.client(dir.path(), "carol").await;
+
+    let group = alice.create_group("climbing", &["bob".into(), "carol".into()]).await.expect("group");
+    alice.send_text(group.id, "@bob can you drive?").await.expect("send");
+    alice.send_text(group.id, "and @carol brings the rope").await.expect("send");
+    let fixed = alice.send_text(group.id, "who has the topo?").await.expect("send");
+    let gone = alice.send_text(group.id, "@bob ignore this").await.expect("send");
+    alice.send_text(group.id, "not one: `@bob` or bob@example.org").await.expect("send");
+    bob.sync().await.expect("sync");
+
+    let conv = bob.conversation(group.id).expect("conversation");
+    assert_eq!((conv.unread, conv.mentions), (5, 2));
+    // An edit that adds a mention counts; a deleted message stops counting.
+    alice.edit_message(group.id, fixed.id, "@bob who has the topo?").await.expect("edit");
+    alice.delete_message(group.id, gone.id).await.expect("delete");
+    bob.sync().await.expect("sync");
+    let conv = bob.conversation(group.id).expect("conversation");
+    assert_eq!((conv.unread, conv.mentions), (4, 2));
+    // Your own mentions of yourself are not unread.
+    bob.send_text(group.id, "on it, @bob reporting").await.expect("send");
+    assert_eq!(bob.conversation(group.id).expect("conversation").mentions, 2);
+    bob.mark_read(group.id).await.expect("read");
+    assert_eq!(bob.conversation(group.id).expect("conversation").mentions, 0);
+
+    // Search finds them by who they mention, with words or alone.
+    let bodies = |found: post_core::SearchResults| found.messages.into_iter().filter_map(|m| m.body).collect::<Vec<_>>();
+    let q = |who: &str, text: &str| SearchQuery { mentions: Some(who.into()), text: text.into(), limit: 50, ..Default::default() };
+    assert_eq!(bodies(bob.search(&q("bob", "")).expect("search")), vec!["on it, @bob reporting", "@bob who has the topo?", "@bob can you drive?"]);
+    assert_eq!(bodies(bob.search(&q("bob", "topo")).expect("search")), vec!["@bob who has the topo?"]);
+    assert_eq!(bodies(bob.search(&q("carol", "")).expect("search")), vec!["and @carol brings the rope"]);
+    assert!(bodies(bob.search(&q("dave", "")).expect("search")).is_empty());
+
+    // Survives a restart (the database's own function is there again).
+    drop(bob);
+    let bob = Core::open(&dir.path().join("bob"), &DbKey::from_bytes([7; 32])).expect("reopen");
+    assert_eq!(bodies(bob.search(&q("carol", "")).expect("search")), vec!["and @carol brings the rope"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn unread_counts_and_previews() {
     let server = Server::start().await;
     let dir = tempfile::tempdir().expect("tempdir");

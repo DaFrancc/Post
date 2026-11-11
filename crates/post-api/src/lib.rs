@@ -51,6 +51,8 @@ pub struct Conversation {
     pub following: bool,
     /// Messages from others since you last marked it read.
     pub unread: u32,
+    /// How many of those mention you.
+    pub mentions: u32,
 }
 
 /// A message.
@@ -256,6 +258,7 @@ fn conversation(c: core::Conversation) -> Conversation {
         last_activity_ms: c.last_activity_ms,
         following: c.following,
         unread: c.unread,
+        mentions: c.mentions,
     }
 }
 
@@ -503,6 +506,9 @@ pub struct SearchParams {
     /// Only messages with a link.
     #[serde(default)]
     pub has_link: bool,
+    /// Only messages that mention this username.
+    #[serde(default)]
+    pub mentions: Option<String>,
     /// Only sent at or after this (Unix ms).
     #[serde(default)]
     pub after_ms: Option<u64>,
@@ -857,6 +863,7 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 text: p.text,
                 conversation: p.conversation.as_deref().map(id).transpose()?,
                 from: p.from,
+                mentions: p.mentions,
                 has_link: p.has_link,
                 after_ms: p.after_ms,
                 before_ms: p.before_ms,

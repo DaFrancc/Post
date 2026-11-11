@@ -3292,6 +3292,7 @@ impl SseDecode for crate::api::client::ConversationInfo {
         let mut var_lastActivityMs = <i64>::sse_decode(deserializer);
         let mut var_following = <bool>::sse_decode(deserializer);
         let mut var_unread = <u32>::sse_decode(deserializer);
+        let mut var_mentions = <u32>::sse_decode(deserializer);
         let mut var_lastMessage =
             <Option<crate::api::client::MessageInfo>>::sse_decode(deserializer);
         return crate::api::client::ConversationInfo {
@@ -3302,6 +3303,7 @@ impl SseDecode for crate::api::client::ConversationInfo {
             last_activity_ms: var_lastActivityMs,
             following: var_following,
             unread: var_unread,
+            mentions: var_mentions,
             last_message: var_lastMessage,
         };
     }
@@ -3761,6 +3763,7 @@ impl SseDecode for crate::api::client::SearchOptions {
         let mut var_text = <String>::sse_decode(deserializer);
         let mut var_conversation = <Option<String>>::sse_decode(deserializer);
         let mut var_from = <Option<String>>::sse_decode(deserializer);
+        let mut var_mentions = <Option<String>>::sse_decode(deserializer);
         let mut var_hasLink = <bool>::sse_decode(deserializer);
         let mut var_afterMs = <Option<u64>>::sse_decode(deserializer);
         let mut var_beforeMs = <Option<u64>>::sse_decode(deserializer);
@@ -3771,6 +3774,7 @@ impl SseDecode for crate::api::client::SearchOptions {
             text: var_text,
             conversation: var_conversation,
             from: var_from,
+            mentions: var_mentions,
             has_link: var_hasLink,
             after_ms: var_afterMs,
             before_ms: var_beforeMs,
@@ -3994,6 +3998,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::ConversationInfo {
             self.last_activity_ms.into_into_dart().into_dart(),
             self.following.into_into_dart().into_dart(),
             self.unread.into_into_dart().into_dart(),
+            self.mentions.into_into_dart().into_dart(),
             self.last_message.into_into_dart().into_dart(),
         ]
         .into_dart()
@@ -4386,6 +4391,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::SearchOptions {
             self.text.into_into_dart().into_dart(),
             self.conversation.into_into_dart().into_dart(),
             self.from.into_into_dart().into_dart(),
+            self.mentions.into_into_dart().into_dart(),
             self.has_link.into_into_dart().into_dart(),
             self.after_ms.into_into_dart().into_dart(),
             self.before_ms.into_into_dart().into_dart(),
@@ -4513,6 +4519,7 @@ impl SseEncode for crate::api::client::ConversationInfo {
         <i64>::sse_encode(self.last_activity_ms, serializer);
         <bool>::sse_encode(self.following, serializer);
         <u32>::sse_encode(self.unread, serializer);
+        <u32>::sse_encode(self.mentions, serializer);
         <Option<crate::api::client::MessageInfo>>::sse_encode(self.last_message, serializer);
     }
 }
@@ -4882,6 +4889,7 @@ impl SseEncode for crate::api::client::SearchOptions {
         <String>::sse_encode(self.text, serializer);
         <Option<String>>::sse_encode(self.conversation, serializer);
         <Option<String>>::sse_encode(self.from, serializer);
+        <Option<String>>::sse_encode(self.mentions, serializer);
         <bool>::sse_encode(self.has_link, serializer);
         <Option<u64>>::sse_encode(self.after_ms, serializer);
         <Option<u64>>::sse_encode(self.before_ms, serializer);

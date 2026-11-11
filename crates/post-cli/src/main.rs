@@ -88,6 +88,9 @@ enum Command {
         /// Only sent by this username.
         #[arg(long)]
         from: Option<String>,
+        /// Only messages that mention this username.
+        #[arg(long)]
+        mentions: Option<String>,
         /// Only messages with a link.
         #[arg(long)]
         has_link: bool,
@@ -342,12 +345,13 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         }
         Command::Conversations => ("conversations", json!({})),
         Command::Messages { conversation, limit } => ("messages", json!({ "conversation": conversation, "limit": limit })),
-        Command::Search { text, conversation, from, has_link, oldest, limit, offset } => (
+        Command::Search { text, conversation, from, mentions, has_link, oldest, limit, offset } => (
             "search",
             json!({
                 "text": text.as_deref().unwrap_or_default(),
                 "conversation": conversation,
                 "from": from,
+                "mentions": mentions,
                 "has_link": has_link,
                 "oldest_first": oldest,
                 "limit": limit,
@@ -429,8 +433,9 @@ fn print_human(method: &str, v: &Value) {
         "conversations" => {
             for c in v.as_array().into_iter().flatten() {
                 let gone = if c["following"] == false { "  (left)" } else { "" };
-                let unread = match c["unread"].as_u64() {
-                    Some(n) if n > 0 => format!("  ({n} unread)"),
+                let unread = match (c["unread"].as_u64(), c["mentions"].as_u64()) {
+                    (Some(n), Some(m)) if m > 0 => format!("  ({n} unread, {m} mentioning you)"),
+                    (Some(n), _) if n > 0 => format!("  ({n} unread)"),
                     _ => String::new(),
                 };
                 println!("{}  {:5}  {}{unread}{gone}", s(c, "id"), s(c, "kind"), s(c, "title"));

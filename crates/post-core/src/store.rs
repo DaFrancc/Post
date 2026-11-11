@@ -181,7 +181,42 @@ pub fn open(path: &Path, key: &DbKey) -> Result<Connection> {
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
+    register_functions(&conn)?;
     Ok(conn)
+}
+
+/// SQL functions the schema's triggers call, so every connection that
+/// writes needs them.
+///
+/// `post_mentions(body)`: the usernames `body` mentions, as a JSON array
+/// (usernames need no escaping); `[]` for none or NULL.
+fn register_functions(conn: &Connection) -> Result<()> {
+    use rusqlite::functions::FunctionFlags;
+    conn.create_scalar_function("post_mentions", 1, FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC, |ctx| {
+        let body: Option<String> = ctx.get(0)?;
+        let names = body.as_deref().map(crate::content::mentions).unwrap_or_default();
+        Ok(format!("[{}]", names.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(",")))
+    })?;
+    Ok(())
+}
+
+/// A trigger that refreshes who one message mentions, from its latest
+/// text, as [`reindex_trigger`] refreshes the search index. Mentions are
+/// kept for messages that are not deleted and are understood.
+macro_rules! remention_trigger {
+    ($name:literal, $when:literal, $group:literal, $id:literal) => {
+        concat!(
+            "CREATE TRIGGER ", $name, " ", $when, " BEGIN
+                 DELETE FROM message_mentions WHERE pk = (SELECT pk FROM messages WHERE group_id = ", $group, " AND id = ", $id, ");
+                 INSERT OR IGNORE INTO message_mentions (username, pk)
+                     SELECT j.value, m.pk
+                     FROM messages m, json_each(post_mentions(
+                         (SELECT body FROM message_versions v WHERE v.group_id = m.group_id AND v.message_id = m.id
+                          ORDER BY v.seq IS NULL DESC, v.seq DESC, v.pk DESC LIMIT 1))) j
+                     WHERE m.group_id = ", $group, " AND m.id = ", $id, " AND m.deleted_at IS NULL AND m.unsupported = 0;
+             END;"
+        )
+    };
 }
 
 /// A trigger that puts one message back into the search index as it now
@@ -271,10 +306,36 @@ const MIGRATIONS: &[&str] = &[
              WHERE m.deleted_at IS NULL AND m.unsupported = 0
                AND EXISTS (SELECT 1 FROM message_versions v WHERE v.group_id = m.group_id AND v.message_id = m.id);"
     ),
+    // 10: who each message mentions (`@username`, design section 7), from
+    // its latest text, for unread mention counts and search. Kept current by
+    // triggers like the search index's, with every message filled in now.
+    concat!(
+        "CREATE TABLE message_mentions (
+             username  TEXT NOT NULL,
+             pk        INTEGER NOT NULL,
+             PRIMARY KEY (username, pk)
+         ) WITHOUT ROWID;
+         CREATE INDEX message_mentions_pk ON message_mentions (pk);",
+        remention_trigger!("mentions_version_added", "AFTER INSERT ON message_versions", "NEW.group_id", "NEW.message_id"),
+        remention_trigger!("mentions_version_sent", "AFTER UPDATE OF seq ON message_versions", "NEW.group_id", "NEW.message_id"),
+        remention_trigger!("mentions_version_gone", "AFTER DELETE ON message_versions", "OLD.group_id", "OLD.message_id"),
+        remention_trigger!("mentions_message_added", "AFTER INSERT ON messages", "NEW.group_id", "NEW.id"),
+        remention_trigger!("mentions_message_changed", "AFTER UPDATE OF deleted_at, unsupported ON messages", "NEW.group_id", "NEW.id"),
+        "CREATE TRIGGER mentions_message_gone AFTER DELETE ON messages BEGIN
+             DELETE FROM message_mentions WHERE pk = OLD.pk;
+         END;
+         INSERT OR IGNORE INTO message_mentions (username, pk)
+             SELECT j.value, m.pk
+             FROM messages m, json_each(post_mentions(
+                 (SELECT body FROM message_versions v WHERE v.group_id = m.group_id AND v.message_id = m.id
+                  ORDER BY v.seq IS NULL DESC, v.seq DESC, v.pk DESC LIMIT 1))) j
+             WHERE m.deleted_at IS NULL AND m.unsupported = 0;"
+    ),
 ];
 
 /// Create tables, both ours and OpenMLS's, and bring old databases up to date.
 pub fn migrate(conn: &mut Connection) -> Result<()> {
+    register_functions(conn)?;
     conn.execute_batch(SCHEMA)?;
     // Version 0 is a database made before versioning: it has version 1's tables.
     let version = conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?.max(1) as usize;
@@ -757,6 +818,8 @@ pub struct SearchFilter<'a> {
     pub before: Option<i64>,
     /// Only messages with a link.
     pub has_link: bool,
+    /// Only messages that mention this username.
+    pub mentions: Option<&'a str>,
     pub oldest_first: bool,
 }
 
@@ -780,6 +843,10 @@ pub fn search(conn: &Connection, f: &SearchFilter<'_>, limit: u32, offset: u32) 
     if let Some(s) = f.sender {
         wheres.push("m.sender_account = ?".into());
         args.push(Box::new(s.to_vec()));
+    }
+    if let Some(u) = f.mentions {
+        wheres.push("EXISTS (SELECT 1 FROM message_mentions mm WHERE mm.username = ? AND mm.pk = m.pk)".into());
+        args.push(Box::new(u.to_owned()));
     }
     if let Some(groups) = f.groups {
         if groups.is_empty() {
@@ -824,6 +891,20 @@ pub fn unread(conn: &Connection, groups: &[Vec<u8>]) -> Result<u32> {
     let mut n = 0u32;
     for g in groups {
         n = n.saturating_add(stmt.query_row([g], |r| r.get::<_, u32>(0))?);
+    }
+    Ok(n)
+}
+
+/// Unread messages (as [`unread`] counts them) in `groups` that mention
+/// `username`.
+pub fn unread_mentions(conn: &Connection, groups: &[Vec<u8>], username: &str) -> Result<u32> {
+    let mut stmt = conn.prepare(
+        "SELECT count(*) FROM message_mentions mm JOIN messages m ON m.pk = mm.pk JOIN conversations c ON c.group_id = m.group_id
+         WHERE mm.username = ?2 AND m.group_id = ?1 AND m.outgoing = 0 AND m.deleted_at IS NULL AND m.seq > c.read_seq",
+    )?;
+    let mut n = 0u32;
+    for g in groups {
+        n = n.saturating_add(stmt.query_row(params![g, username], |r| r.get::<_, u32>(0))?);
     }
     Ok(n)
 }

@@ -245,9 +245,141 @@ pub fn render_typing(template: &str, name: &str) -> String {
     if template.is_empty() { format!("{name} is typing") } else { template.replace(NAME_PLACEHOLDER, name) }
 }
 
+/// The usernames a message's text mentions (design section 7, "Mentions"),
+/// each once, in the order they first appear.
+///
+/// A mention is `@` and a username, not touching a letter, digit or `_` on
+/// either side, outside code and not after a backslash. The text is read in
+/// the same blocks as the app's formatting reads it: fenced code blocks,
+/// quote lines one at a time, and paragraphs in which inline code may run
+/// across lines.
+pub fn mentions(body: &str) -> Vec<String> {
+    let lines: Vec<(usize, usize)> = {
+        let mut out = Vec::new();
+        let mut start = 0;
+        for (i, b) in body.bytes().enumerate() {
+            if b == b'\n' {
+                out.push((start, i));
+                start = i + 1;
+            }
+        }
+        out.push((start, body.len()));
+        out
+    };
+    let line = |i: usize| &body[lines[i].0..lines[i].1];
+    let is_fence = |i: usize| line(i).starts_with("```");
+    let is_quote = |i: usize| line(i).starts_with("> ") || line(i) == ">";
+    // A fence opens a block when its own line holds no closing fence and a
+    // later line closes it.
+    let closes_at = |i: usize| (!line(i)[3..].contains("```")).then(|| (i + 1..lines.len()).find(|&c| is_fence(c))).flatten();
+
+    let mut found = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        if is_fence(i)
+            && let Some(close) = closes_at(i)
+        {
+            i = close + 1;
+            continue;
+        }
+        if is_quote(i) {
+            while i < lines.len() && is_quote(i) {
+                let (start, end) = lines[i];
+                scan_mentions(body, (start + 2).min(end), end, &mut found);
+                i += 1;
+            }
+            continue;
+        }
+        let first = i;
+        while i < lines.len() && !is_quote(i) && !(is_fence(i) && i != first && closes_at(i).is_some()) {
+            i += 1;
+        }
+        scan_mentions(body, lines[first].0, lines[i - 1].1, &mut found);
+    }
+    found
+}
+
+/// Mentions in one block of text, `body[from..to]`, skipping escapes and
+/// inline code as the app's formatting does.
+fn scan_mentions(body: &str, from: usize, to: usize, found: &mut Vec<String>) {
+    let s = &body.as_bytes()[..to];
+    let run = |i: usize, c: u8| s[i..].iter().take_while(|&&b| b == c).count();
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let mut i = from;
+    while i < to {
+        match s[i] {
+            b'\\' if i + 1 < to && s[i + 1].is_ascii_punctuation() => i += 2,
+            b'`' => {
+                // Code runs to the next run of exactly as many backticks.
+                let n = run(i, b'`');
+                let mut k = i + n;
+                let mut end = None;
+                while k < to {
+                    if s[k] == b'`' {
+                        let m = run(k, b'`');
+                        if m == n {
+                            end = Some(k + m);
+                            break;
+                        }
+                        k += m;
+                    } else {
+                        k += 1;
+                    }
+                }
+                i = match end {
+                    Some(e) if e - i > 2 * n => e,
+                    _ => i + n,
+                };
+            }
+            b'@' => {
+                let name_len = s[i + 1..].iter().take_while(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || **b == b'_').count();
+                let name = &body[i + 1..i + 1 + name_len];
+                let before_ok = !body[from..i].chars().next_back().is_some_and(word);
+                let after_ok = !body[i + 1 + name_len..to].chars().next().is_some_and(word);
+                if before_ok && after_ok && post_identity::chain::validate_username(name).is_ok() {
+                    if !found.iter().any(|f| f == name) {
+                        found.push(name.to_owned());
+                    }
+                    i += 1 + name_len;
+                } else {
+                    i += 1;
+                }
+            }
+            _ => i += 1,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mentions_in_text() {
+        let m = |s: &str| mentions(s);
+        assert_eq!(m("hi @alice and @bob_2, @alice again"), ["alice", "bob_2"]);
+        assert_eq!(m("@carol: start of text"), ["carol"]);
+        assert_eq!(m("**@dave** *@erin* (@frank) ||@gina||"), ["dave", "erin", "frank", "gina"]);
+        // `_` is part of names, so `_` italics cannot wrap one (`*` can).
+        assert!(m("_@erin_").is_empty());
+        assert_eq!(m("> quoted @hank\nand @ivan"), ["hank", "ivan"]);
+        // Not mentions: an email, too short or long, capitals, touching a
+        // word, escaped, in code.
+        assert!(m("mail sam@example.com").is_empty());
+        assert!(m("@ab @Alice @alice2X é@alice @alice_é").is_empty());
+        assert!(m(&format!("@{}", "a".repeat(33))).is_empty());
+        assert!(m(r"\@alice").is_empty());
+        assert!(m("`@alice` and ``x @bob ` y``").is_empty());
+        assert!(m("```\n@alice\n```\n").is_empty());
+        // An unclosed fence or tick is ordinary text.
+        assert_eq!(m("```\n@alice"), ["alice"]);
+        assert_eq!(m("a ` b @alice"), ["alice"]);
+        // Inline code runs across lines in a paragraph, not out of a quote.
+        assert!(m("a `x\n@alice` b").is_empty());
+        assert_eq!(m("> a `x\n@alice` b"), ["alice"]);
+        // Punctuation right after ends the name.
+        assert_eq!(m("thanks @alice! and @bob."), ["alice", "bob"]);
+    }
 
     #[test]
     fn typing_templates() {
