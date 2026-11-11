@@ -7,7 +7,11 @@ import 'package:path_provider/path_provider.dart';
 import 'package:postern/src/rust/api/client.dart';
 import 'package:postern/src/rust/frb_generated.dart';
 
+import 'theme.dart';
+import 'ui/window_frame.dart';
+
 Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   await RustLib.init();
   runApp(const PosternApp());
 }
@@ -19,12 +23,10 @@ class PosternApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Postern',
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF6E8BFF), brightness: Brightness.dark),
-        scaffoldBackgroundColor: const Color(0xFF06070C),
-      ),
-      home: const BridgeCheck(),
+      debugShowCheckedModeBanner: false,
+      theme: posternTheme(),
+      // Transparent, so the window frame's rounded corners show the desktop.
+      home: const Scaffold(backgroundColor: Colors.transparent, body: WindowFrame(child: BridgeCheck())),
     );
   }
 }
@@ -65,17 +67,24 @@ class _BridgeCheckState extends State<BridgeCheck> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.all(32),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(PShape.gap, 0, PShape.gap, PShape.gap),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(28),
+        decoration: BoxDecoration(
+          color: PColors.panel,
+          border: Border.all(color: PColors.border),
+          borderRadius: BorderRadius.circular(PShape.panelRadius),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Postern', style: Theme.of(context).textTheme.headlineMedium),
+            const Text('Messages', style: PType.title),
             const SizedBox(height: 16),
-            Text(_status),
+            Text(_status, style: PType.text),
             const SizedBox(height: 16),
-            for (final c in _conversations) Text('${c.isGroup ? 'group' : 'DM'}  ${c.title}'),
+            for (final c in _conversations) Text('${c.isGroup ? 'group' : 'DM'}  ${c.title}', style: PType.text),
           ],
         ),
       ),

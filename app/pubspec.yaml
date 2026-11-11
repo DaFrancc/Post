@@ -38,7 +38,6 @@ dependencies:
     path: rust_builder
   flutter_rust_bridge: 2.13.0
   path_provider: ^2.1.6
-
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -60,6 +59,19 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # Brand artwork lives only here, so final versions replace these files.
+  assets:
+    - assets/brand/
+
+  # Bundled, so the app never fetches fonts at runtime (SIL OFL, licences beside them).
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter.ttf
+    - family: SpaceGrotesk
+      fonts:
+        - asset: assets/fonts/SpaceGrotesk.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:
