@@ -272,6 +272,17 @@ pub struct LinkRequest {
     pub name: String,
 }
 
+/// One of this account's devices.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Device {
+    /// Its ID, hex.
+    pub id: String,
+    /// The name it was given; empty if none.
+    pub name: String,
+    /// Whether it is the device this call runs on.
+    pub this_device: bool,
+}
+
 /// A change to this account's profile. `None` leaves a field unchanged.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProfileUpdate {
@@ -434,6 +445,34 @@ impl Core {
     pub async fn link_approve(&self, code: &str) -> Result<LinkRequest> {
         let offer = self.engine.lock().await.link_approve(code).await?;
         Ok(LinkRequest { device_id: offer.entry.device_id().to_string(), name: offer.name })
+    }
+
+    /// This account's devices, oldest first.
+    pub async fn devices(&self) -> Result<Vec<Device>> {
+        let engine = self.engine.lock().await;
+        let me = engine.me.as_ref().filter(|_| engine.registered).ok_or(Error::NotRegistered)?.device;
+        Ok(engine
+            .devices()?
+            .into_iter()
+            .map(|(id, name)| Device { id: id.to_string(), name, this_device: id == me })
+            .collect())
+    }
+
+    /// Name one of this account's devices, given its ID or an unambiguous
+    /// prefix. The name is shared only with the account's own devices.
+    pub async fn rename_device(&self, device: &str, name: &str) -> Result<()> {
+        let mut engine = self.engine.lock().await;
+        let id = engine.resolve_device(device)?;
+        engine.rename_device(id, name).await
+    }
+
+    /// Remove another of this account's devices, given its ID or an
+    /// unambiguous prefix. It is cut off from the server and from every
+    /// conversation; the account's contacts see that it was removed.
+    pub async fn remove_device(&self, device: &str) -> Result<()> {
+        let mut engine = self.engine.lock().await;
+        let id = engine.resolve_device(device)?;
+        engine.remove_device(id).await
     }
 
     /// Log in and catch up. Safe to call when already connected.
@@ -626,6 +665,9 @@ fn core_futures_are_send(c: &Core, conv: ConversationId, msg: MessageId) {
     send(c.finish_link());
     send(c.link_inspect(""));
     send(c.link_approve(""));
+    send(c.devices());
+    send(c.rename_device("", ""));
+    send(c.remove_device(""));
     send(c.connect());
     send(c.is_connected());
     send(c.sync());

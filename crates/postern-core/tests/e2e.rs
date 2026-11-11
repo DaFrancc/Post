@@ -271,6 +271,53 @@ async fn linked_device_joins_conversations() {
     assert_eq!(last_in(&phone, dm2.id).as_deref(), Some("hello alice"));
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn removed_device_is_cut_off() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let dm = alice.start_dm("bob").await.expect("dm");
+    let phone = link(&server, dir.path(), &alice, "phone").await;
+    phone.sync().await.expect("phone sync");
+    bob.sync().await.expect("bob sync");
+
+    // Both devices are listed, with the phone's name, on both devices.
+    alice.rename_device(&alice.identity().await.expect("id").device_id, "laptop").await.expect("rename");
+    phone.sync().await.expect("phone sync");
+    async fn names(c: &Core) -> Vec<(String, bool)> {
+        let mut v: Vec<(String, bool)> = c.devices().await.expect("devices").into_iter().map(|d| (d.name, d.this_device)).collect();
+        v.sort();
+        v
+    }
+    assert_eq!(names(&alice).await, vec![("laptop".into(), true), ("phone".into(), false)]);
+    assert_eq!(names(&phone).await, vec![("laptop".into(), false), ("phone".into(), true)]);
+
+    // A device cannot remove itself here, and an unknown prefix is refused.
+    let phone_id = phone.identity().await.expect("id").device_id;
+    assert!(phone.remove_device(&phone_id).await.is_err());
+    assert!(alice.remove_device("zz").await.is_err());
+
+    // The laptop removes the phone by a prefix of its ID.
+    let mut bob_events = bob.subscribe();
+    alice.remove_device(&phone_id[..8]).await.expect("remove");
+    assert_eq!(names(&alice).await, vec![("laptop".into(), true)]);
+
+    // The server refuses the phone at once.
+    let reopened = Core::open(&dir.path().join("phone"), &DbKey::from_bytes([7; 32])).expect("reopen");
+    drop(phone);
+    assert!(reopened.connect().await.is_err(), "a removed device cannot log in");
+
+    // Bob's client accepts the removal commit (it checks the removal against
+    // Alice's chain), and the conversation goes on with the laptop.
+    bob.send_text(dm.id, "just you now").await.expect("send");
+    alice.sync().await.expect("alice sync");
+    assert_eq!(last_in(&alice, dm.id).as_deref(), Some("just you now"));
+    while let Ok(e) = bob_events.try_recv() {
+        assert!(!matches!(e, Event::Notice { .. }), "bob refused something: {e:?}");
+    }
+}
+
 fn last_in(c: &Core, conv: postern_core::ConversationId) -> Option<String> {
     c.messages(conv, 10).expect("messages").last().and_then(|m| m.body.clone())
 }

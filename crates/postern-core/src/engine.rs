@@ -653,6 +653,58 @@ impl Engine {
         Ok(offer)
     }
 
+    // ------------------------------------------------------------ devices
+
+    /// This account's active devices, oldest first, with their names.
+    pub fn devices(&self) -> Result<Vec<(DeviceId, String)>> {
+        let me = self.me()?;
+        let chain = self.chains.get(&me.account).ok_or(Error::Corrupt("own chain"))?;
+        chain
+            .active_devices()
+            .map(|d| Ok((d.id, store::synced_get(&self.conn, store::Synced::DeviceName, &d.id.0)?.unwrap_or_default())))
+            .collect()
+    }
+
+    /// An active device of this account from its ID or an unambiguous prefix
+    /// of at least four hex characters.
+    pub fn resolve_device(&self, id: &str) -> Result<DeviceId> {
+        let id = id.trim().to_ascii_lowercase();
+        if id.len() < 4 || !id.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(Error::InvalidInput("give a device ID, or at least its first four characters".into()));
+        }
+        let matches: Vec<DeviceId> = self.devices()?.into_iter().map(|(d, _)| d).filter(|d| d.to_string().starts_with(&id)).collect();
+        match matches.as_slice() {
+            [d] => Ok(*d),
+            [] => Err(Error::NotFound("device")),
+            _ => Err(Error::InvalidInput("more than one device starts with that; give more of its ID".into())),
+        }
+    }
+
+    /// Name one of this account's devices, on all of them.
+    pub async fn rename_device(&mut self, device: DeviceId, name: &str) -> Result<()> {
+        check_device_name(name)?;
+        let entry = content::DeviceNameEntry { device: device.0.to_vec(), name: name.into() };
+        self.sync_to_own_devices(content::SelfSync { device_names: vec![entry], ..Default::default() }).await
+    }
+
+    /// Remove another of this account's devices: publish its removal in the
+    /// chain, which makes the server cut it off at once, then remove it from
+    /// every group so it cannot follow them past the current epoch.
+    pub async fn remove_device(&mut self, device: DeviceId) -> Result<()> {
+        let raw = {
+            let me = self.me()?;
+            if device == me.device {
+                return Err(Error::InvalidInput("remove this device from another of your devices".into()));
+            }
+            let chain = self.chains.get(&me.account).ok_or(Error::Corrupt("own chain"))?;
+            let bytes = chain.next_link(me.device, Op::RemoveDevice { device_id: device }, store::now_ms())?;
+            postern_identity::chain::seal(&bytes, &me.keys.sign_link(&bytes)?, None)
+        };
+        self.append_own_link(raw).await?;
+        self.reconcile().await?;
+        self.flush_outbox().await
+    }
+
     /// Verify, record and upload a link to this account's own chain. The link
     /// is kept until the server answers, so a lost reply is resolved at the
     /// next login rather than leaving this device unsure of its own chain.
