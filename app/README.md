@@ -1,17 +1,15 @@
-# post
+# Post: the desktop app
 
-Post: private, post-quantum messaging
+The Flutter app for Post (Linux first). Building, running it and creating an
+account are in the main [README](../README.md#run-it-on-your-computer).
 
-## Getting Started
-
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+| Path | What |
+|---|---|
+| `lib/screens/` | The screens: welcome, the main view, chat, side panel, dialogs, settings |
+| `lib/state/` | What the signed-in app knows, kept current from the core's events |
+| `lib/ui/` | Shared controls, the window frame, message formatting |
+| `lib/src/rust/` | Generated bindings to `crates/post-ffi` (do not edit) |
+| `linux/` | The GTK runner, its custom window frame, and launcher files |
+| `integration_test/` | Screenshot and timing tests against a throwaway server |
+| `tool/` | `screens.sh` and `timing.sh`, which run those tests |
+| `assets/` | Fonts (OFL, licences beside them) and the placeholder logo |
