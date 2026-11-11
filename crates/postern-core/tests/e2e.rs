@@ -219,6 +219,7 @@ async fn linked_device_joins_conversations() {
     let dm = alice.start_dm("bob").await.expect("dm");
     alice.send_text(dm.id, "before the phone").await.expect("send");
     bob.sync().await.expect("bob sync");
+    alice.set_nickname("bob", "Bobby").await.expect("nickname");
 
     let phone = link(&server, dir.path(), &alice, "phone").await;
     let (laptop_id, phone_id) = (alice.identity().await.expect("id"), phone.identity().await.expect("id"));
@@ -231,8 +232,18 @@ async fn linked_device_joins_conversations() {
     let convs = phone.conversations().expect("conversations");
     assert_eq!(convs.iter().map(|c| c.id).collect::<Vec<_>>(), vec![dm.id]);
     assert!(phone.messages(dm.id, 10).expect("messages").is_empty());
-    // Its profile came from the account's self group.
+    // Its profile and Alice's private nicknames came from the self group.
     assert_eq!(phone.person("alice").await.expect("self").display_name, "Alice A");
+    assert_eq!(phone.person("bob").await.expect("bob").nickname, "Bobby");
+
+    // Nickname changes on either device reach the other; Bob never sees them.
+    phone.set_nickname("bob", "B").await.expect("nickname on phone");
+    alice.sync().await.expect("alice sync");
+    assert_eq!(alice.person("bob").await.expect("bob").nickname, "B");
+    alice.set_nickname("bob", "").await.expect("clear on laptop");
+    phone.sync().await.expect("phone sync");
+    assert_eq!(phone.person("bob").await.expect("bob").nickname, "");
+    assert_eq!(phone.conversations().expect("conversations")[0].title, "bob");
 
     // Bob reaches both devices; each device sees what the other sends.
     bob.sync().await.expect("bob sync");

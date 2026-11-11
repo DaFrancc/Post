@@ -19,7 +19,7 @@ pub struct Content {
     /// The sender's device chain head, for chain-head gossip (design section 5).
     #[prost(message, optional, tag = "3")]
     pub sender_chain: Option<ChainHead>,
-    #[prost(oneof = "Body", tags = "10, 13, 14, 17, 18")]
+    #[prost(oneof = "Body", tags = "10, 13, 14, 17, 18, 30")]
     pub body: Option<Body>,
 }
 
@@ -43,6 +43,41 @@ pub enum Body {
     Profile(Profile),
     #[prost(message, tag = "18")]
     ConversationName(ConversationName),
+    /// Self group only.
+    #[prost(message, tag = "30")]
+    SelfSync(SelfSync),
+}
+
+/// What an account's devices keep in step, sent only in its self group
+/// (design section 6). Each entry sets one value; an empty name clears it.
+#[derive(Clone, PartialEq, Message)]
+pub struct SelfSync {
+    #[prost(message, repeated, tag = "1")]
+    pub nicknames: Vec<NicknameEntry>,
+    #[prost(message, repeated, tag = "2")]
+    pub device_names: Vec<DeviceNameEntry>,
+    /// A full copy, sent when a device joins the self group. Receivers take
+    /// from it only values they lack, so it never undoes a newer change.
+    #[prost(bool, tag = "3")]
+    pub snapshot: bool,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct NicknameEntry {
+    /// 32-byte account ID.
+    #[prost(bytes = "vec", tag = "1")]
+    pub account: Vec<u8>,
+    #[prost(string, tag = "2")]
+    pub name: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct DeviceNameEntry {
+    /// 16-byte device ID.
+    #[prost(bytes = "vec", tag = "1")]
+    pub device: Vec<u8>,
+    #[prost(string, tag = "2")]
+    pub name: String,
 }
 
 /// The sender's profile (design section 7). Sent into every conversation when

@@ -172,6 +172,8 @@ enum Outcome {
     Changed([u8; 16]),
     Deleted([u8; 16]),
     Profile(AccountId),
+    /// Nicknames for these accounts changed.
+    Nicknames(Vec<AccountId>),
     Conversation,
 }
 
@@ -634,6 +636,10 @@ impl Engine {
         let raw = postern_identity::chain::seal(&bytes, &self.me()?.keys.sign_link(&bytes)?, Some(&cosig));
         self.append_own_link(raw).await?;
         channel.put(&conn, linking::SLOT_DONE, &linking::Step::default()).await?;
+        if !offer.name.is_empty() {
+            let entry = content::DeviceNameEntry { device: offer.entry.device_id().0.to_vec(), name: offer.name.clone() };
+            self.sync_to_own_devices(content::SelfSync { device_names: vec![entry], ..Default::default() }).await?;
+        }
 
         // Add it everywhere once it has KeyPackages on the server. If it is
         // slow, membership reconciliation adds it on a later sync instead.
@@ -1284,6 +1290,7 @@ impl Engine {
             }
             Body::Delete(d) => own_live_message(&self.conn, &gid, &d.target, &me.account)?,
             Body::ConversationName(n) => content::check_display_name(&n.name).map_err(|e| Error::InvalidInput(e.to_string()))?,
+            Body::SelfSync(s) => check_self_sync(s).map_err(Error::InvalidInput)?,
             _ => {}
         }
         let id = random16()?;
@@ -1336,6 +1343,17 @@ impl Engine {
                 Outcome::Conversation
             }
             Body::Profile(_) => Outcome::Nothing,
+            // A snapshot only repeats what this device already holds.
+            Body::SelfSync(s) if s.snapshot => Outcome::Nothing,
+            Body::SelfSync(s) => {
+                for n in &s.nicknames {
+                    store::synced_set_local(&tx, store::Synced::Nickname, &n.account, &n.name, Some(&id))?;
+                }
+                for d in &s.device_names {
+                    store::synced_set_local(&tx, store::Synced::DeviceName, &d.device, &d.name, Some(&id))?;
+                }
+                Outcome::Nicknames(s.nicknames.iter().filter_map(|n| store::account_id(&n.account).ok()).collect())
+            }
         };
         tx.commit()?;
         self.emit_outcome(gid, outcome)?;
@@ -1542,11 +1560,14 @@ impl Engine {
             self.merge_own_commit(gid, e.seq)?;
             let req = proto::Commit::decode(req.as_slice()).map_err(|_| Error::Corrupt("pending commit"))?;
             if conv.kind == KIND_SELF && !req.welcome_to.is_empty() {
-                // A new device of ours joined: tell it who we are.
+                // A new device of ours joined: give it our profile and
+                // everything the self group keeps in step.
                 let mine = self.me()?.account;
                 if let Some(p) = store::profile(&self.conn, &mine.0)? {
                     self.queue_body(gid, Body::Profile(profile_body(&p)))?;
                 }
+                let snapshot = self_snapshot(&self.conn)?;
+                self.queue_body(gid, Body::SelfSync(snapshot))?;
             }
             return self.emit_outcome(gid, Outcome::Conversation);
         }
@@ -1603,6 +1624,13 @@ impl Engine {
                     self.emit(Event::ProfileChanged { username });
                 }
             }
+            Outcome::Nicknames(accounts) => {
+                for a in accounts {
+                    if let Some(username) = store::username_of(&self.conn, &a.0)? {
+                        self.emit(Event::ProfileChanged { username });
+                    }
+                }
+            }
             Outcome::Conversation => {
                 if let Some(c) = store::conversation(&self.conn, &gid)?
                     && c.kind != KIND_SELF
@@ -1650,13 +1678,41 @@ impl Engine {
         }
     }
 
-    /// Set or clear a private nickname for someone. Never sent anywhere.
+    /// Set or clear a private nickname for someone. Shared only with this
+    /// account's own devices, through the self group.
     pub async fn set_nickname(&mut self, username: &str, nickname: &str) -> Result<()> {
         content::check_display_name(nickname).map_err(|e| Error::InvalidInput(e.to_string()))?;
         let account = self.resolve(username).await?;
-        store::set_nickname(&self.conn, &account.0, nickname)?;
+        let entry = content::NicknameEntry { account: account.0.to_vec(), name: nickname.into() };
+        self.sync_to_own_devices(content::SelfSync { nicknames: vec![entry], ..Default::default() }).await?;
         self.emit(Event::ProfileChanged { username: username.into() });
         Ok(())
+    }
+
+    /// Apply a change here and send it to this account's other devices. With
+    /// no self group yet, it stays on this device.
+    async fn sync_to_own_devices(&mut self, change: content::SelfSync) -> Result<()> {
+        match store::self_group(&self.conn)? {
+            Some(gid) => {
+                self.queue_body(gid, Body::SelfSync(change))?;
+                match self.flush_outbox().await {
+                    Ok(()) | Err(Error::NotConnected | Error::Network(_)) => Ok(()),
+                    Err(e) => Err(e),
+                }
+            }
+            None => {
+                check_self_sync(&change).map_err(Error::InvalidInput)?;
+                let tx = self.conn.transaction()?;
+                for n in &change.nicknames {
+                    store::synced_set_local(&tx, store::Synced::Nickname, &n.account, &n.name, None)?;
+                }
+                for d in &change.device_names {
+                    store::synced_set_local(&tx, store::Synced::DeviceName, &d.device, &d.name, None)?;
+                }
+                tx.commit()?;
+                Ok(())
+            }
+        }
     }
 }
 
@@ -1674,7 +1730,40 @@ fn body_allowed(body: &Body, self_group: bool) -> bool {
     match body {
         Body::Profile(_) => true,
         Body::Text(_) | Body::Edit(_) | Body::Delete(_) | Body::ConversationName(_) => !self_group,
+        Body::SelfSync(_) => self_group,
     }
+}
+
+/// Check every entry of a self-group sync before any is applied.
+fn check_self_sync(s: &content::SelfSync) -> std::result::Result<(), String> {
+    for n in &s.nicknames {
+        if n.account.len() != 32 {
+            return Err("a nickname names an invalid account".into());
+        }
+        content::check_display_name(&n.name).map_err(|e| e.to_string())?;
+    }
+    for d in &s.device_names {
+        if d.device.len() != 16 {
+            return Err("a device name names an invalid device".into());
+        }
+        content::check_display_name(&d.name).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// The full self-group snapshot for a device joining it.
+fn self_snapshot(conn: &Connection) -> Result<content::SelfSync> {
+    Ok(content::SelfSync {
+        nicknames: store::synced_all(conn, store::Synced::Nickname)?
+            .into_iter()
+            .map(|(account, name)| content::NicknameEntry { account, name })
+            .collect(),
+        device_names: store::synced_all(conn, store::Synced::DeviceName)?
+            .into_iter()
+            .map(|(device, name)| content::DeviceNameEntry { device, name })
+            .collect(),
+        snapshot: true,
+    })
 }
 
 /// The content form of a stored profile.
@@ -1963,6 +2052,26 @@ fn handle_content(
             }
             store::set_conversation_name(tx, gid, &sender.0, &n.name)?;
             Ok(Outcome::Conversation)
+        }
+        Some(Body::SelfSync(s)) => {
+            // The self group holds only our own devices; check anyway.
+            if sender != me {
+                return Err(reject("another account wrote to this account's device group"));
+            }
+            check_self_sync(s).map_err(reject)?;
+            let set = |kind, key: &[u8], name: &str| -> Result<bool> {
+                if s.snapshot { store::synced_fill(tx, kind, key, name, e.seq) } else { store::synced_apply(tx, kind, key, name, e.seq) }
+            };
+            let mut changed = Vec::new();
+            for n in &s.nicknames {
+                if set(store::Synced::Nickname, &n.account, &n.name)? {
+                    changed.extend(store::account_id(&n.account).ok());
+                }
+            }
+            for d in &s.device_names {
+                set(store::Synced::DeviceName, &d.device, &d.name)?;
+            }
+            Ok(Outcome::Nicknames(changed))
         }
         None => {
             let added = store::insert_message(tx, &new_message(None))?;
