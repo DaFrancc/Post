@@ -1,22 +1,22 @@
-# posternd container image (design section 12).
+# postd container image (design section 12).
 #
-#   podman build -f deploy/Containerfile -t localhost/posternd:latest .
+#   podman build -f deploy/Containerfile -t localhost/postd:latest .
 #
 # Build stage: full Rust toolchain. OpenSSL is compiled into the binary
 # (vendored-openssl), so the runtime image needs only glibc.
 FROM docker.io/library/rust:1.97-bookworm AS build
 WORKDIR /src
 COPY . .
-RUN cargo build --release --locked -p postern-server --features vendored-openssl \
- && strip target/release/posternd
+RUN cargo build --release --locked -p post-server --features vendored-openssl \
+ && strip target/release/postd
 
 # Runtime stage: distroless, no shell, runs as uid 65532.
 FROM gcr.io/distroless/cc-debian12:nonroot
-COPY --from=build /src/target/release/posternd /usr/local/bin/posternd
-ENV POSTERN_DB=/var/lib/postern/postern.db \
-    POSTERN_DB_KEY_FILE=/run/secrets/postern-db-key \
-    POSTERN_LISTEN=127.0.0.1:8080
-VOLUME /var/lib/postern
+COPY --from=build /src/target/release/postd /usr/local/bin/postd
+ENV POST_DB=/var/lib/post/post.db \
+    POST_DB_KEY_FILE=/run/secrets/post-db-key \
+    POST_LISTEN=127.0.0.1:8080
+VOLUME /var/lib/post
 USER nonroot
-ENTRYPOINT ["/usr/local/bin/posternd"]
+ENTRYPOINT ["/usr/local/bin/postd"]
 CMD ["serve"]

@@ -1,16 +1,16 @@
 # Alternative to the Quadlet files: `podman compose up -d` (or docker compose).
-# Set POSTERN_DOMAIN in the environment or an .env file first.
+# Set POST_DOMAIN in the environment or an .env file first.
 services:
-  posternd:
-    image: localhost/posternd:latest
+  postd:
+    image: localhost/postd:latest
     environment:
-      POSTERN_DOMAIN: ${POSTERN_DOMAIN:?set POSTERN_DOMAIN}
-      POSTERN_LISTEN: 127.0.0.1:8080
+      POST_DOMAIN: ${POST_DOMAIN:?set POST_DOMAIN}
+      POST_LISTEN: 127.0.0.1:8080
     volumes:
-      - postern-data:/var/lib/postern
+      - post-data:/var/lib/post
     secrets:
-      - source: postern-db-key
-        target: postern-db-key
+      - source: post-db-key
+        target: post-db-key
         uid: "65532"
         gid: "65532"
         mode: 0400
@@ -23,7 +23,7 @@ services:
   caddy:
     image: docker.io/library/caddy:2
     environment:
-      POSTERN_DOMAIN: ${POSTERN_DOMAIN}
+      POST_DOMAIN: ${POST_DOMAIN}
     ports: ["80:80", "443:443", "443:443/udp"]
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro,Z
@@ -32,10 +32,10 @@ services:
     restart: always
 
 secrets:
-  postern-db-key:
-    file: ./postern-db-key
+  post-db-key:
+    file: ./post-db-key
 
 volumes:
-  postern-data:
+  post-data:
   caddy-data:
   caddy-config:

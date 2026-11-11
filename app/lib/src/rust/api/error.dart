@@ -24,7 +24,7 @@ enum ErrorKind {
   /// The server could not be reached, or stopped answering.
   network,
 
-  /// The server is not a Postern server this app can talk to.
+  /// The server is not a Post server this app can talk to.
   server,
 
   /// No account on this device yet.
@@ -41,14 +41,14 @@ enum ErrorKind {
 }
 
 /// An error the app can show as it is.
-class PosternError implements FrbException {
+class PostError implements FrbException {
   /// What went wrong.
   final ErrorKind kind;
 
   /// One sentence for the user.
   final String message;
 
-  const PosternError({required this.kind, required this.message});
+  const PostError({required this.kind, required this.message});
 
   @override
   int get hashCode => kind.hashCode ^ message.hashCode;
@@ -56,7 +56,7 @@ class PosternError implements FrbException {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is PosternError &&
+      other is PostError &&
           runtimeType == other.runtimeType &&
           kind == other.kind &&
           message == other.message;

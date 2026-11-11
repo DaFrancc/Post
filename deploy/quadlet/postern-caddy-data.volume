@@ -1,3 +1,0 @@
-# Caddy's certificates and ACME account.
-[Volume]
-VolumeName=postern-caddy-data

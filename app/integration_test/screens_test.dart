@@ -18,9 +18,9 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:postern/main.dart';
-import 'package:postern/src/rust/frb_generated.dart';
-import 'package:postern/ui/controls.dart';
+import 'package:post/main.dart';
+import 'package:post/src/rust/frb_generated.dart';
+import 'package:post/ui/controls.dart';
 
 const _shots = String.fromEnvironment('SHOTS', defaultValue: 'build/screens');
 
@@ -40,7 +40,7 @@ final _bin = '${Directory.current.parent.path}/target/release';
 late Directory _work;
 final _processes = <Process>[];
 
-Map<String, String> get _serverEnv => {'POSTERN_DB': '${_work.path}/server.db', 'POSTERN_DB_KEY_FILE': '${_work.path}/server.key'};
+Map<String, String> get _serverEnv => {'POST_DB': '${_work.path}/server.db', 'POST_DB_KEY_FILE': '${_work.path}/server.key'};
 
 /// Keep a started process, to stop at the end.
 void _track(Process p) {
@@ -58,16 +58,16 @@ Future<String> _run(String exe, List<String> args, {Map<String, String>? env}) a
 
 /// Run the CLI as `user`.
 Future<String> cli(String user, List<String> args) =>
-    _run('$_bin/postern', ['--profile', '${_work.path}/$user', '--db-key-file', '${_work.path}/$user.key', ...args]);
+    _run('$_bin/post', ['--profile', '${_work.path}/$user', '--db-key-file', '${_work.path}/$user.key', ...args]);
 
 Future<dynamic> cliJson(String user, List<String> args) async => jsonDecode(await cli(user, ['--json', ...args]));
 
 Future<void> _startServer() async {
-  await _run('$_bin/posternd', ['keygen', '${_work.path}/server.key']);
+  await _run('$_bin/postd', ['keygen', '${_work.path}/server.key']);
   final probe = await ServerSocket.bind('127.0.0.1', 0);
   _port = probe.port;
   await probe.close();
-  _track(await Process.start('$_bin/posternd', ['serve', '--domain', '127.0.0.1:$_port', '--listen', '127.0.0.1:$_port'], environment: _serverEnv));
+  _track(await Process.start('$_bin/postd', ['serve', '--domain', '127.0.0.1:$_port', '--listen', '127.0.0.1:$_port'], environment: _serverEnv));
   for (var i = 0; i < 50; i++) {
     try {
       (await Socket.connect('127.0.0.1', _port)).destroy();
@@ -80,8 +80,8 @@ Future<void> _startServer() async {
 }
 
 Future<void> _register(String user, {String? name, String? note}) async {
-  await _run('$_bin/postern', ['keygen', '${_work.path}/$user.key']);
-  final invite = await _run('$_bin/posternd', ['invite'], env: _serverEnv);
+  await _run('$_bin/post', ['keygen', '${_work.path}/$user.key']);
+  final invite = await _run('$_bin/postd', ['invite'], env: _serverEnv);
   await cli(user, ['register', '--server', _url, '--invite', invite, '--username', user]);
   await cli(user, [
     'profile',
@@ -93,7 +93,7 @@ Future<void> _register(String user, {String? name, String? note}) async {
 /// Keep `user` online, with this presence, until the test ends.
 Future<void> _online(String user, String presence) async {
   await cli(user, ['presence', presence]);
-  _track(await Process.start('$_bin/postern', ['--profile', '${_work.path}/$user', '--db-key-file', '${_work.path}/$user.key', 'daemon', '--stdio']));
+  _track(await Process.start('$_bin/post', ['--profile', '${_work.path}/$user', '--db-key-file', '${_work.path}/$user.key', 'daemon', '--stdio']));
 }
 
 /// Accounts, conversations and messages to look at.
@@ -178,7 +178,7 @@ void main() {
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
 
   setUpAll(() async {
-    _work = await Directory.systemTemp.createTemp('postern-screens-');
+    _work = await Directory.systemTemp.createTemp('post-screens-');
     await _pids.parent.create(recursive: true);
     _pids.writeAsStringSync('');
     await RustLib.init();
@@ -197,7 +197,7 @@ void main() {
     await t.pumpWidget(
       RepaintBoundary(
         key: _screen,
-        child: PosternApp(profileDir: '${_work.path}/sam', keyFile: '${_work.path}/sam.key'),
+        child: PostApp(profileDir: '${_work.path}/sam', keyFile: '${_work.path}/sam.key'),
       ),
     );
 

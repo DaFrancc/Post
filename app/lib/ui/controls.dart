@@ -288,7 +288,7 @@ class PDialogEntrance extends StatelessWidget {
   }
 }
 
-/// A dialog in Postern's style: a title with a close button, then content.
+/// A dialog in Post's style: a title with a close button, then content.
 class PDialog extends StatelessWidget {
   const PDialog({super.key, required this.title, required this.child, this.width = 460});
 

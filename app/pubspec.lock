@@ -330,7 +330,7 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.8"
-  postern_ffi:
+  post_ffi:
     dependency: "direct main"
     description:
       path: rust_builder

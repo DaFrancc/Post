@@ -5,7 +5,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:postern/src/rust/api/client.dart';
+import 'package:post/src/rust/api/client.dart';
 
 import '../state/app_state.dart';
 import '../theme.dart';

@@ -1,6 +1,6 @@
-# postern
+# post
 
-Postern: private, post-quantum messaging
+Post: private, post-quantum messaging
 
 ## Getting Started
 

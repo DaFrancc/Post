@@ -7,17 +7,17 @@
 #   scripts/dev-account.sh alice group create climbing sam bob
 #   scripts/dev-account.sh alice conversations              IDs for --conversation
 #
-# Any postern command works after the name; see `postern --help`.
+# Any post command works after the name; see `post --help`.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 name=${1:?usage: dev-account.sh NAME COMMAND...}
 shift
 dir="$root/.dev/accounts"
-bin="$root/target/debug/postern"
+bin="$root/target/debug/post"
 url=ws://127.0.0.1:8080/v1/ws
 
-cargo build -q --manifest-path "$root/Cargo.toml" -p postern-cli
+cargo build -q --manifest-path "$root/Cargo.toml" -p post-cli
 install -d -m 700 "$dir"
 [[ -f $dir/$name.key ]] || "$bin" keygen "$dir/$name.key" >/dev/null
 p() { "$bin" --profile "$dir/$name" --db-key-file "$dir/$name.key" "$@"; }

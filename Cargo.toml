@@ -56,7 +56,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 url = "2.5"
 tempfile = "3"
-# The Flutter app's bridge (crates/postern-ffi). Pinned exactly: it must equal
+# The Flutter app's bridge (crates/post-ffi). Pinned exactly: it must equal
 # the flutter_rust_bridge_codegen version that generated the bindings, and the
 # Dart package version in app/pubspec.yaml.
 flutter_rust_bridge = "=2.13.0"

@@ -5,7 +5,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:postern/src/rust/api/client.dart';
+import 'package:post/src/rust/api/client.dart';
 
 import '../state/app_state.dart';
 import '../theme.dart';
@@ -1013,7 +1013,7 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
     }
     if (m.unsupported) {
       return const Text(
-        'This message needs a newer version of Postern.',
+        'This message needs a newer version of Post.',
         style: TextStyle(fontSize: 14, height: 1.5, fontStyle: FontStyle.italic, color: PColors.textFaint),
       );
     }

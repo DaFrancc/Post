@@ -7,7 +7,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
   jni
-  postern_ffi
+  post_ffi
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

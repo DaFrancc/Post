@@ -1,12 +1,12 @@
-// Postern, the app.
+// Post, the app.
 
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:postern/src/rust/api/client.dart';
-import 'package:postern/src/rust/frb_generated.dart';
+import 'package:post/src/rust/api/client.dart';
+import 'package:post/src/rust/frb_generated.dart';
 
 import 'screens/home.dart';
 import 'screens/welcome.dart';
@@ -14,8 +14,8 @@ import 'state/app_state.dart';
 import 'theme.dart';
 import 'ui/window_frame.dart';
 
-/// Like the CLI, `POSTERN_PROFILE` picks another profile directory and
-/// `POSTERN_DB_KEY_FILE` takes its key from a file instead of the keyring:
+/// Like the CLI, `POST_PROFILE` picks another profile directory and
+/// `POST_DB_KEY_FILE` takes its key from a file instead of the keyring:
 /// for running a second account, or a test profile, beside your own.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,11 +25,11 @@ Future<void> main() async {
   if (kReleaseMode) ErrorWidget.builder = (_) => const SizedBox.shrink();
   await RustLib.init();
   final env = Platform.environment;
-  runApp(PosternApp(profileDir: env['POSTERN_PROFILE'], keyFile: env['POSTERN_DB_KEY_FILE']));
+  runApp(PostApp(profileDir: env['POST_PROFILE'], keyFile: env['POST_DB_KEY_FILE']));
 }
 
-class PosternApp extends StatelessWidget {
-  const PosternApp({super.key, this.profileDir, this.keyFile});
+class PostApp extends StatelessWidget {
+  const PostApp({super.key, this.profileDir, this.keyFile});
 
   /// The profile to open; null for this user's own.
   final String? profileDir;
@@ -40,9 +40,9 @@ class PosternApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Postern',
+      title: 'Post',
       debugShowCheckedModeBanner: false,
-      theme: posternTheme(),
+      theme: postTheme(),
       // The frame goes around the navigator, so dialogs, menus and toasts
       // open inside the window's rounded frame rather than over its
       // transparent margin. Transparent, so the corners show the desktop.

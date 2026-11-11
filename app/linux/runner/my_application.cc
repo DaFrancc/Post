@@ -23,9 +23,9 @@ static void my_application_activate(GApplication* application) {
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
-  // Postern draws its own top bar (window_channel.cc), so no header bar or
+  // Post draws its own top bar (window_channel.cc), so no header bar or
   // system title bar. The title still names the window to the desktop.
-  gtk_window_set_title(window, "Postern");
+  gtk_window_set_title(window, "Post");
   // The icon from the installed theme (linux/packaging). Used on X11; on
   // Wayland the desktop takes it from the desktop entry for APPLICATION_ID.
   gtk_window_set_icon_name(window, APPLICATION_ID);
@@ -36,7 +36,7 @@ static void my_application_activate(GApplication* application) {
       project, self->dart_entrypoint_arguments);
 
   FlView* view = fl_view_new(project);
-  postern_window_prepare(window, view);
+  post_window_prepare(window, view);
   gtk_widget_show(GTK_WIDGET(view));
   gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
 
@@ -47,7 +47,7 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
-  postern_window_channel_register(window, view);
+  post_window_channel_register(window, view);
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }

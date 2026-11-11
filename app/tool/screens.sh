@@ -8,7 +8,7 @@ set -euo pipefail
 
 app=$(cd "$(dirname "$0")/.." && pwd)
 out=$(realpath -m "${1:-$app/build/screens}")
-cargo build -q --release --manifest-path "$app/../Cargo.toml" -p postern-server -p postern-cli
+cargo build -q --release --manifest-path "$app/../Cargo.toml" -p post-server -p post-cli
 rm -rf "$out"
 cd "$app"
 # The test lists the server and accounts it starts; stop them however the

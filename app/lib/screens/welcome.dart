@@ -5,8 +5,8 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:postern/src/rust/api/client.dart';
-import 'package:postern/src/rust/api/error.dart';
+import 'package:post/src/rust/api/client.dart';
+import 'package:post/src/rust/api/error.dart';
 
 import '../theme.dart';
 import '../ui/controls.dart';
@@ -96,7 +96,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   /// Put an error from the core next to the field it concerns, or under the
   /// form when it concerns none.
   void _showError(Object e) {
-    if (e is! PosternError) {
+    if (e is! PostError) {
       setState(() => _error = 'Something went wrong. Try again.');
       return;
     }
@@ -200,7 +200,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         ),
         const SizedBox(height: 20),
         const Text(
-          'Welcome to Postern',
+          'Welcome to Post',
           textAlign: TextAlign.center,
           style: TextStyle(fontFamily: PType.display, fontWeight: FontWeight.w600, fontSize: 26),
         ),
@@ -218,7 +218,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           onTap: () => _go(_Step.register),
         ),
         const SizedBox(height: 12),
-        _Choice(icon: Icons.devices_outlined, title: 'Link to my account', detail: 'You already use Postern on another device.', onTap: () => _go(_Step.link)),
+        _Choice(icon: Icons.devices_outlined, title: 'Link to my account', detail: 'You already use Post on another device.', onTap: () => _go(_Step.link)),
       ],
     );
   }
@@ -272,7 +272,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       error: _error,
       children: [
         const Text(
-          'On a device that already uses your account, choose Link a device, or run postern link add with this code.',
+          'On a device that already uses your account, choose Link a device, or run post link add with this code.',
           style: TextStyle(fontSize: 14, height: 1.5, color: PColors.textMuted),
         ),
         Container(

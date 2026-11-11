@@ -178,7 +178,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PersonInfo dco_decode_person_info(dynamic raw);
 
   @protected
-  PosternError dco_decode_postern_error(dynamic raw);
+  PostError dco_decode_post_error(dynamic raw);
 
   @protected
   PresenceChoice dco_decode_presence_choice(dynamic raw);
@@ -366,7 +366,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PersonInfo sse_decode_person_info(SseDeserializer deserializer);
 
   @protected
-  PosternError sse_decode_postern_error(SseDeserializer deserializer);
+  PostError sse_decode_post_error(SseDeserializer deserializer);
 
   @protected
   PresenceChoice sse_decode_presence_choice(SseDeserializer deserializer);
@@ -600,7 +600,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_person_info(PersonInfo self, SseSerializer serializer);
 
   @protected
-  void sse_encode_postern_error(PosternError self, SseSerializer serializer);
+  void sse_encode_post_error(PostError self, SseSerializer serializer);
 
   @protected
   void sse_encode_presence_choice(

@@ -3060,10 +3060,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05c8b63e8d9609db387f0324918f81d68fe27748f084ef092fb35954d0539a85"
 
 [[package]]
-name = "postern-api"
+name = "post-api"
 version = "0.1.0"
 dependencies = [
- "postern-core",
+ "post-core",
  "schemars",
  "serde",
  "serde_json",
@@ -3071,16 +3071,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "postern-cli"
+name = "post-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
  "getrandom 0.4.3",
  "hex",
- "postern-api",
- "postern-core",
- "postern-server",
+ "post-api",
+ "post-core",
+ "post-server",
  "serde",
  "serde_json",
  "tempfile",
@@ -3091,7 +3091,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "postern-core"
+name = "post-core"
 version = "0.1.0"
 dependencies = [
  "blind-rsa-signatures",
@@ -3106,10 +3106,10 @@ dependencies = [
  "openmls_libcrux_crypto",
  "openmls_sqlite_storage",
  "openmls_traits",
- "postern-identity",
- "postern-mls",
- "postern-proto",
- "postern-server",
+ "post-identity",
+ "post-mls",
+ "post-proto",
+ "post-server",
  "prost",
  "rusqlite",
  "rustls",
@@ -3126,7 +3126,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "postern-identity"
+name = "post-identity"
 version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
@@ -3141,7 +3141,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "postern-mls"
+name = "post-mls"
 version = "0.1.0"
 dependencies = [
  "openmls",
@@ -3149,20 +3149,20 @@ dependencies = [
  "openmls_libcrux_crypto",
  "openmls_rust_crypto",
  "openmls_traits",
- "postern-identity",
+ "post-identity",
  "prost",
  "thiserror",
 ]
 
 [[package]]
-name = "postern-proto"
+name = "post-proto"
 version = "0.1.0"
 dependencies = [
  "prost",
 ]
 
 [[package]]
-name = "postern-server"
+name = "post-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -3172,9 +3172,9 @@ dependencies = [
  "futures-util",
  "getrandom 0.4.3",
  "hex",
- "postern-identity",
- "postern-mls",
- "postern-proto",
+ "post-identity",
+ "post-mls",
+ "post-proto",
  "prost",
  "rusqlite",
  "sha2 0.10.9",
@@ -3188,7 +3188,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "postern_ffi"
+name = "post_ffi"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -3197,8 +3197,8 @@ dependencies = [
  "flutter_rust_bridge",
  "hex",
  "keyring-core",
- "postern-core",
- "postern-proto",
+ "post-core",
+ "post-proto",
  "sha2 0.10.9",
  "spellbook",
  "tempfile",

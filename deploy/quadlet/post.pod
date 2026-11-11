@@ -1,0 +1,7 @@
+# The Post pod: Caddy and postd share one network namespace.
+# Only Caddy's ports are published; postd listens on localhost inside.
+[Pod]
+PodName=post
+PublishPort=80:80
+PublishPort=443:443
+PublishPort=443:443/udp

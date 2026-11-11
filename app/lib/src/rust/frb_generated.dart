@@ -75,8 +75,8 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
-        stem: 'postern_ffi',
-        ioDirectory: '../crates/postern-ffi/target/release/',
+        stem: 'post_ffi',
+        ioDirectory: '../crates/post-ffi/target/release/',
         webPrefix: 'pkg/',
         wasmBindgenName: 'wasm_bindgen',
       );
@@ -392,7 +392,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientAddMembersConstMeta,
         argValues: [that, conversation, usernames],
@@ -432,7 +432,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientBeginLinkConstMeta,
         argValues: [that, server, deviceName],
@@ -470,7 +470,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_conversation_info,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientConversationConstMeta,
         argValues: [that, id],
@@ -506,7 +506,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_conversation_info,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientConversationsConstMeta,
         argValues: [that],
@@ -546,7 +546,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_conversation_info,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientCreateGroupConstMeta,
         argValues: [that, name, usernames],
@@ -586,7 +586,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientDeleteMessageConstMeta,
         argValues: [that, conversation, messageId],
@@ -620,7 +620,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_device_info,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientDevicesConstMeta,
         argValues: [that],
@@ -659,7 +659,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_message_info,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientEditMessageConstMeta,
         argValues: [that, conversation, messageId, text],
@@ -731,7 +731,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_identity,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientFinishLinkConstMeta,
         argValues: [that],
@@ -828,7 +828,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientLeaveGroupConstMeta,
         argValues: [that, conversation],
@@ -866,7 +866,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_link_request_info,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientLinkApproveConstMeta,
         argValues: [that, code],
@@ -904,7 +904,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_link_request_info,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientLinkInspectConstMeta,
         argValues: [that, code],
@@ -942,7 +942,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientMarkReadConstMeta,
         argValues: [that, conversation],
@@ -980,7 +980,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_member_info,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientMembersConstMeta,
         argValues: [that, conversation],
@@ -1020,7 +1020,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_message_version_info,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientMessageVersionsConstMeta,
         argValues: [that, conversation, messageId],
@@ -1060,7 +1060,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_message_info,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientMessagesConstMeta,
         argValues: [that, conversation, limit],
@@ -1100,7 +1100,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_notice_info,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientNoticesConstMeta,
         argValues: [that, conversation, limit],
@@ -1136,7 +1136,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         codec: SseCodec(
           decodeSuccessData:
               sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientOpenConstMeta,
         argValues: [profileDir, keyFile],
@@ -1171,7 +1171,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_presence_choice,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientOwnPresenceConstMeta,
         argValues: [that],
@@ -1206,7 +1206,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_person_info,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientPersonConstMeta,
         argValues: [that, username],
@@ -1243,7 +1243,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_presence_state,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientPresenceConstMeta,
         argValues: [that, username],
@@ -1277,7 +1277,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientRefreshKeysConstMeta,
         argValues: [that],
@@ -1316,7 +1316,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_identity,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientRegisterConstMeta,
         argValues: [that, server, invite, username],
@@ -1354,7 +1354,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientRemoveDeviceConstMeta,
         argValues: [that, device],
@@ -1394,7 +1394,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientRemoveMembersConstMeta,
         argValues: [that, conversation, usernames],
@@ -1434,7 +1434,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientRenameDeviceConstMeta,
         argValues: [that, device, name],
@@ -1474,7 +1474,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientRenameGroupConstMeta,
         argValues: [that, conversation, name],
@@ -1543,7 +1543,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientSafetyNumberConstMeta,
         argValues: [that, username],
@@ -1583,7 +1583,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_message_info,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientSendTextConstMeta,
         argValues: [that, conversation, text],
@@ -1621,7 +1621,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientSendTypingConstMeta,
         argValues: [that, conversation],
@@ -1663,7 +1663,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientSetAdminConstMeta,
         argValues: [that, conversation, username, admin],
@@ -1703,7 +1703,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientSetConversationNameConstMeta,
         argValues: [that, conversation, name],
@@ -1743,7 +1743,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientSetNicknameConstMeta,
         argValues: [that, username, nickname],
@@ -1781,7 +1781,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientSetPresenceConstMeta,
         argValues: [that, choice],
@@ -1819,7 +1819,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientSetProfileConstMeta,
         argValues: [that, change],
@@ -1859,7 +1859,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientSetSettingConstMeta,
         argValues: [that, key, value],
@@ -1899,7 +1899,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientSetVerifiedConstMeta,
         argValues: [that, username, verified],
@@ -1937,7 +1937,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_opt_String,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientSettingConstMeta,
         argValues: [that, key],
@@ -1975,7 +1975,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_conversation_info,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientStartDmConstMeta,
         argValues: [that, username],
@@ -2009,7 +2009,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiClientClientSyncConstMeta,
         argValues: [that],
@@ -2150,7 +2150,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         codec: SseCodec(
           decodeSuccessData:
               sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiSpellSpellerLoadConstMeta,
         argValues: [dir, languages, words],
@@ -2291,7 +2291,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiSpellSpellInstallConstMeta,
         argValues: [dir, code, aff, dic],
@@ -2355,7 +2355,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiSpellSpellRemoveConstMeta,
         argValues: [dir, code],
@@ -2383,7 +2383,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_String,
-          decodeErrorData: sse_decode_postern_error,
+          decodeErrorData: sse_decode_post_error,
         ),
         constMeta: kCrateApiSpellSpellUrlsConstMeta,
         argValues: [code],
@@ -2781,12 +2781,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  PosternError dco_decode_postern_error(dynamic raw) {
+  PostError dco_decode_post_error(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
     if (arr.length != 2)
       throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
-    return PosternError(
+    return PostError(
       kind: dco_decode_error_kind(arr[0]),
       message: dco_decode_String(arr[1]),
     );
@@ -3350,11 +3350,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  PosternError sse_decode_postern_error(SseDeserializer deserializer) {
+  PostError sse_decode_post_error(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_kind = sse_decode_error_kind(deserializer);
     var var_message = sse_decode_String(deserializer);
-    return PosternError(kind: var_kind, message: var_message);
+    return PostError(kind: var_kind, message: var_message);
   }
 
   @protected
@@ -3880,7 +3880,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_postern_error(PosternError self, SseSerializer serializer) {
+  void sse_encode_post_error(PostError self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_error_kind(self.kind, serializer);
     sse_encode_String(self.message, serializer);

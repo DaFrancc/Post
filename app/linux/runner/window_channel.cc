@@ -1,4 +1,4 @@
-// Postern's own window frame on Linux (X11 and Wayland).
+// Post's own window frame on Linux (X11 and Wayland).
 //
 // Moving and resizing are handed to the window manager from the mouse press
 // that started them: compositors, Wayland ones above all, accept a move or
@@ -116,7 +116,7 @@ void on_method_call(FlMethodChannel* channel, FlMethodCall* call, gpointer) {
   }
   g_autoptr(GError) error = nullptr;
   if (!fl_method_call_respond(call, response, &error)) {
-    g_warning("postern/window: could not respond: %s", error->message);
+    g_warning("post/window: could not respond: %s", error->message);
   }
 }
 
@@ -130,7 +130,7 @@ gboolean on_window_state(GtkWidget*, GdkEventWindowState* event, gpointer) {
 
 }  // namespace
 
-void postern_window_prepare(GtkWindow* window, FlView* view) {
+void post_window_prepare(GtkWindow* window, FlView* view) {
   // Client-side decorations, so GTK tells the window manager the window
   // draws its own frame (KDE's decoration protocol on Wayland, Motif hints
   // on X11). Merely turning decorations off does the opposite on KDE: GTK
@@ -172,14 +172,14 @@ void postern_window_prepare(GtkWindow* window, FlView* view) {
   gtk_window_set_geometry_hints(window, nullptr, &hints, GDK_HINT_MIN_SIZE);
 }
 
-void postern_window_channel_register(GtkWindow* window, FlView* view) {
+void post_window_channel_register(GtkWindow* window, FlView* view) {
   g_state = new WindowChannel();
   g_state->window = window;
   gdk_event_handler_set(record_events, nullptr, nullptr);
 
   FlEngine* engine = fl_view_get_engine(view);
   g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
-  g_state->channel = fl_method_channel_new(fl_engine_get_binary_messenger(engine), "postern/window",
+  g_state->channel = fl_method_channel_new(fl_engine_get_binary_messenger(engine), "post/window",
                                            FL_METHOD_CODEC(codec));
   fl_method_channel_set_method_call_handler(g_state->channel, on_method_call, nullptr, nullptr);
   g_signal_connect(window, "window-state-event", G_CALLBACK(on_window_state), nullptr);

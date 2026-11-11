@@ -1,0 +1,43 @@
+[package]
+name = "post-server"
+description = "postd: the Post relay and storage server"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "postd"
+path = "src/main.rs"
+
+[features]
+# Build OpenSSL (for SQLCipher) into the binary, for minimal container images
+# with no system libcrypto. Needs a full Perl at build time.
+vendored-openssl = ["rusqlite/bundled-sqlcipher-vendored-openssl"]
+
+[dependencies]
+post-identity = { path = "../post-identity" }
+post-mls = { path = "../post-mls" }
+post-proto = { path = "../post-proto" }
+rusqlite.workspace = true
+tokio.workspace = true
+axum.workspace = true
+futures-util.workspace = true
+prost.workspace = true
+getrandom.workspace = true
+sha2.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+blind-rsa-signatures.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio-tungstenite.workspace = true
+
+[lints]
+workspace = true

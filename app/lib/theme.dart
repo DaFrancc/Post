@@ -1,4 +1,4 @@
-// Postern's look, defined once. Every screen takes its colours, shapes and
+// Post's look, defined once. Every screen takes its colours, shapes and
 // type from here, so changing the look is an edit to this file.
 //
 // Direction: Discord's layout, made more modern: separate rounded panels on a
@@ -168,7 +168,7 @@ TextTheme _evenLeading(TextTheme t) {
   );
 }
 
-ThemeData posternTheme() {
+ThemeData postTheme() {
   final scheme = ColorScheme.fromSeed(
     seedColor: PColors.accent,
     brightness: Brightness.dark,

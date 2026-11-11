@@ -176,7 +176,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PersonInfo dco_decode_person_info(dynamic raw);
 
   @protected
-  PosternError dco_decode_postern_error(dynamic raw);
+  PostError dco_decode_post_error(dynamic raw);
 
   @protected
   PresenceChoice dco_decode_presence_choice(dynamic raw);
@@ -364,7 +364,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PersonInfo sse_decode_person_info(SseDeserializer deserializer);
 
   @protected
-  PosternError sse_decode_postern_error(SseDeserializer deserializer);
+  PostError sse_decode_post_error(SseDeserializer deserializer);
 
   @protected
   PresenceChoice sse_decode_presence_choice(SseDeserializer deserializer);
@@ -598,7 +598,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_person_info(PersonInfo self, SseSerializer serializer);
 
   @protected
-  void sse_encode_postern_error(PosternError self, SseSerializer serializer);
+  void sse_encode_post_error(PostError self, SseSerializer serializer);
 
   @protected
   void sse_encode_presence_choice(
@@ -656,7 +656,7 @@ class RustLibWire implements BaseWire {
 
   late final _rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClientPtr =
       _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Void>)>>(
-        'frbgen_postern_rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient',
+        'frbgen_post_rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient',
       );
   late final _rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient =
       _rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClientPtr
@@ -673,7 +673,7 @@ class RustLibWire implements BaseWire {
 
   late final _rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClientPtr =
       _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Void>)>>(
-        'frbgen_postern_rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient',
+        'frbgen_post_rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient',
       );
   late final _rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient =
       _rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClientPtr
@@ -690,7 +690,7 @@ class RustLibWire implements BaseWire {
 
   late final _rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpellerPtr =
       _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Void>)>>(
-        'frbgen_postern_rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller',
+        'frbgen_post_rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller',
       );
   late final _rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller =
       _rust_arc_increment_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpellerPtr
@@ -707,7 +707,7 @@ class RustLibWire implements BaseWire {
 
   late final _rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpellerPtr =
       _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Void>)>>(
-        'frbgen_postern_rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller',
+        'frbgen_post_rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller',
       );
   late final _rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpeller =
       _rust_arc_decrement_strong_count_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerSpellerPtr

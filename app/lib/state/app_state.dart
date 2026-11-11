@@ -5,13 +5,13 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:postern/src/rust/api/client.dart';
-import 'package:postern/src/rust/api/error.dart';
+import 'package:post/src/rust/api/client.dart';
+import 'package:post/src/rust/api/error.dart';
 
 /// One sentence to show for a failed call. Screens throw [ArgumentError]
 /// for their own checks, with the sentence as its message.
 String errorText(Object e) => switch (e) {
-  PosternError(:final message) => message,
+  PostError(:final message) => message,
   ArgumentError(:final message) => '$message',
   _ => 'Something went wrong. Try again.',
 };

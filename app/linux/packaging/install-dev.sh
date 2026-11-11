@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Install Postern's desktop entry and icon for the current user, pointing at
-# a local build, so the desktop shows Postern's name and icon for its window.
+# Install Post's desktop entry and icon for the current user, pointing at
+# a local build, so the desktop shows Post's name and icon for its window.
 #
 # On Wayland a window cannot set its own icon: the desktop finds it through
-# the desktop entry named after the app ID (org.postern.postern). Packages
+# the desktop entry named after the app ID (com.dafrancc.post). Packages
 # (AppImage, Flatpak, distribution packages) install these themselves; this
 # is for running a development build.
 #
@@ -12,19 +12,19 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
-app_id=org.postern.postern
+app_id=com.dafrancc.post
 data=${XDG_DATA_HOME:-$HOME/.local/share}
 sizes=(32 48 64 128 256 512)
 
 if [[ ${1:-} == --uninstall ]]; then
   rm -f "$data/applications/$app_id.desktop"
   for s in "${sizes[@]}"; do rm -f "$data/icons/hicolor/${s}x${s}/apps/$app_id.png"; done
-  echo "removed Postern's desktop entry and icons"
+  echo "removed Post's desktop entry and icons"
   exit 0
 fi
 
 mode=${1:-debug}
-binary="$here/../../build/linux/x64/$mode/bundle/postern"
+binary="$here/../../build/linux/x64/$mode/bundle/post"
 binary=$(realpath -m "$binary")
 [[ -x $binary ]] || { echo "no $mode build at $binary; run: flutter build linux --$mode" >&2; exit 1; }
 

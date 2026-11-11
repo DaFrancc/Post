@@ -1,6 +1,6 @@
-// The window's own frame: Postern draws its top bar, rounded corners and
+// The window's own frame: Post draws its top bar, rounded corners and
 // shadow instead of the system's. Native window operations go through the
-// runner's "postern/window" channel (linux/runner/window_channel.cc).
+// runner's "post/window" channel (linux/runner/window_channel.cc).
 //
 // When not maximized, the window keeps a transparent margin around the
 // rounded body: the shadow is drawn there, and the margin is where the edges
@@ -14,7 +14,7 @@ import 'package:flutter/services.dart';
 
 import '../theme.dart';
 
-const _channel = MethodChannel('postern/window');
+const _channel = MethodChannel('post/window');
 
 /// Width of the transparent margin around the window body. Must match the
 /// runner's minimum-size padding.
@@ -168,7 +168,7 @@ class _TitleBar extends StatelessWidget {
                       ),
                       const SizedBox(width: 10),
                       const Text(
-                        'Postern',
+                        'Post',
                         style: TextStyle(fontFamily: PType.display, fontWeight: FontWeight.w600, fontSize: 13.5, color: PColors.textMuted),
                       ),
                     ],
