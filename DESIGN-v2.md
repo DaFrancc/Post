@@ -933,7 +933,7 @@ a container secret or systemd credentials, never from the command line.
   member cannot follow the group after its removal.
 - **Wakes.** The anonymous connection subscribes to its groups with their access
   keys. The server keeps subscriptions in memory only and sends `Wake` on new
-  entries. Phones that are offline get a push in phase 7: the sender's client names
+  entries. Phones that are offline get a push in phase 8: the sender's client names
   the recipient devices in its send so the server can push them, used immediately
   and not stored.
 - **Mailboxes.** A Welcome is addressed to devices, so it goes to their mailboxes,
@@ -1277,11 +1277,11 @@ For every change:
 | 2 | Server core with metadata protection (anonymous connection, access keys, tokens, mailboxes, ephemeral relay), `post-api` and the CLI built on it: register, login, directory, KeyPackages, DMs with edits (all versions kept) and deletes, profiles (display names, per-conversation names, typing template, note); `--json` output and `post daemon --stdio` | Two CLI devices exchange, edit and delete DMs and see each other's profiles in an in-process test, and a test drives one through the JSON-RPC daemon. **Done 2026-11-10**; see "Phase 2 status" below |
 | 3 | Multi-device: linking, self group, device add and remove, chain-head gossip, private nicknames (stored in the self group) | A linked device joins all conversations; a removed one is cut off. **Done 2026-11-10**; see "Phase 3 status" below |
 | 4 | Groups: policy, metadata, leave, stale devices, key refresh; typing indicators and presence | Adversarial server tests pass; typing and presence reach online members and are never stored. **Done 2026-11-11**; see "Phase 4 status" below |
-| 5 | Flutter app, text only: Linux, then Windows, then Android | Daily use between real devices |
+| 5 | Flutter app, text only: Linux, then Windows | Daily use between real devices |
 | 5b | App updates over the wire (section 12, "App updates"): signed release manifests from the server, update detection, installing per platform | A device installs a signed update from the server and refuses an unsigned, modified or older one |
-| 6 | Attachments, profile pictures, and history sharing for new members and new devices | Resumable upload and download on all three platforms; a member added to a `Shared` group sees its history |
-| 7 | Android push and background sync | Messages arrive with the app closed |
-| 8 | Calls: 1:1 audio, then video, then group | Rekey on membership change verified |
+| 6 | Attachments, profile pictures, and history sharing for new members and new devices | Resumable upload and download on Linux and Windows; a member added to a `Shared` group sees its history |
+| 7 | Calls, on the desktop: 1:1 audio, then video, then group. Until Android push exists, a call rings only where Post is open | Rekey on membership change verified |
+| 8 | Android: the app, attachments and calls on it, push and background sync (calls ring as full-screen notifications) | Messages and calls arrive with the app closed |
 | 9 | Receipts, reactions, search, recovery key | |
 | 10 | External review; ciphersuite codepoint migration | |
 
