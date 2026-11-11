@@ -100,9 +100,14 @@ abstract class Client implements RustOpaqueInterface {
   Future<List<NoticeInfo>> notices({String? conversation, required int limit});
 
   /// Open (creating if needed) the profile in `profile_dir`. Its database
-  /// key comes from the platform keystore, made on first open.
-  static Future<Client> open({required String profileDir}) =>
-      RustLib.instance.api.crateApiClientClientOpen(profileDir: profileDir);
+  /// key comes from the platform keystore, made on first open; or, with
+  /// `key_file`, from that file (as the CLI does), which lets test and
+  /// headless profiles stay out of the keystore.
+  static Future<Client> open({required String profileDir, String? keyFile}) =>
+      RustLib.instance.api.crateApiClientClientOpen(
+        profileDir: profileDir,
+        keyFile: keyFile,
+      );
 
   /// The presence the user chose.
   Future<PresenceChoice> ownPresence();

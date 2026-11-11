@@ -1264,11 +1264,13 @@ fn wire__crate__api__client__Client_open_impl(
             let mut deserializer =
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_profile_dir = <String>::sse_decode(&mut deserializer);
+            let api_key_file = <Option<String>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PosternError>(
                     (move || async move {
-                        let output_ok = crate::api::client::Client::open(api_profile_dir).await?;
+                        let output_ok =
+                            crate::api::client::Client::open(api_profile_dir, api_key_file).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,

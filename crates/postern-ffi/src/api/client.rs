@@ -228,11 +228,16 @@ pub struct AppEvent {
 
 impl Client {
     /// Open (creating if needed) the profile in `profile_dir`. Its database
-    /// key comes from the platform keystore, made on first open.
-    pub async fn open(profile_dir: String) -> Result<Client, PosternError> {
+    /// key comes from the platform keystore, made on first open; or, with
+    /// `key_file`, from that file (as the CLI does), which lets test and
+    /// headless profiles stay out of the keystore.
+    pub async fn open(profile_dir: String, key_file: Option<String>) -> Result<Client, PosternError> {
         let dir = PathBuf::from(profile_dir);
         let core = tokio::task::spawn_blocking(move || -> anyhow::Result<Core> {
-            let key = crate::keystore::key_for(&dir)?;
+            let key = match key_file {
+                Some(f) => core::keyfile::read(std::path::Path::new(&f))?,
+                None => crate::keystore::key_for(&dir)?,
+            };
             Ok(Core::open(&dir, &key)?)
         })
         .await

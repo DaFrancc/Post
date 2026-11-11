@@ -175,7 +175,10 @@ abstract class RustLibApi extends BaseApi {
     required int limit,
   });
 
-  Future<Client> crateApiClientClientOpen({required String profileDir});
+  Future<Client> crateApiClientClientOpen({
+    required String profileDir,
+    String? keyFile,
+  });
 
   Future<PresenceChoice> crateApiClientClientOwnPresence({
     required Client that,
@@ -1049,12 +1052,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<Client> crateApiClientClientOpen({required String profileDir}) {
+  Future<Client> crateApiClientClientOpen({
+    required String profileDir,
+    String? keyFile,
+  }) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(profileDir, serializer);
+          sse_encode_opt_String(keyFile, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -1068,14 +1075,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_postern_error,
         ),
         constMeta: kCrateApiClientClientOpenConstMeta,
-        argValues: [profileDir],
+        argValues: [profileDir, keyFile],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiClientClientOpenConstMeta =>
-      const TaskConstMeta(debugName: "Client_open", argNames: ["profileDir"]);
+  TaskConstMeta get kCrateApiClientClientOpenConstMeta => const TaskConstMeta(
+    debugName: "Client_open",
+    argNames: ["profileDir", "keyFile"],
+  );
 
   @override
   Future<PresenceChoice> crateApiClientClientOwnPresence({
