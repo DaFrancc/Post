@@ -255,17 +255,51 @@ stolen phone. Two defences:
 
 ### Linking a device
 
-1. The new device generates its keys and shows a QR code holding a rendezvous ID, a
-   random 256-bit secret, and a hash of its `DeviceEntry`. Without a camera, the same
-   data is shown as a typed code of 125 bits in base32.
-2. An existing device scans it, fetches the `DeviceEntry` from the server rendezvous
-   slot, checks it against the hash, and shows "Add *Pixel 9* to your account?".
-3. On approval the two exchange the countersignature over a channel keyed by the
-   secret. The existing device signs and uploads `AddDevice`.
-4. The existing device adds the new one to the account's self group and to every
-   conversation, in the background (section 6).
+Implemented in `crates/postern-core/src/link.rs`, with the server side in
+`crates/postern-server/src/link.rs`.
 
-No long-term private key moves between devices at any point.
+The new device generates its keys and a random **link code** of 125 bits, shown as 25
+characters of Crockford base32 (`A884A-1S8XG-M86GD-BWP2J-AM8TG`), or as a QR code in
+the app. Case, spaces and dashes do not matter, and O, I and L read as 0, 1 and 1.
+Both devices derive two things from the code with HKDF-SHA256:
+
+- a **rendezvous ID**, naming a set of write-once slots on the server;
+- a **channel key**, sealing every slot with XChaCha20-Poly1305, bound to the
+  rendezvous and slot number so sealed payloads cannot be moved between slots.
+
+The server sees only the rendezvous ID and ciphertext. It cannot read or forge a
+slot, and recovering the code from the rendezvous ID means searching 2^125 codes.
+Rendezvous live in server memory only, for ten minutes, with limits per connection
+and in total. Both devices use anonymous connections: the new device has no account
+yet, and the slots carry nothing the server should tie to a session.
+
+| Slot | Written by | Holds |
+|---|---|---|
+| 0 `OFFER` | new device | its `DeviceEntry` and the name the user gave it |
+| 1 `ANSWER` | existing device | the unsigned `AddDevice` link, the username, the number of conversations |
+| 2 `COSIGN` | new device | its countersignature over that link |
+| 3 `DONE` | existing device | the server accepted the link |
+| 4 `READY` | new device | it has logged in and uploaded KeyPackages |
+| 5 `ADDED` | existing device | it added the new device to its conversations |
+
+1. The user enters the code on an existing device, which reads the offer and shows
+   "Add the device *Pixel 9* to your account?". It refuses a device already in the
+   chain, or one whose bot flag does not match the account.
+2. On approval it sends the `AddDevice` link bytes. The new device countersigns only
+   a link that adds exactly its own entry, and saves its keys before the
+   countersignature leaves, since the link may land whatever happens next.
+3. The existing device signs, verifies the whole link against its chain, records it,
+   and uploads it. The record is kept until the server answers, so a lost reply is
+   settled at the next login: done if the server's chain has the link, uploaded again
+   if the chain can still take it, dropped with a warning if another link took its
+   place. It then sends the device's name to the self group.
+4. The new device logs in and uploads enough KeyPackages for every conversation it
+   is about to join (it was told how many), then signals `READY`.
+5. The existing device adds it to the self group and every conversation (section 6,
+   "Adding a new device to its conversations").
+
+No private key moves between devices at any point. The new device takes its username
+from the verified chain once it logs in, not from what it was told.
 
 ### Removing a device
 
@@ -277,6 +311,11 @@ Any device publishes `RemoveDevice`. Two things follow:
   sees the chain link may do the same, so removal does not depend on one device.
   Until that commit, the removed device still holds the current epoch's access key,
   so it can fetch that epoch's ciphertext; the commit changes the key.
+- Contacts learn of the removal from the chain head in the account's next message
+  (below), or at their next directory fetch.
+
+A device cannot remove itself yet; another device of the account removes it. Signing
+out a device from itself, which would also wipe its local data, comes with the app.
 
 ### Verification
 
@@ -304,8 +343,19 @@ chain as an offline device able to sign `AddDevice`.
 - Every conversation is one MLS group. A DM is a group of two accounts.
 - Each **device** is one leaf. Members at the application level are accounts.
 - Invariant: a group's leaves are exactly the current devices of its member accounts.
-- Each account also has a **self group** of only its own devices. It carries read
-  markers, verified contacts, pinned usernames, settings and history-transfer keys.
+- Each account also has a **self group** of only its own devices. It carries the
+  account's profile, private nicknames and device names now; read markers, verified
+  contacts, pinned usernames, settings and history-transfer keys later. The account's
+  oldest device creates it; the others wait to be added, so an account does not end
+  up with one per device. If two ever exist, the lower group ID wins. It is never
+  listed as a conversation, takes no messages, and clients refuse any Welcome or
+  commit that would add another account or change its metadata.
+- Values in the self group (`SelfSync` messages) follow its log order: a value from
+  the log replaces one set at an earlier position; a change this device has sent but
+  the server has not placed yet is never replaced, since it will land after
+  everything already logged; clearing leaves a marker so an older value cannot
+  return. A device joining the self group gets a snapshot that fills in only values
+  it lacks, so a stale snapshot never undoes a newer change.
 
 Your other devices are ordinary members of each conversation, so they receive what
 you send with no special self-sync path.
@@ -411,9 +461,32 @@ only when the batch is empty. Devices top up when the server reports a low count
 
 ### Adding a new device to its conversations
 
-Right after linking, the existing device commits an add in each of the account's
-groups and sends the Welcome messages, working through them in the background. For
-someone in 150 conversations that is 150 small commits; DMs are a few kilobytes each.
+Group membership follows the device chains. On every sync, each device compares each
+of its groups with the verified chains and commits what differs:
+
+- this account's devices missing from the group are added;
+- leaves of devices their accounts have removed are removed.
+
+Any member may do either, so a change does not depend on one device. If two devices
+race, the server takes one commit per epoch and the other finds nothing left to do.
+Only an account's own devices add its devices, so other members never spend tokens
+on them.
+
+For each device to add, one `ClaimKeyPackages` names that device and a count, for
+one token, and returns up to that many one-time KeyPackages plus the last-resort one
+when they run short; the last-resort package is then used for the remaining groups.
+A device with no KeyPackages yet is retried after ten minutes rather than on every
+sync.
+
+A commit is recorded before it is sent and merged only when it comes back through
+the group's log, so messages logged before it in the same epoch are still read with
+the old keys. A commit whose outcome is unknown is retried at login (the server
+answers a retry with the existing entry), and one that lost its epoch to another
+commit is dropped.
+
+Right after linking, the existing device runs this at once, so the new device joins
+every conversation within seconds. For someone in 150 conversations that is 150
+small commits; DMs are a few kilobytes each.
 
 The new device gets history the same way as a new member (below), week by week on
 request, answered by the account's other devices. A person's own devices may go
@@ -743,8 +816,9 @@ like.
 | Session | Mailbox | `FetchMailbox`, `AckMailbox` (Welcomes addressed to this device) |
 | Session | Tokens | `IssueTokens(blinded messages)` |
 | Anonymous | Groups | `CreateGroup` (token), `Send`, `Commit`, `FetchGroups`, `Subscribe` (access key) |
-| Anonymous | KeyPackages | `ClaimKeyPackages(account)` (token) |
-| Session | Later phases | `Push.Register`, `Link.*`, `Call.Token`, blob tokens |
+| Anonymous | KeyPackages | `ClaimKeyPackages(account)` or `(account, device, count)` (token) |
+| Anonymous | Linking | `LinkPut`, `LinkGet` (sealed rendezvous slots; section 5) |
+| Session | Later phases | `Push.Register`, `Call.Token`, blob tokens |
 
 ### What the server validates
 
@@ -1080,7 +1154,7 @@ For every change:
 | 0 | Spikes (below) | Each has a yes/no answer |
 | 1 | `postern-proto`, `postern-identity` | Chain and hybrid-signature tests pass. **Done 2026-11-10.** |
 | 2 | Server core with metadata protection (anonymous connection, access keys, tokens, mailboxes, ephemeral relay), `postern-api` and the CLI built on it: register, login, directory, KeyPackages, DMs with edits (all versions kept) and deletes, profiles (display names, per-conversation names, typing template, note); `--json` output and `postern daemon --stdio` | Two CLI devices exchange, edit and delete DMs and see each other's profiles in an in-process test, and a test drives one through the JSON-RPC daemon. **Done 2026-11-10**; see "Phase 2 status" below |
-| 3 | Multi-device: linking, self group, device add and remove, chain-head gossip, private nicknames (stored in the self group) | A linked device joins all conversations; a removed one is cut off |
+| 3 | Multi-device: linking, self group, device add and remove, chain-head gossip, private nicknames (stored in the self group) | A linked device joins all conversations; a removed one is cut off. **Done 2026-11-10**; see "Phase 3 status" below |
 | 4 | Groups: policy, metadata, leave, stale devices, key refresh; typing indicators and presence | Adversarial server tests pass; typing and presence reach online members and are never stored |
 | 5 | Flutter app, text only: Linux, then Windows, then Android | Daily use between real devices |
 | 6 | Attachments, profile pictures, and history sharing for new members and new devices | Resumable upload and download on all three platforms; a member added to a `Shared` group sees its history |
@@ -1124,6 +1198,38 @@ Deferred, by design or to later phases:
 
 Spike 1's libcrux/RustCrypto interop check now runs in the test suite
 (`crates/postern-mls/tests/interop.rs`).
+
+### Phase 3 status (2026-11-10)
+
+Built: linking by code with the server rendezvous, the self group, membership that
+follows device chains, device listing, naming and removal, nickname and device-name
+sync, chain-head gossip checks, `DevicesChanged` events, and the matching API methods
+and CLI commands (`postern link new`, `postern link add`, `postern devices`). Protocol
+version 3. Profile databases now carry a schema version with ordered migrations.
+
+Verified:
+
+- End to end in one process: a linked device joins the account's DM and self group,
+  gets the account's profile and nicknames, receives and sends in the DM, appears as
+  the same account to the other side, and is included from the start in
+  conversations created later. Nickname changes and clears on either device reach
+  the other. No security notice is raised along the way, and the other side is told
+  that a device was added.
+- Removal: the server refuses the removed device at once; the other side accepts the
+  removal commit after checking it against the chain, learns of the removal from the
+  next message's chain head, and the conversation goes on.
+- Unit tests: link codes and channels, self-group ordering rules, migration of a
+  version 1 database, gossip comparison, rendezvous slots, and every protocol
+  variant round-tripping.
+- The real binaries: `link new` and `link add` between two CLI profiles, refusal to
+  approve without a terminal or `--yes`, device names on both devices, removal, and a
+  removed device refused at login.
+
+Deferred:
+
+- Signing a device out from itself (section 5, "Removing a device").
+- History for a newly linked device (phase 6, with attachments).
+- A QR code in the CLI; the app will show one.
 
 ### Spikes to run first
 

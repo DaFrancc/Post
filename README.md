@@ -9,11 +9,12 @@ The original sketch is kept in [`DESIGN.md`](DESIGN.md).
 
 ## Status
 
-Phases 1 and 2 are done: identity, the server with metadata protection, the
-client core, and the `postern` command-line client with a JSON-RPC daemon for
-bots. DMs with unlimited edits (every version kept), deletes and profiles work
-end to end. Groups, multi-device linking, the Flutter app, attachments, push and
-calls are later phases.
+Phases 1 to 3 are done: identity, the server with metadata protection, the
+client core, the `postern` command-line client with a JSON-RPC daemon for bots,
+and multiple devices per account. DMs with unlimited edits (every version kept),
+deletes, profiles, device linking and removal, and nicknames synced between your
+own devices work end to end. Groups, the Flutter app, attachments, push and calls
+are later phases.
 
 ## Layout
 
@@ -58,6 +59,22 @@ $B/postern --profile bob --db-key-file bob.key register \
 $B/postern --profile alice --db-key-file alice.key send --to bob "hello"
 $B/postern --profile bob --db-key-file bob.key sync
 $B/postern --profile bob --db-key-file bob.key conversations
+```
+
+To add a second device to Alice's account, run this on the new device. It prints a
+code and waits:
+
+```sh
+$B/postern keygen phone.key
+$B/postern --profile phone --db-key-file phone.key link new \
+  --server ws://127.0.0.1:8080/v1/ws --name phone
+```
+
+Then enter the code on Alice's existing device:
+
+```sh
+$B/postern --profile alice --db-key-file alice.key link add XXXXX-XXXXX-XXXXX-XXXXX-XXXXX
+$B/postern --profile alice --db-key-file alice.key devices
 ```
 
 `ws://` is for local testing only; real servers use `wss://` behind Caddy. See
