@@ -20,6 +20,14 @@ import 'home.dart' show Panel;
 /// Messages from one sender this close together share one header.
 const _groupWithin = Duration(minutes: 7);
 
+/// How long a new message's row takes to open. The composer shrinks back
+/// over the same time on the same curve after a send, so the two cancel
+/// out rather than the history dipping and climbing.
+const _rowOpens = Duration(milliseconds: 390);
+
+/// A new row's whole entrance: it opens, and its contents fade in after.
+const _rowEnters = Duration(milliseconds: 520);
+
 /// How many more messages to load when scrolling back.
 const _page = 150;
 
@@ -87,8 +95,33 @@ class _ChatViewState extends State<ChatView> {
     if (_initial == null || _initial!.contains(m.id)) return null;
     return _claimed.putIfAbsent(m.id, () {
       final i = _flights.indexWhere((f) => m.outgoing ? (f.outgoing && f.body == m.body) : (!f.outgoing && f.username == m.senderUsername));
-      return i < 0 ? null : _flights.removeAt(i);
+      if (i < 0) return null;
+      final f = _flights.removeAt(i);
+      // Your message's row starts opening this frame: the composer can
+      // shrink back now, alongside it.
+      if (f.outgoing) WidgetsBinding.instance.addPostFrameCallback((_) => _releaseComposer());
+      return f;
     });
+  }
+
+  /// While a sent message is on its way to the history, the composer keeps
+  /// the height it had: if it shrank at once, the history would drop into
+  /// the room it left and then climb back as the message's row opened.
+  /// Released when the row starts opening, so the two move together.
+  double? _composerHold;
+  Timer? _composerHoldTimer;
+
+  void _holdComposer(double height) {
+    _composerHoldTimer?.cancel();
+    // In case the message never shows (a send that fails slowly).
+    _composerHoldTimer = Timer(const Duration(seconds: 3), _releaseComposer);
+    setState(() => _composerHold = height);
+  }
+
+  void _releaseComposer() {
+    _composerHoldTimer?.cancel();
+    _composerHoldTimer = null;
+    if (mounted && _composerHold != null) setState(() => _composerHold = null);
   }
 
   bool _loadingMore = false;
@@ -111,6 +144,7 @@ class _ChatViewState extends State<ChatView> {
   @override
   void dispose() {
     _events.cancel();
+    _composerHoldTimer?.cancel();
     HardwareKeyboard.instance.removeHandler(_typeToCompose);
     _composer.dispose();
     _composerFocus.dispose();
@@ -242,12 +276,14 @@ class _ChatViewState extends State<ChatView> {
       // looks like the text lifts out of the box it was typed in.
       final shape = Rect.fromLTRB(box.left, box.top, field.right + 2, box.bottom);
       _flights.add(_Flight(body: text, outgoing: true, from: from, fromStyle: _composerText, fromShape: shape, fromRadius: 18));
+      _holdComposer(field.height);
     }
     _composer.clear();
     try {
       await _state.client.sendText(conversation: _id, text: text);
       _jumpToNewest();
     } catch (e) {
+      _releaseComposer();
       if (!mounted) return;
       // Put it back, so nothing typed is lost.
       if (_composer.text.isEmpty) _composer.text = text;
@@ -526,6 +562,7 @@ class _ChatViewState extends State<ChatView> {
               typingKey: _typingKey,
               fieldKey: _composerFieldKey,
               boxKey: _composerBoxKey,
+              holdHeight: _composerHold,
               onKey: _composerKey,
               onChanged: _typed,
               onSend: _send,
@@ -1167,7 +1204,7 @@ class _MessageTile extends StatefulWidget {
 
 class _MessageTileState extends State<_MessageTile> with SingleTickerProviderStateMixin {
   bool _hover = false;
-  late final AnimationController _in = AnimationController(vsync: this, duration: const Duration(milliseconds: 520), value: widget.arrived ? 0 : 1);
+  late final AnimationController _in = AnimationController(vsync: this, duration: _rowEnters, value: widget.arrived ? 0 : 1);
 
   /// Around the message's text, and its row: where a flight lands.
   final _bodyKey = GlobalKey();
@@ -1222,7 +1259,7 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
     // the row fades in (a flying message's text arrives on its own).
     final open = CurvedAnimation(
       parent: _in,
-      curve: const Interval(0, 0.75, curve: Curves.easeInOutCubic),
+      curve: Interval(0, _rowOpens.inMicroseconds / _rowEnters.inMicroseconds, curve: Curves.easeInOutCubic),
     );
     final fade = CurvedAnimation(
       parent: _in,
@@ -1570,6 +1607,7 @@ class _Composer extends StatelessWidget {
     required this.typingKey,
     required this.fieldKey,
     required this.boxKey,
+    required this.holdHeight,
     required this.onKey,
     required this.onChanged,
     required this.onSend,
@@ -1592,6 +1630,9 @@ class _Composer extends StatelessWidget {
 
   /// On the rounded box around it: a sent message's shape starts as this.
   final GlobalKey boxKey;
+
+  /// The field's height to keep for now, while a sent message is on its way.
+  final double? holdHeight;
   final FocusOnKeyEventCallback onKey;
   final ValueChanged<String> onChanged;
   final VoidCallback onSend;
@@ -1664,32 +1705,37 @@ class _Composer extends StatelessWidget {
                     // Its height eases between line counts, so sending a few
                     // lines lets the box (and the messages above it) settle
                     // back down rather than snap.
+                    // Shrinking after a send, it moves exactly as the new
+                    // message's row opens, so the history only ever rises.
                     child: AnimatedSize(
-                      duration: const Duration(milliseconds: 260),
+                      duration: _rowOpens,
                       curve: Curves.easeInOutCubic,
                       alignment: Alignment.bottomLeft,
-                      child: Theme(
-                        data: Theme.of(context).copyWith(visualDensity: VisualDensity.standard),
-                        child: TextField(
-                          key: fieldKey,
-                          controller: controller,
-                          focusNode: focus,
-                          minLines: 1,
-                          maxLines: 8,
-                          onChanged: onChanged,
-                          textCapitalization: TextCapitalization.sentences,
-                          textAlignVertical: TextAlignVertical.center,
-                          // The hint takes the text's metrics, or it sits apart.
-                          style: _composerText,
-                          decoration: InputDecoration(
-                            hintText: placeholder,
-                            hintStyle: _composerText.copyWith(color: PColors.textFaint),
-                            isDense: true,
-                            filled: false,
-                            contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(minHeight: holdHeight ?? 0),
+                        child: Theme(
+                          data: Theme.of(context).copyWith(visualDensity: VisualDensity.standard),
+                          child: TextField(
+                            key: fieldKey,
+                            controller: controller,
+                            focusNode: focus,
+                            minLines: 1,
+                            maxLines: 8,
+                            onChanged: onChanged,
+                            textCapitalization: TextCapitalization.sentences,
+                            textAlignVertical: TextAlignVertical.center,
+                            // The hint takes the text's metrics, or it sits apart.
+                            style: _composerText,
+                            decoration: InputDecoration(
+                              hintText: placeholder,
+                              hintStyle: _composerText.copyWith(color: PColors.textFaint),
+                              isDense: true,
+                              filled: false,
+                              contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                            ),
                           ),
                         ),
                       ),

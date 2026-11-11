@@ -139,10 +139,25 @@ void main() {
     composer.controller.text = sent;
     await t.pump();
     await t.tap(find.byTooltip('Send (Enter). Shift+Enter for a new line.'));
-    await waitFor(t, find.text(sent));
-    for (final ms in [0, 80, 160, 240, 320, 400]) {
-      await Future<void>.delayed(Duration(milliseconds: ms == 0 ? 0 : 80));
-      await _capture(t, '02b-send-$ms');
+    // Meanwhile the history only rises to make room: it once dipped as the
+    // composer shrank before the message's row opened.
+    final older = find.text('see you saturday');
+    var lowest = t.getRect(older).top;
+    // Frames of the flight along the way, once the message has appeared.
+    final watch = Stopwatch()..start();
+    int? arrived;
+    var frame = 0;
+    while (watch.elapsedMilliseconds < 1200) {
+      await t.pump();
+      final top = t.getRect(older).top;
+      expect(top, lessThanOrEqualTo(lowest + 0.5), reason: 'the history moved down during a send');
+      lowest = top;
+      if (arrived == null && find.text(sent).evaluate().isNotEmpty) arrived = watch.elapsedMilliseconds;
+      if (arrived != null && frame < 6 && watch.elapsedMilliseconds - arrived >= frame * 80) {
+        await _capture(t, '02b-send-${frame * 80}');
+        frame++;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 8));
     }
     await settle(t);
     expect(find.text(sent), findsOneWidget, reason: 'the flying copy is gone once it lands');
