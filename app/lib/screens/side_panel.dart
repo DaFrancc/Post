@@ -303,6 +303,10 @@ class _ProfileState extends State<_Profile> {
   String? _safetyNumber;
   bool _busy = false;
 
+  /// The number shows only when asked for, so it is not on screen by
+  /// accident. Forgotten with the panel (another conversation hides it).
+  bool _shown = false;
+
   AppState get _state => widget.state;
 
   @override
@@ -383,7 +387,15 @@ class _ProfileState extends State<_Profile> {
               ),
             ),
             const SizedBox(height: 10),
-            _SafetyCard(firstName: name.split(' ').first, number: _safetyNumber, verified: verified, busy: _busy, onSetVerified: _setVerified),
+            _SafetyCard(
+              firstName: name.split(' ').first,
+              number: _safetyNumber,
+              shown: _shown,
+              onShow: (v) => setState(() => _shown = v),
+              verified: verified,
+              busy: _busy,
+              onSetVerified: _setVerified,
+            ),
           ],
         );
       },
@@ -392,13 +404,27 @@ class _ProfileState extends State<_Profile> {
 }
 
 class _SafetyCard extends StatelessWidget {
-  const _SafetyCard({required this.firstName, required this.number, required this.verified, required this.busy, required this.onSetVerified});
+  const _SafetyCard({
+    required this.firstName,
+    required this.number,
+    required this.shown,
+    required this.onShow,
+    required this.verified,
+    required this.busy,
+    required this.onSetVerified,
+  });
 
   final String firstName;
   final String? number;
+
+  /// Whether the number itself is showing, or masked.
+  final bool shown;
+  final ValueChanged<bool> onShow;
   final bool verified;
   final bool busy;
   final ValueChanged<bool> onSetVerified;
+
+  static const _numberStyle = TextStyle(fontFamily: PType.mono, fontSize: 13, height: 1.7, letterSpacing: 0.5, color: Color(0xFFC9CDDC));
 
   /// 60 digits as three lines of four groups.
   static String _lines(String n) {
@@ -442,17 +468,45 @@ class _SafetyCard extends StatelessWidget {
           if (number == null)
             const PSpinner(size: 14)
           else
-            SelectableText(
-              _lines(number!),
-              style: const TextStyle(fontFamily: PType.mono, fontSize: 13, height: 1.7, letterSpacing: 0.5, color: Color(0xFFC9CDDC)),
+            // Masked until asked for: the same three lines in dots, so the
+            // card keeps its size either way.
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                AnimatedSwitcher(
+                  duration: PMotion.normal,
+                  child: shown
+                      ? SelectableText(key: const ValueKey('number'), _lines(number!), style: _numberStyle)
+                      : Text(
+                          key: const ValueKey('masked'),
+                          _lines(number!.replaceAll(RegExp(r'\d'), '•')),
+                          style: _numberStyle.copyWith(color: PColors.textFaint.withValues(alpha: 0.35)),
+                        ),
+                ),
+                if (!shown)
+                  FilledButton.tonalIcon(
+                    onPressed: () => onShow(true),
+                    icon: const Icon(Icons.visibility_outlined, size: 16),
+                    label: const Text('Show'),
+                    style: FilledButton.styleFrom(backgroundColor: PColors.panelRaised, foregroundColor: PColors.text),
+                  ),
+              ],
             ),
+          if (shown) ...[
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(onPressed: () => onShow(false), icon: const Icon(Icons.visibility_off_outlined, size: 15), label: const Text('Hide')),
+            ),
+          ],
           const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
                 child: verified
                     ? OutlinedButton(onPressed: busy ? null : () => onSetVerified(false), child: const Text('Unmark'))
-                    : FilledButton(onPressed: busy || number == null ? null : () => onSetVerified(true), child: const Text('Mark as verified')),
+                    // Comparing means looking at it: shown first.
+                    : FilledButton(onPressed: busy || number == null || !shown ? null : () => onSetVerified(true), child: const Text('Mark as verified')),
               ),
               const SizedBox(width: 6),
               PIconButton(
