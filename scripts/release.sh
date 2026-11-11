@@ -78,9 +78,11 @@ cmd_sign() {
   [[ $(gh release view "$tag" -R "$repo" --json isDraft -q .isDraft) == true ]] \
     || die "$tag is not a draft release (already published, or not built yet)"
 
+  # Expanded now: the cleanup runs after this function's locals are gone.
   local work
   work=$(mktemp -d)
-  trap 'rm -rf "$work"' EXIT
+  # shellcheck disable=SC2064
+  trap "rm -rf '$work'" EXIT
   echo "Downloading $tag…"
   gh release download "$tag" -R "$repo" -D "$work"
   shopt -s nullglob
