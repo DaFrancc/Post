@@ -438,7 +438,7 @@ impl Core {
     /// A conversation by ID.
     pub fn conversation(&self, id: ConversationId) -> Result<Conversation> {
         self.read(|c| {
-            let row = store::conversation(c, &id.0)?.ok_or(Error::NotFound("conversation"))?;
+            let row = store::conversation(c, &id.0)?.filter(|r| r.kind != store::KIND_SELF).ok_or(Error::NotFound("conversation"))?;
             conversation_from_row(c, &row)
         })
     }

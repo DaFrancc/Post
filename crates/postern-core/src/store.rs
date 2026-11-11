@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS conversations (
 -- One live DM per peer. A duplicate created concurrently is retired, and its
 -- messages are shown in the live one (design section 8, Delivery).
 CREATE UNIQUE INDEX IF NOT EXISTS one_live_dm_per_peer ON conversations(peer_account) WHERE kind = 1 AND active = 1;
+-- One live self group. If two were ever created, the lower ID wins, as for DMs.
+CREATE UNIQUE INDEX IF NOT EXISTS one_live_self_group ON conversations(kind) WHERE kind = 3 AND active = 1;
 CREATE TABLE IF NOT EXISTS messages (
     pk              INTEGER PRIMARY KEY,
     group_id        BLOB NOT NULL,
@@ -141,6 +143,8 @@ pub const STATE_FAILED: i64 = 3;
 pub const KIND_DM: i64 = 1;
 /// A named group.
 pub const KIND_GROUP: i64 = 2;
+/// This account's self group. Never listed as a conversation.
+pub const KIND_SELF: i64 = 3;
 
 /// Open a profile database with its key. Fails with [`Error::WrongKey`] if
 /// the key does not match.
@@ -324,10 +328,28 @@ pub fn dm_with(conn: &Connection, peer: &AccountId) -> Result<Option<Conversatio
         .optional()?)
 }
 
-/// Live conversations, most recently active first.
+/// Live conversations, most recently active first. The self group is not a
+/// conversation and is left out.
 pub fn conversations(conn: &Connection) -> Result<Vec<ConversationRow>> {
-    let mut stmt = conn.prepare(&format!("SELECT {CONV_COLS} FROM conversations WHERE active = 1 ORDER BY last_activity DESC"))?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {CONV_COLS} FROM conversations WHERE active = 1 AND kind != 3 ORDER BY last_activity DESC"
+    ))?;
     Ok(stmt.query_map([], conv_row)?.collect::<rusqlite::Result<_>>()?)
+}
+
+/// Groups that should hear about account-wide changes such as a new profile:
+/// every live conversation this device is still in, and the self group.
+pub fn broadcast_groups(conn: &Connection) -> Result<Vec<[u8; 16]>> {
+    let mut stmt = conn.prepare(&format!("SELECT {CONV_COLS} FROM conversations WHERE active = 1 AND following = 1"))?;
+    Ok(stmt.query_map([], conv_row)?.map(|r| r.map(|c| c.group_id)).collect::<rusqlite::Result<_>>()?)
+}
+
+/// The live self group, if this device is in one.
+pub fn self_group(conn: &Connection) -> Result<Option<[u8; 16]>> {
+    Ok(conn
+        .query_row(&format!("SELECT {CONV_COLS} FROM conversations WHERE kind = 3 AND active = 1"), [], conv_row)
+        .optional()?
+        .map(|c| c.group_id))
 }
 
 /// Groups this device still fetches: every conversation it has not been

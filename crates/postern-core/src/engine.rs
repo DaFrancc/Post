@@ -31,7 +31,7 @@ use tokio::sync::broadcast;
 use crate::content::{self, Body, Content};
 use crate::net::{ServerConn, expect_reply};
 use crate::provider::Provider;
-use crate::store::{self, KIND_DM, KIND_GROUP, NewMessage};
+use crate::store::{self, KIND_DM, KIND_GROUP, KIND_SELF, NewMessage};
 use crate::{ConversationId, Error, Event, MessageId, Result};
 
 /// Exporter label for group access keys (design section 8).
@@ -378,7 +378,49 @@ impl Engine {
         self.anon = Some(anon);
         self.subscribed.clear();
         self.retry_pending_groups().await?;
+        self.ensure_self_group().await?;
         self.sync().await
+    }
+
+    /// Create this account's self group if this device is in none and is the
+    /// account's oldest active device. Every other device waits to be added,
+    /// so an account does not end up with one self group per device.
+    async fn ensure_self_group(&mut self) -> Result<()> {
+        if store::self_group(&self.conn)?.is_some() {
+            return Ok(());
+        }
+        let me = self.me()?;
+        let oldest = self.chains.get(&me.account).and_then(|c| c.active_devices().next()).map(|d| d.id);
+        if oldest != Some(me.device) {
+            return Ok(());
+        }
+        let gid = random16()?;
+        let request = {
+            let me = self.me.as_ref().ok_or(Error::NotRegistered)?;
+            let tx = self.conn.transaction()?;
+            let provider = Provider::on(&tx);
+            let mut group = postern_mls::group_builder(&GroupMeta::self_group(&me.account))
+                .map_err(mls)?
+                .with_group_id(GroupId::from_slice(&gid))
+                .build(&provider, &me.signer, me.credential())
+                .map_err(mls)?;
+            // The server registers a group at epoch 1, so commit once to get there.
+            group.self_update(&provider, &me.signer, LeafNodeParameters::default()).map_err(mls)?;
+            let staged = group.pending_commit().ok_or(Error::Corrupt("pending commit"))?;
+            let access = staged.export_secret(provider.crypto(), ACCESS_LABEL, &[], 32).map_err(mls)?;
+            let req = proto::CreateGroup {
+                token: None,
+                group_id: gid.to_vec(),
+                access_hash: Sha256::digest(&access).to_vec(),
+                welcome: Vec::new(),
+                welcome_to: Vec::new(),
+            };
+            store::pending_group_put(&tx, &gid, &req.encode_to_vec())?;
+            drop(provider);
+            tx.commit()?;
+            req
+        };
+        self.finish_create(gid, request).await
     }
 
     // ------------------------------------------------------------ directory, key packages, tokens
@@ -677,7 +719,9 @@ impl Engine {
     /// profile so the others see our name, and subscribe to the group so the
     /// server wakes us for it.
     async fn after_join(&mut self, gid: [u8; 16]) -> Result<()> {
-        if let Some(c) = store::conversation(&self.conn, &gid)? {
+        if let Some(c) = store::conversation(&self.conn, &gid)?
+            && c.kind != KIND_SELF
+        {
             self.emit(Event::ConversationAdded(crate::conversation_from_row(&self.conn, &c)?));
         }
         let mine = self.me()?.account;
@@ -724,6 +768,9 @@ impl Engine {
         let conv = store::conversation(&self.conn, &gid)?.ok_or(Error::NotFound("conversation"))?;
         if !conv.following {
             return Err(Error::InvalidInput("you are no longer in this conversation".into()));
+        }
+        if !body_allowed(&body, conv.kind == KIND_SELF) {
+            return Err(Error::NotFound("conversation"));
         }
         let me = self.me.as_ref().ok_or(Error::NotRegistered)?;
         // Validate before anything is written.
@@ -1040,7 +1087,9 @@ impl Engine {
                 }
             }
             Outcome::Conversation => {
-                if let Some(c) = store::conversation(&self.conn, &gid)? {
+                if let Some(c) = store::conversation(&self.conn, &gid)?
+                    && c.kind != KIND_SELF
+                {
                     self.emit(Event::ConversationChanged(crate::conversation_from_row(&self.conn, &c)?));
                 }
             }
@@ -1071,11 +1120,11 @@ impl Engine {
         let mine = self.me()?.account;
         row.version = store::profile(&self.conn, &mine.0)?.map_or(0, |p| p.version) + 1;
         store::upsert_profile(&self.conn, &mine.0, &row)?;
+        // Every conversation, and the self group so this account's other
+        // devices learn it too.
         let body = profile_body(&row);
-        for c in store::conversations(&self.conn)? {
-            if c.following {
-                self.queue_body(c.group_id, Body::Profile(body.clone()))?;
-            }
+        for gid in store::broadcast_groups(&self.conn)? {
+            self.queue_body(gid, Body::Profile(body.clone()))?;
         }
         self.emit(Event::ProfileChanged { username: self.me()?.username.clone() });
         match self.flush_outbox().await {
@@ -1091,6 +1140,15 @@ impl Engine {
         store::set_nickname(&self.conn, &account.0, nickname)?;
         self.emit(Event::ProfileChanged { username: username.into() });
         Ok(())
+    }
+}
+
+/// Whether a body belongs in a group: messages go in conversations, never in
+/// the self group; profiles go everywhere.
+fn body_allowed(body: &Body, self_group: bool) -> bool {
+    match body {
+        Body::Profile(_) => true,
+        Body::Text(_) | Body::Edit(_) | Body::Delete(_) | Body::ConversationName(_) => !self_group,
     }
 }
 
@@ -1137,6 +1195,20 @@ fn install_conversation(tx: &Transaction<'_>, gid: &[u8; 16], meta: &GroupMeta, 
             }
         }
         Some(MlsKind::Group) => store::insert_conversation(tx, gid, KIND_GROUP, None, &meta.name, true)?,
+        Some(MlsKind::SelfGroup) => {
+            if meta.admins.len() != 1 || meta.admins[0][..] != me.0 {
+                return Err(Error::Corrupt("another account's self group"));
+            }
+            match store::self_group(tx)? {
+                Some(existing) if existing == *gid => {}
+                Some(existing) if *gid < existing => {
+                    store::set_inactive(tx, &existing)?;
+                    store::insert_conversation(tx, gid, KIND_SELF, None, "", true)?;
+                }
+                Some(_) => store::insert_conversation(tx, gid, KIND_SELF, None, "", false)?,
+                None => store::insert_conversation(tx, gid, KIND_SELF, None, "", true)?,
+            }
+        }
         _ => return Err(Error::Corrupt("group kind")),
     }
     Ok(())
@@ -1166,11 +1238,15 @@ fn join_from_welcome(
     if !leaves.iter().any(|l| l.account == me.account && l.device == me.device) {
         return Err(reject("this device is not in it"));
     }
-    if meta.conversation_kind() == Some(MlsKind::Dm) {
-        let admins: HashSet<AccountId> = meta.admins.iter().filter_map(|a| store::account_id(a).ok()).collect();
-        if accounts.len() != 2 || accounts != admins {
+    let admins: HashSet<AccountId> = meta.admins.iter().filter_map(|a| store::account_id(a).ok()).collect();
+    match meta.conversation_kind() {
+        Some(MlsKind::Dm) if accounts.len() != 2 || accounts != admins => {
             return Err(reject("a direct message must be between exactly its two people"));
         }
+        Some(MlsKind::SelfGroup) if accounts.len() != 1 || admins != HashSet::from([me.account]) => {
+            return Err(reject("a device group must hold only this account's devices"));
+        }
+        _ => {}
     }
     staged.into_group(&provider).map_err(fatal)?;
     install_conversation(tx, &gid, &meta, &me.account)?;
@@ -1221,8 +1297,9 @@ fn check_commit(
     let old = GroupMeta::from_extensions(group.extensions()).map_err(fatal)?;
     let new = GroupMeta::from_extensions(staged.group_context().extensions()).map_err(|_| reject("a change set invalid group details"))?;
     let is_dm = old.conversation_kind() == Some(MlsKind::Dm);
+    let is_self = old.conversation_kind() == Some(MlsKind::SelfGroup);
     let is_admin = old.admins.iter().any(|a| a[..] == committer.0);
-    if new != old && (is_dm || !is_admin) {
+    if new != old && (is_dm || is_self || !is_admin) {
         return Err(reject("someone who is not an admin tried to change the group"));
     }
     let members: Vec<LeafIdentity> = group.members().filter_map(|m| leaf_of_member(&m).ok()).collect();
@@ -1231,7 +1308,12 @@ fn check_commit(
         let leaf = postern_mls::leaf_identity(add.add_proposal().key_package().leaf_node()).map_err(|_| reject("an added device has an invalid credential"))?;
         authorize(chains, std::slice::from_ref(&leaf))?;
         if !current.contains(&leaf.account) {
-            let allowed = if is_dm { old.admins.iter().any(|a| a[..] == leaf.account.0) } else { is_admin };
+            // A DM's two accounts are fixed, and a self group never gains another account.
+            let allowed = if is_dm {
+                old.admins.iter().any(|a| a[..] == leaf.account.0)
+            } else {
+                is_admin && !is_self
+            };
             if !allowed {
                 return Err(reject("someone who is not an admin tried to add a person"));
             }
@@ -1273,6 +1355,13 @@ fn handle_content(
         return Err(reject("a message's id did not match its delivery"));
     }
     let id: [u8; 16] = c.id.as_slice().try_into().map_err(|_| reject("bad message id"))?;
+    let in_self_group = store::conversation(tx, gid)?.is_some_and(|conv| conv.kind == KIND_SELF);
+    match &c.body {
+        Some(b) if !body_allowed(b, in_self_group) => return Err(reject("a message of the wrong kind was skipped")),
+        // A newer client's self-group data: nothing to show, nothing to store.
+        None if in_self_group => return Ok(Outcome::Nothing),
+        _ => {}
+    }
     // Sent from another of this account's devices: it is ours, and the server
     // has it, since it came from the log.
     let outgoing = sender == me;
