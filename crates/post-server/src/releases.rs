@@ -9,12 +9,19 @@
 //! key before serving it, so it never hands out junk, but apps check
 //! everything again themselves: a server cannot make a build apps accept.
 //!
+//! The operator decides how much happens alone. By default the server looks
+//! for a new release every hour and downloads it, but puts it live (offers
+//! it to apps) only when it next starts, or when the operator asks with a
+//! reload (SIGHUP). Each step can be switched on or off (see
+//! [`ReleaseConfig`]).
+//!
 //! The directory holds one folder per version, each with its files and,
 //! per platform, `manifest-<platform>.json` and its `.sig`. A release
 //! counts once its signature verifies and every file matches; the manifest
 //! is written last, so a half-fetched release never looks complete.
+//! `live-<platform>` remembers which version is live.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
@@ -27,7 +34,8 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt as _;
 
-/// Where releases come from and are kept.
+/// Where releases come from and are kept, and how much the server does with
+/// them by itself.
 #[derive(Clone)]
 pub struct ReleaseConfig {
     /// The releases directory.
@@ -42,16 +50,41 @@ pub struct ReleaseConfig {
     pub key: Option<HybridVerifyingKey>,
     /// How often to look for a new release.
     pub every: Duration,
+    /// Look for a new release by itself, every `every`.
+    pub check: bool,
+    /// Download a new release it finds, ready to go live.
+    pub download: bool,
+    /// Put a release live (offer it to apps) as soon as it has downloaded.
+    pub live_while_running: bool,
+    /// On starting, put the newest downloaded release live. Otherwise the
+    /// release live before the restart stays live.
+    pub live_on_start: bool,
 }
 
 impl ReleaseConfig {
+    /// Releases kept in `dir`, checked under `key`, with the defaults: look
+    /// every hour and download, go live at the next start.
+    pub fn new(dir: PathBuf, key: Option<HybridVerifyingKey>) -> Self {
+        Self {
+            dir,
+            github_repo: None,
+            github_api: "https://api.github.com".into(),
+            key,
+            every: Duration::from_secs(3600),
+            check: true,
+            download: true,
+            live_while_running: false,
+            live_on_start: true,
+        }
+    }
+
     /// Serve nothing (tests, and servers that do not hand out releases).
     pub fn none() -> Self {
-        Self { dir: PathBuf::new(), github_repo: None, github_api: String::new(), key: None, every: Duration::from_secs(3600) }
+        Self::new(PathBuf::new(), None)
     }
 }
 
-/// A release ready to hand out for one platform.
+/// A complete, checked release for one platform.
 #[derive(Clone)]
 pub(crate) struct Published {
     pub version: Version,
@@ -60,76 +93,122 @@ pub(crate) struct Published {
     pub signature: Vec<u8>,
 }
 
-/// The newest complete release for each platform.
+/// The releases on disk, and the one live for each platform.
 pub(crate) struct Releases {
     config: ReleaseConfig,
-    current: RwLock<HashMap<String, Published>>,
+    /// Complete, checked releases in the directory, by platform and version.
+    on_disk: RwLock<HashMap<String, BTreeMap<Version, Published>>>,
+    /// The release offered to apps, by platform.
+    live: RwLock<HashMap<String, Published>>,
     /// Look again now rather than at the next hour.
     now: tokio::sync::Notify,
 }
 
 impl Releases {
     pub fn new(config: ReleaseConfig) -> Self {
-        Self { config, current: RwLock::default(), now: tokio::sync::Notify::new() }
+        Self { config, on_disk: RwLock::default(), live: RwLock::default(), now: tokio::sync::Notify::new() }
     }
 
-    /// Re-read the releases directory (for releases copied in by hand) and
-    /// ask GitHub, now.
+    /// The operator asks: re-read the directory, fetch and download the
+    /// latest release whatever the settings, and put the newest live.
     pub fn refresh(&self) {
         self.now.notify_one();
     }
 
-    /// The newest release for `platform`.
+    /// The release live for `platform`.
     pub fn latest(&self, platform: &str) -> Option<Published> {
-        self.current.read().unwrap_or_else(|p| p.into_inner()).get(platform).cloned()
+        self.live.read().unwrap_or_else(|p| p.into_inner()).get(platform).cloned()
     }
 
-    /// Where a file of a release being served is, if `version` is the one
-    /// served for `platform` and the file is one of its files.
+    /// Where a file of the live release is, if `version` is the one live for
+    /// `platform` and the file is one of its files.
     pub fn file_path(&self, platform: &str, version: &str, name: &str) -> Option<PathBuf> {
         let p = self.latest(platform)?;
         (p.manifest.version == version && p.manifest.file(name).is_some()).then(|| self.config.dir.join(version).join(name))
     }
 
-    fn offer(&self, p: Published) -> bool {
-        let mut current = self.current.write().unwrap_or_else(|p| p.into_inner());
-        let newer = current.get(&p.manifest.platform).is_none_or(|c| c.version < p.version);
-        if newer {
-            tracing::info!(version = %p.version, platform = %p.manifest.platform, "release ready to hand out");
-            current.insert(p.manifest.platform.clone(), p);
-        }
-        newer
+    fn live_file(&self, platform: &str) -> PathBuf {
+        self.config.dir.join(format!("live-{platform}"))
     }
 
-    /// Read every complete, valid release in the directory, keeping the
-    /// newest for each platform.
-    pub fn load(&self) {
-        let Some(key) = &self.config.key else { return };
-        let Ok(entries) = std::fs::read_dir(&self.config.dir) else { return };
-        for entry in entries.flatten() {
-            let Some(version) = entry.file_name().to_str().and_then(|s| s.parse::<Version>().ok()) else { continue };
-            let Ok(files) = std::fs::read_dir(entry.path()) else { continue };
-            for f in files.flatten() {
-                let name = f.file_name();
-                let Some(platform) = name.to_str().and_then(|n| n.strip_prefix("manifest-")).and_then(|n| n.strip_suffix(".json")) else { continue };
-                match load_release(key, &entry.path(), platform, version) {
-                    Ok(p) => {
-                        self.offer(p);
-                    }
-                    Err(e) => tracing::warn!(%version, platform, error = %e, "release in the directory refused"),
-                }
+    fn newest_on_disk(&self, platform: &str) -> Option<Published> {
+        self.on_disk.read().unwrap_or_else(|p| p.into_inner()).get(platform)?.values().next_back().cloned()
+    }
+
+    /// Offer `p` to apps, and remember it as live.
+    fn go_live(&self, p: Published) {
+        let mut live = self.live.write().unwrap_or_else(|p| p.into_inner());
+        if live.get(&p.manifest.platform).is_some_and(|c| c.version == p.version) {
+            return;
+        }
+        tracing::info!(version = %p.version, platform = %p.manifest.platform, "release live: apps can now update to it");
+        if let Err(e) = std::fs::write(self.live_file(&p.manifest.platform), format!("{}\n", p.version)) {
+            tracing::warn!(error = %e, "could not remember which release is live");
+        }
+        live.insert(p.manifest.platform.clone(), p);
+    }
+
+    /// Put the newest release on disk live, for every platform.
+    fn newest_live(&self) {
+        let platforms: Vec<String> = self.on_disk.read().unwrap_or_else(|p| p.into_inner()).keys().cloned().collect();
+        for platform in platforms {
+            if let Some(p) = self.newest_on_disk(&platform) {
+                self.go_live(p);
             }
         }
     }
 
-    /// Fetch the latest published release from GitHub, if it is newer than
-    /// what is served. Returns how many platforms it brought up to date.
-    pub async fn fetch(&self, http: &reqwest::Client) -> anyhow::Result<usize> {
-        let (Some(repo), Some(key)) = (&self.config.github_repo, &self.config.key) else { return Ok(0) };
+    /// On starting: read the directory, then put live the newest release
+    /// (`live_on_start`) or the one live before.
+    pub fn start(&self) {
+        self.load();
+        if self.config.live_on_start {
+            return self.newest_live();
+        }
+        let platforms: Vec<String> = self.on_disk.read().unwrap_or_else(|p| p.into_inner()).keys().cloned().collect();
+        for platform in platforms {
+            let before = std::fs::read_to_string(self.live_file(&platform)).ok().and_then(|s| s.trim().parse::<Version>().ok());
+            let release = before.and_then(|v| self.on_disk.read().unwrap_or_else(|p| p.into_inner()).get(&platform)?.get(&v).cloned());
+            match release {
+                Some(p) => self.go_live(p),
+                None => tracing::info!(platform, "no release live: put the newest live with a reload (SIGHUP)"),
+            }
+        }
+    }
+
+    /// Read every complete, valid release in the directory.
+    fn load(&self) {
+        let Some(key) = &self.config.key else { return };
+        let mut found: HashMap<String, BTreeMap<Version, Published>> = HashMap::new();
+        if let Ok(entries) = std::fs::read_dir(&self.config.dir) {
+            for entry in entries.flatten() {
+                let Some(version) = entry.file_name().to_str().and_then(|s| s.parse::<Version>().ok()) else { continue };
+                let Ok(files) = std::fs::read_dir(entry.path()) else { continue };
+                for f in files.flatten() {
+                    let name = f.file_name();
+                    let Some(platform) = name.to_str().and_then(|n| n.strip_prefix("manifest-")).and_then(|n| n.strip_suffix(".json")) else { continue };
+                    match load_release(key, &entry.path(), platform, version) {
+                        Ok(p) => {
+                            found.entry(platform.to_owned()).or_default().insert(version, p);
+                        }
+                        Err(e) => tracing::warn!(%version, platform, error = %e, "release in the directory refused"),
+                    }
+                }
+            }
+        }
+        *self.on_disk.write().unwrap_or_else(|p| p.into_inner()) = found;
+    }
+
+    /// Ask GitHub for the latest published release and, if it is newer than
+    /// any on disk, download it (if `download`, or `asked`) and put it live
+    /// (if `live_while_running`, or `asked`). `asked`: the operator asked
+    /// for this, now.
+    pub async fn fetch(&self, http: &reqwest::Client, asked: bool) -> anyhow::Result<()> {
+        let (Some(repo), Some(key)) = (&self.config.github_repo, &self.config.key) else { return Ok(()) };
         let url = format!("{}/repos/{repo}/releases/latest", self.config.github_api);
         let latest: GithubRelease = serde_json::from_slice(&get_capped(http, &url, 1 << 20).await?)?;
         let asset = |name: &str| latest.assets.iter().find(|a| a.name == name);
-        let mut updated = 0;
+        let mut downloaded = false;
         for a in &latest.assets {
             let Some(platform) = a.name.strip_prefix("manifest-").and_then(|n| n.strip_suffix(".json")) else { continue };
             let Some(sig_asset) = asset(&post_release::signature_name(platform)) else { continue };
@@ -140,7 +219,11 @@ impl Releases {
             if manifest.platform != platform {
                 anyhow::bail!("{} describes {}", a.name, manifest.platform);
             }
-            if self.latest(platform).is_some_and(|c| c.version >= version) {
+            if self.newest_on_disk(platform).is_some_and(|c| c.version >= version) {
+                continue;
+            }
+            if !self.config.download && !asked {
+                tracing::info!(%version, platform, "a new release is out; automatic downloads are off, so download it with a reload (SIGHUP)");
                 continue;
             }
             let dir = self.config.dir.join(version.to_string());
@@ -153,38 +236,49 @@ impl Releases {
             // is complete.
             tokio::fs::write(dir.join(post_release::signature_name(platform)), &signature).await?;
             write_atomically(&dir.join(post_release::manifest_name(platform)), &manifest_bytes).await?;
-            if self.offer(Published { version, manifest, manifest_bytes, signature }) {
-                updated += 1;
+            let p = Published { version, manifest, manifest_bytes, signature };
+            self.on_disk.write().unwrap_or_else(|p| p.into_inner()).entry(platform.to_owned()).or_default().insert(version, p.clone());
+            downloaded = true;
+            if self.config.live_while_running || asked {
+                self.go_live(p);
+            } else {
+                tracing::info!(%version, platform, "release downloaded; it goes live at the next start, or now with a reload (SIGHUP)");
             }
         }
-        if updated > 0 {
+        if downloaded {
             self.prune();
         }
-        Ok(updated)
+        Ok(())
     }
 
-    /// Delete versions no longer served for any platform, keeping one
-    /// older version behind the newest.
+    /// Delete versions neither live nor newest, keeping one more behind them
+    /// for going back.
     fn prune(&self) {
-        let served: Vec<Version> = self.current.read().unwrap_or_else(|p| p.into_inner()).values().map(|p| p.version).collect();
-        let Some(oldest_served) = served.iter().min().copied() else { return };
+        let mut keep: Vec<Version> = self.live.read().unwrap_or_else(|p| p.into_inner()).values().map(|p| p.version).collect();
+        keep.extend(self.on_disk.read().unwrap_or_else(|p| p.into_inner()).values().filter_map(|m| m.keys().next_back().copied()));
+        let Some(oldest_kept) = keep.iter().min().copied() else { return };
         let Ok(entries) = std::fs::read_dir(&self.config.dir) else { return };
         let mut older: Vec<(Version, PathBuf)> = entries
             .flatten()
             .filter_map(|e| Some((e.file_name().to_str()?.parse::<Version>().ok()?, e.path())))
-            .filter(|(v, _)| *v < oldest_served)
+            .filter(|(v, _)| *v < oldest_kept)
             .collect();
         older.sort_by_key(|(v, _)| std::cmp::Reverse(*v));
         for (v, path) in older.into_iter().skip(1) {
             match std::fs::remove_dir_all(&path) {
-                Ok(()) => tracing::info!(version = %v, "old release deleted"),
+                Ok(()) => {
+                    for m in self.on_disk.write().unwrap_or_else(|p| p.into_inner()).values_mut() {
+                        m.remove(&v);
+                    }
+                    tracing::info!(version = %v, "old release deleted");
+                }
                 Err(e) => tracing::warn!(version = %v, error = %e, "could not delete an old release"),
             }
         }
     }
 
-    /// Look for new releases now and then, for as long as the server runs,
-    /// and at once when [`Self::refresh`] asks.
+    /// For as long as the server runs: look for new releases every hour if
+    /// `check`, and do everything at once when [`Self::refresh`] asks.
     pub async fn keep_fetching(self: std::sync::Arc<Self>) {
         if self.config.key.is_none() {
             return;
@@ -195,21 +289,25 @@ impl Releases {
         };
         let mut every = tokio::time::interval(self.config.every);
         loop {
-            tokio::select! {
-                _ = every.tick() => {}
-                () = self.now.notified() => {
-                    tracing::info!("looking for releases now, as asked");
-                    // Releases copied in by hand; hashing them is file work.
-                    let me = self.clone();
-                    if tokio::task::spawn_blocking(move || me.load()).await.is_err() {
-                        tracing::error!("re-reading the releases directory failed");
-                    }
+            let asked = tokio::select! {
+                _ = every.tick() => false,
+                () = self.now.notified() => true,
+            };
+            if asked {
+                tracing::info!("looking for releases now, as asked");
+                // Releases copied in by hand; hashing them is file work.
+                let me = self.clone();
+                if tokio::task::spawn_blocking(move || me.load()).await.is_err() {
+                    tracing::error!("re-reading the releases directory failed");
                 }
             }
-            if self.config.github_repo.is_some()
-                && let Err(e) = self.fetch(&http).await
+            if (asked || self.config.check)
+                && let Err(e) = self.fetch(&http, asked).await
             {
                 tracing::warn!(error = %e, "fetching the latest release failed");
+            }
+            if asked {
+                self.newest_live();
             }
         }
     }

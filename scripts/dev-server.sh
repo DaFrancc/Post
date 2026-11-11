@@ -6,7 +6,9 @@
 #
 #   scripts/dev-server.sh            run the server (Ctrl-C stops it)
 #   POST_RELEASES_FROM=DaFrancc/Post scripts/dev-server.sh
-#                                    ...also fetching app releases from GitHub
+#                                    ...also fetching app releases from GitHub;
+#                                    they go live at the next start, or now
+#                                    with: kill -HUP $(pgrep postd)
 #   scripts/dev-server.sh invite     print a new invite code
 #   scripts/dev-server.sh reset      delete the development server's data
 set -euo pipefail

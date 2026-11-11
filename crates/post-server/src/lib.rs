@@ -290,7 +290,7 @@ pub fn spawn(listener: TcpListener, config: Config) -> Result<Running, StartErro
     post_identity::chain::validate_domain(&config.server_domain).map_err(|_| StartError::Domain)?;
     let conn = db::open(&config.db_path, &config.db_key)?;
     let releases = Arc::new(releases::Releases::new(config.releases));
-    releases.load();
+    releases.start();
     let state = Arc::new(State {
         domain: config.server_domain,
         db: Db(Arc::new(Mutex::new(conn))),

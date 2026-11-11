@@ -1183,10 +1183,21 @@ accept. Built in phase 5b for Linux (`crates/post-release`, `post-server/src/rel
   `release.sh sign` takes the newest draft. It checks every file against its
   manifest, signs each manifest with the key file (`~/post-release.key` by
   default), uploads the signatures and publishes the release.
-- **Distribution.** Every hour `postd` asks GitHub for the latest published
-  release. It verifies the manifest, downloads and checks each file, and only
-  then serves the release from its releases directory. An operator can also copy
-  a release in by hand. Apps fetch `GET /v1/releases/<platform>` (the manifest
+- **Distribution.** `postd` fetches the latest published release from GitHub,
+  verifies the manifest and checks each file. It offers only a release that
+  passes, from its releases directory. An operator can also copy a release in by
+  hand. The operator controls how much happens alone, with four switches and these
+  defaults:
+  - check every hour: on;
+  - download what the check finds: on;
+  - put a downloaded release live (offer it to apps) at once: off;
+  - put the newest release live when the server starts: on.
+
+  So by default a new release waits until the server next restarts. A reload
+  (SIGHUP) is the operator asking: it re-reads the directory, then fetches,
+  downloads and puts the newest live, whatever the switches say. Which version
+  is live is remembered (`live-<platform>`), so a server that does not go live
+  on start keeps offering the same one. Apps fetch `GET /v1/releases/<platform>` (the manifest
   and signature as signed) and
   `GET /v1/releases/<platform>/<version>/<file>` over plain HTTPS. That
   connection is not tied to an account, and range requests let a download

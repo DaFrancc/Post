@@ -2,7 +2,6 @@
 //! checks, downloads (resuming), and installs it (design section 12).
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use post_core::update::Updater;
 use post_identity::HybridSigningKey;
@@ -48,13 +47,7 @@ fn publish(releases: &Path, key: &HybridSigningKey, version: &str, notes: &str) 
 async fn server(dir: &Path, key: &HybridSigningKey) -> post_server::Running {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let domain = format!("127.0.0.1:{}", listener.local_addr().expect("addr").port());
-    let releases = post_server::ReleaseConfig {
-        dir: dir.join("releases"),
-        github_repo: None,
-        github_api: String::new(),
-        key: Some(key.verifying_key()),
-        every: Duration::from_secs(3600),
-    };
+    let releases = post_server::ReleaseConfig::new(dir.join("releases"), Some(key.verifying_key()));
     let config = post_server::Config { server_domain: domain, db_path: dir.join("server.db"), db_key: Zeroizing::new([1; 32]), releases };
     post_server::spawn(listener, config).expect("server")
 }

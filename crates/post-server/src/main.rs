@@ -62,6 +62,20 @@ enum Command {
         /// fetch none.
         #[arg(long, env = "POST_RELEASES_FROM", default_value = "DaFrancc/Post")]
         releases_from: String,
+        /// Look for a new app release every hour.
+        #[arg(long, env = "POST_RELEASES_CHECK", default_value_t = true, action = clap::ArgAction::Set)]
+        releases_check: bool,
+        /// Download a new release when one is found, ready to go live.
+        #[arg(long, env = "POST_RELEASES_DOWNLOAD", default_value_t = true, action = clap::ArgAction::Set)]
+        releases_download: bool,
+        /// Offer a new release to apps as soon as it has downloaded. Off,
+        /// it goes live at the next start, or with a reload (SIGHUP).
+        #[arg(long, env = "POST_RELEASES_LIVE_WHILE_RUNNING", default_value_t = false, action = clap::ArgAction::Set)]
+        releases_live_while_running: bool,
+        /// On starting, offer apps the newest downloaded release. Off, the
+        /// release offered before the restart stays.
+        #[arg(long, env = "POST_RELEASES_LIVE_ON_START", default_value_t = true, action = clap::ArgAction::Set)]
+        releases_live_on_start: bool,
     },
     /// Create a single-use invite code.
     Invite {
@@ -146,7 +160,17 @@ async fn main() -> anyhow::Result<()> {
         .init();
     match Cli::parse().command {
         Command::Keygen { path } => keygen(&path)?,
-        Command::Serve { domain, db, listen, releases_dir, releases_from } => {
+        Command::Serve {
+            domain,
+            db,
+            listen,
+            releases_dir,
+            releases_from,
+            releases_check,
+            releases_download,
+            releases_live_while_running,
+            releases_live_on_start,
+        } => {
             let db_key = read_key(&db)?;
             let listener = tokio::net::TcpListener::bind(&listen).await.with_context(|| format!("binding {listen}"))?;
             let key = match post_release::release_key() {
@@ -157,11 +181,12 @@ async fn main() -> anyhow::Result<()> {
                 }
             };
             let releases = post_server::ReleaseConfig {
-                dir: releases_dir,
                 github_repo: (!releases_from.is_empty()).then_some(releases_from),
-                github_api: "https://api.github.com".into(),
-                key,
-                every: std::time::Duration::from_secs(3600),
+                check: releases_check,
+                download: releases_download,
+                live_while_running: releases_live_while_running,
+                live_on_start: releases_live_on_start,
+                ..post_server::ReleaseConfig::new(releases_dir, key)
             };
             let config = post_server::Config { server_domain: domain.clone(), db_path: db.db, db_key, releases };
             let running = post_server::spawn(listener, config)?;

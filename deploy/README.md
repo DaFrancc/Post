@@ -90,21 +90,34 @@ is what clients use whenever the server offers it.
 ## App updates
 
 Apps get updates from their own server, so nobody else sees who runs Post.
-Every hour `postd` checks GitHub (`DaFrancc/Post`) for a newly published
-release. It downloads the release into `/var/lib/post/releases` and serves it
-only once its signature and files check out. Apps check everything again
-themselves before installing.
+The server never updates itself. It hands new versions of the app to the
+people who use it, and each person's app still decides when to install.
+You decide how much the server does by itself:
 
-- To look for a release now instead of within the hour, run
-  `systemctl --user reload post-server`. Without systemd, send `postd` the HUP
-  signal (`podman kill --signal HUP post-server`, or `kill -HUP <pid>`). It
-  re-reads the releases directory and asks GitHub, without dropping anyone's
-  connection.
+| Setting | Default | What it does |
+|---|---|---|
+| `POST_RELEASES_CHECK` | `true` | Ask GitHub for a new release every hour |
+| `POST_RELEASES_DOWNLOAD` | `true` | Download it into `/var/lib/post/releases` and check its signature and files |
+| `POST_RELEASES_LIVE_WHILE_RUNNING` | `false` | Offer it to apps as soon as it has downloaded |
+| `POST_RELEASES_LIVE_ON_START` | `true` | When the server starts, offer apps the newest downloaded release |
+
+With the defaults, a new release waits on the server until it next restarts.
+
+- To put it live now instead, run `systemctl --user reload post-server`.
+  Without systemd, send `postd` the HUP signal
+  (`podman kill --signal HUP post-server`, or `kill -HUP <pid>`). A reload is
+  you asking, so it does everything whatever the settings say: it re-reads
+  the releases folder, asks GitHub, downloads, and puts the newest release
+  live. Nobody's connection drops.
+- With `POST_RELEASES_LIVE_ON_START=false`, a restart keeps offering the
+  release that was live before, and only a reload changes it.
+- Set these in `post-server.container` as `Environment=` lines, like
+  `POST_DOMAIN`.
 - `POST_RELEASES_FROM=owner/repo` fetches from another repository. Leave it
   empty to fetch nothing.
-- With fetching off, copy a release in by hand instead: a folder named after
-  its version, holding its files, `manifest-<platform>.json` and the
-  `.sig` file, then restart the pod.
+- To skip GitHub altogether, copy a release in by hand: a folder named after
+  its version, holding its files, `manifest-<platform>.json` and the `.sig`
+  file. Then reload.
 
 ## Backups
 
