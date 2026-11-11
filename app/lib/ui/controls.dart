@@ -447,14 +447,16 @@ class _PMenuDividerState extends State<PMenuDivider> {
   );
 }
 
-/// How menus open and close: quick, and easing out both ways, fast at first
-/// and settling at the end. The reverse curve is the opening curve flipped:
-/// played backwards, a flipped ease-out is an ease-out too.
+/// How menus open and close: easing out both ways, most of the way there at
+/// once and then a long, visible settle (it starts the moment the button
+/// goes down, so the length does not read as lag). The reverse curve is the
+/// opening curve flipped: played backwards, a flipped ease-out is an
+/// ease-out too.
 const pMenuAnimation = AnimationStyle(
-  duration: Duration(milliseconds: 150),
-  reverseDuration: Duration(milliseconds: 110),
-  curve: Curves.easeOutCubic,
-  reverseCurve: FlippedCurve(Curves.easeOutCubic),
+  duration: Duration(milliseconds: 300),
+  reverseDuration: Duration(milliseconds: 210),
+  curve: Curves.easeOutQuart,
+  reverseCurve: FlippedCurve(Curves.easeOutQuart),
 );
 
 /// Open a context menu with its corner at the pointer.
