@@ -3,9 +3,9 @@
 # through the CLI. Profiles and keys live in .dev/accounts/ (ignored by git);
 # an account that does not exist yet is registered with a fresh invite.
 #
-#   scripts/dev-account.sh alice dm sam            open a DM with sam
-#   scripts/dev-account.sh alice send --conversation ID "hello"
-#   scripts/dev-account.sh bob listen              stay online, print events
+#   scripts/dev-account.sh alice send --to sam "hello"     DM sam
+#   scripts/dev-account.sh alice group create climbing sam bob
+#   scripts/dev-account.sh alice conversations              IDs for --conversation
 #
 # Any postern command works after the name; see `postern --help`.
 set -euo pipefail
