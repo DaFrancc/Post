@@ -993,10 +993,11 @@ impl Engine {
             tx.commit()?;
             return Ok(());
         }
+        let mine = self.me()?.account;
         for attempt in 0..2 {
             let step = {
                 let tx = self.conn.transaction()?;
-                match process_in_tx(&tx, &self.chains, &gid, e) {
+                match process_in_tx(&tx, &mine, &self.chains, &gid, e) {
                     Ok(outcome) => {
                         store::set_cursor(&tx, &gid, e.seq)?;
                         tx.commit()?;
@@ -1178,6 +1179,7 @@ fn join_from_welcome(
 
 fn process_in_tx(
     tx: &Transaction<'_>,
+    me: &AccountId,
     chains: &HashMap<AccountId, Chain>,
     gid: &[u8; 16],
     e: &proto::LogEntry,
@@ -1192,7 +1194,7 @@ fn process_in_tx(
     let (sender, sender_device) =
         postern_mls::parse_credential(processed.credential()).map_err(|_| reject("a message had an invalid sender"))?;
     match processed.into_content() {
-        ProcessedMessageContent::ApplicationMessage(app) => handle_content(tx, gid, &sender, &sender_device, e, &app.into_bytes()),
+        ProcessedMessageContent::ApplicationMessage(app) => handle_content(tx, me, gid, &sender, &sender_device, e, &app.into_bytes()),
         ProcessedMessageContent::StagedCommitMessage(staged) => {
             check_commit(&group, &staged, &sender, chains)?;
             let removed = staged.self_removed();
@@ -1259,6 +1261,7 @@ fn check_commit(
 
 fn handle_content(
     tx: &Transaction<'_>,
+    me: &AccountId,
     gid: &[u8; 16],
     sender: &AccountId,
     sender_device: &DeviceId,
@@ -1270,28 +1273,20 @@ fn handle_content(
         return Err(reject("a message's id did not match its delivery"));
     }
     let id: [u8; 16] = c.id.as_slice().try_into().map_err(|_| reject("bad message id"))?;
-    fn received<'a>(
-        group: &'a [u8; 16],
-        id: &'a [u8; 16],
-        sender: &'a AccountId,
-        device: &'a DeviceId,
-        sent_at: u64,
-        seq: u64,
-        body: Option<&'a str>,
-    ) -> NewMessage<'a> {
-        NewMessage {
-            group,
-            id,
-            sender_account: sender,
-            sender_device: device,
-            outgoing: false,
-            sent_at,
-            seq: Some(seq),
-            state: store::STATE_RECEIVED,
-            body,
-        }
-    }
-    let new_message = |body| received(gid, &id, sender, sender_device, c.sent_at_ms, e.seq, body);
+    // Sent from another of this account's devices: it is ours, and the server
+    // has it, since it came from the log.
+    let outgoing = sender == me;
+    let new_message = |body| NewMessage {
+        group: gid,
+        id: &id,
+        sender_account: sender,
+        sender_device,
+        outgoing,
+        sent_at: c.sent_at_ms,
+        seq: Some(e.seq),
+        state: if outgoing { store::STATE_SENT } else { store::STATE_RECEIVED },
+        body,
+    };
     match &c.body {
         Some(Body::Text(t)) => {
             if t.body.len() > content::MAX_TEXT {
