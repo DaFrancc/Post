@@ -788,6 +788,7 @@ class _YouCard extends StatelessWidget {
       context: anchor,
       position: RelativeRect.fromRect(Rect.fromLTWH(at.dx, at.dy - 8, box.size.width, 0), Offset.zero & overlay.size),
       constraints: const BoxConstraints(minWidth: 270, maxWidth: 270),
+      popUpAnimationStyle: pMenuAnimation,
       items: [
         for (final p in PresenceChoice.values)
           PopupMenuItem(

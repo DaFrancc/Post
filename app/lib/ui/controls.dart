@@ -447,15 +447,24 @@ class _PMenuDividerState extends State<PMenuDivider> {
   );
 }
 
-/// Open a context menu with its corner at the pointer. Quick: 120ms in,
-/// 80ms out (the default is 300ms, with entries fading in one by one).
+/// How menus open and close: quick, and easing out both ways, fast at first
+/// and settling at the end. The reverse curve is the opening curve flipped:
+/// played backwards, a flipped ease-out is an ease-out too.
+const pMenuAnimation = AnimationStyle(
+  duration: Duration(milliseconds: 150),
+  reverseDuration: Duration(milliseconds: 110),
+  curve: Curves.easeOutCubic,
+  reverseCurve: FlippedCurve(Curves.easeOutCubic),
+);
+
+/// Open a context menu with its corner at the pointer.
 Future<T?> showContextMenu<T>(BuildContext context, Offset globalPosition, List<PopupMenuEntry<T>> items) {
   return showMenu<T>(
     context: context,
     position: menuAt(context, globalPosition),
     constraints: const BoxConstraints(minWidth: 200, maxWidth: 280),
     menuPadding: const EdgeInsets.all(6),
-    popUpAnimationStyle: const AnimationStyle(duration: PMotion.fast, reverseDuration: Duration(milliseconds: 80), curve: PMotion.curve),
+    popUpAnimationStyle: pMenuAnimation,
     items: items,
   );
 }
