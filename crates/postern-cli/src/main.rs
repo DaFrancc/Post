@@ -57,12 +57,19 @@ enum Command {
         #[command(subcommand)]
         cmd: Option<DevicesCommand>,
     },
+    /// Give this device fresh keys in every conversation now (otherwise weekly).
+    RefreshKeys,
     /// Show the account on this device.
     Whoami,
     /// Fetch everything new and send what is queued.
     Sync,
     /// Open a DM with a user.
     Dm { username: String },
+    /// Create and manage group chats.
+    Group {
+        #[command(subcommand)]
+        cmd: GroupCommand,
+    },
     /// List your conversations.
     Conversations,
     /// Show the newest messages of a conversation.
@@ -108,6 +115,13 @@ enum Command {
     Nickname { username: String, nickname: String },
     /// Show what you know about someone.
     Person { username: String },
+    /// Choose the presence others see: online, away, dnd or invisible.
+    Presence {
+        #[arg(value_parser = ["online", "away", "dnd", "invisible"])]
+        presence: String,
+    },
+    /// Tell a conversation you are typing.
+    Typing { conversation: String },
     /// Show the safety number between you and someone.
     SafetyNumber { username: String },
     /// Serve the local API as JSON-RPC for bots and scripts.
@@ -121,6 +135,60 @@ enum Command {
     },
     /// Print the OpenRPC description of the local API.
     Schema,
+}
+
+#[derive(Subcommand)]
+enum GroupCommand {
+    /// Create a group with you as admin.
+    Create {
+        name: String,
+        /// Usernames of the other members.
+        #[arg(required = true)]
+        members: Vec<String>,
+    },
+    /// List the members of a conversation.
+    Members { conversation: String },
+    /// As an admin: add people to a group.
+    Add {
+        conversation: String,
+        #[arg(required = true)]
+        members: Vec<String>,
+    },
+    /// As an admin: remove people from a group.
+    Remove {
+        conversation: String,
+        #[arg(required = true)]
+        members: Vec<String>,
+    },
+    /// As an admin: rename a group.
+    Rename { conversation: String, name: String },
+    /// Leave a group, with all your devices.
+    Leave {
+        conversation: String,
+        /// Leave without asking.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// As an admin: make a member an admin (or, with --revoke, stop them being one).
+    Admin {
+        conversation: String,
+        username: String,
+        #[arg(long)]
+        revoke: bool,
+    },
+    /// As an admin: whether new members are shown past messages.
+    History {
+        conversation: String,
+        /// Share past messages with new members.
+        #[arg(long, conflicts_with = "hidden", required_unless_present = "hidden")]
+        shared: bool,
+        /// New members see only what is sent after they join.
+        #[arg(long)]
+        hidden: bool,
+        /// With --shared: how many days back (0, the default, means all).
+        #[arg(long, default_value_t = 0, requires = "shared")]
+        days: u32,
+    },
 }
 
 #[derive(Subcommand)]
@@ -213,9 +281,30 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
             ("rename_device", json!({ "device": device, "name": name }))
         }
         Command::Devices { cmd: Some(DevicesCommand::Remove { device, .. }) } => ("remove_device", json!({ "device": device })),
+        Command::RefreshKeys => ("refresh_keys", json!({})),
         Command::Whoami => ("whoami", json!({})),
         Command::Sync => ("sync", json!({})),
         Command::Dm { username } => ("start_dm", json!({ "username": username })),
+        Command::Group { cmd: GroupCommand::Create { name, members } } => {
+            ("create_group", json!({ "name": name, "members": members }))
+        }
+        Command::Group { cmd: GroupCommand::Members { conversation } } => ("members", json!({ "conversation": conversation })),
+        Command::Group { cmd: GroupCommand::Add { conversation, members } } => {
+            ("add_members", json!({ "conversation": conversation, "members": members }))
+        }
+        Command::Group { cmd: GroupCommand::Remove { conversation, members } } => {
+            ("remove_members", json!({ "conversation": conversation, "members": members }))
+        }
+        Command::Group { cmd: GroupCommand::Leave { conversation, .. } } => ("leave_group", json!({ "conversation": conversation })),
+        Command::Group { cmd: GroupCommand::Rename { conversation, name } } => {
+            ("rename_group", json!({ "conversation": conversation, "name": name }))
+        }
+        Command::Group { cmd: GroupCommand::Admin { conversation, username, revoke } } => {
+            ("set_admin", json!({ "conversation": conversation, "username": username, "admin": !revoke }))
+        }
+        Command::Group { cmd: GroupCommand::History { conversation, shared, days, .. } } => {
+            ("set_history", json!({ "conversation": conversation, "shared": shared, "days": days }))
+        }
         Command::Conversations => ("conversations", json!({})),
         Command::Messages { conversation, limit } => ("messages", json!({ "conversation": conversation, "limit": limit })),
         Command::Send { to, conversation, text } => ("send", json!({ "to": to, "conversation": conversation, "text": text })),
@@ -232,6 +321,8 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         Command::Nickname { username, nickname } => ("set_nickname", json!({ "username": username, "nickname": nickname })),
         Command::Person { username } => ("person", json!({ "username": username })),
         Command::SafetyNumber { username } => ("safety_number", json!({ "username": username })),
+        Command::Presence { presence } => ("set_presence", json!({ "presence": presence })),
+        Command::Typing { conversation } => ("send_typing", json!({ "conversation": conversation })),
         Command::Keygen { .. } | Command::Daemon { .. } | Command::Schema | Command::Link { .. } => return None,
     })
 }
@@ -265,7 +356,21 @@ fn print_human(method: &str, v: &Value) {
             println!("account {}", s(v, "account_id"));
             println!("device  {}", s(v, "device_id"));
         }
-        "start_dm" => println!("{}  {}", s(v, "id"), s(v, "title")),
+        "start_dm" | "create_group" => println!("{}  {}", s(v, "id"), s(v, "title")),
+        "members" => {
+            for m in v.as_array().into_iter().flatten() {
+                let mut tags = Vec::new();
+                if m["you"] == true {
+                    tags.push("you".to_string());
+                }
+                if m["admin"] == true {
+                    tags.push("admin".to_string());
+                }
+                let devices = m["devices"].as_u64().unwrap_or(0);
+                tags.push(format!("{devices} device{}", if devices == 1 { "" } else { "s" }));
+                println!("{} (@{})  {}", s(m, "shown_name"), s(m, "username"), tags.join(", "));
+            }
+        }
         "conversations" => {
             for c in v.as_array().into_iter().flatten() {
                 let gone = if c["following"] == false { "  (left)" } else { "" };
@@ -369,6 +474,17 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             .unwrap_or_else(|| device.clone());
         if !confirm(&format!("Remove device {name}? It is signed out and removed from every conversation."))? {
             anyhow::bail!("not removed");
+        }
+    }
+
+    if let Command::Group { cmd: GroupCommand::Leave { conversation, yes: false } } = &cli.command {
+        let title = conversation
+            .parse()
+            .ok()
+            .and_then(|id| core.conversation(id).ok())
+            .map_or_else(|| conversation.clone(), |c| format!("\"{}\"", c.title));
+        if !confirm(&format!("Leave {title}? You will need an admin to add you back."))? {
+            anyhow::bail!("still in the group");
         }
     }
 
@@ -482,6 +598,17 @@ mod tests {
             Command::SafetyNumber { username: "a".into() },
             Command::Nickname { username: "a".into(), nickname: "b".into() },
             Command::Devices { cmd: None },
+            Command::RefreshKeys,
+            Command::Presence { presence: "away".into() },
+            Command::Typing { conversation: "00".into() },
+            Command::Group { cmd: GroupCommand::Create { name: "g".into(), members: vec!["a".into()] } },
+            Command::Group { cmd: GroupCommand::Members { conversation: "00".into() } },
+            Command::Group { cmd: GroupCommand::Add { conversation: "00".into(), members: vec!["a".into()] } },
+            Command::Group { cmd: GroupCommand::Remove { conversation: "00".into(), members: vec!["a".into()] } },
+            Command::Group { cmd: GroupCommand::Rename { conversation: "00".into(), name: "n".into() } },
+            Command::Group { cmd: GroupCommand::Leave { conversation: "00".into(), yes: true } },
+            Command::Group { cmd: GroupCommand::Admin { conversation: "00".into(), username: "a".into(), revoke: false } },
+            Command::Group { cmd: GroupCommand::History { conversation: "00".into(), shared: true, hidden: false, days: 7 } },
             Command::Devices { cmd: Some(DevicesCommand::Rename { device: "abcd".into(), name: "x".into() }) },
             Command::Devices { cmd: Some(DevicesCommand::Remove { device: "abcd".into(), yes: true }) },
         ];

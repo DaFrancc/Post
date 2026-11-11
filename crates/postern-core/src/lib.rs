@@ -11,6 +11,7 @@
 
 mod content;
 mod engine;
+mod ephemeral;
 mod link;
 mod net;
 mod provider;
@@ -272,6 +273,58 @@ pub struct LinkRequest {
     pub name: String,
 }
 
+/// What others see of someone (design section 7, "Presence").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Presence {
+    /// Not seen for 25 minutes, signed off, or invisible.
+    Offline,
+    /// Using the app.
+    Online,
+    /// Set by hand, or idle for 10 minutes.
+    Away,
+    /// Not to be disturbed: their notifications are silenced.
+    DoNotDisturb,
+}
+
+impl From<ephemeral::State> for Presence {
+    fn from(s: ephemeral::State) -> Self {
+        match s {
+            ephemeral::State::Offline => Presence::Offline,
+            ephemeral::State::Online => Presence::Online,
+            ephemeral::State::Away => Presence::Away,
+            ephemeral::State::DoNotDisturb => Presence::DoNotDisturb,
+        }
+    }
+}
+
+/// The presence you choose to show.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PresenceSetting {
+    /// Shown online.
+    Online,
+    /// Shown away.
+    Away,
+    /// Shown as not to be disturbed; your own notifications are silenced.
+    DoNotDisturb,
+    /// Shown offline. Nothing is sent, but you still receive everything.
+    Invisible,
+}
+
+/// A member of a conversation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Member {
+    /// Their username.
+    pub username: String,
+    /// The name you see for them in this conversation.
+    pub shown_name: String,
+    /// They may add and remove people and change the group's details.
+    pub admin: bool,
+    /// How many of their devices are in the conversation.
+    pub devices: u32,
+    /// It is you.
+    pub you: bool,
+}
+
 /// One of this account's devices.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Device {
@@ -331,6 +384,23 @@ pub enum Event {
         /// How many were removed.
         removed: u32,
     },
+    /// Someone is typing. Show `text` until another arrives, or for six
+    /// seconds after the last one.
+    Typing {
+        /// Where.
+        conversation: ConversationId,
+        /// Who.
+        username: String,
+        /// Their typing template filled with the name you see for them.
+        text: String,
+    },
+    /// Someone's presence changed.
+    Presence {
+        /// Whose.
+        username: String,
+        /// What it is now.
+        presence: Presence,
+    },
     /// Something the user should know about, usually a security warning.
     Notice {
         /// The conversation it concerns, if any.
@@ -355,7 +425,7 @@ pub(crate) fn conversation_from_row(conn: &Connection, c: &store::ConversationRo
         title,
         peer,
         last_activity_ms: c.last_activity as u64,
-        following: c.following,
+        following: c.following && !c.leaving,
     })
 }
 
@@ -502,19 +572,53 @@ impl Core {
         self.engine.lock().await.sync().await
     }
 
-    /// Process server wakes until a connection drops. Returns
-    /// [`Error::NotConnected`] then; call [`Core::connect`] to resume.
+    /// Stay live until a connection drops: process server wakes, relayed
+    /// typing and presence, and repeat this account's presence every ten
+    /// minutes. Returns [`Error::NotConnected`] when a connection drops; call
+    /// [`Core::connect`] to resume.
     pub async fn listen(&self) -> Result<()> {
+        const PRESENCE_EVERY: std::time::Duration = std::time::Duration::from_secs(600);
+        self.engine.lock().await.announce_presence().await?;
+        let mut next_presence = tokio::time::Instant::now() + PRESENCE_EVERY;
         loop {
-            let [(s_wake, s_closed), (a_wake, a_closed)] = self.engine.lock().await.signals()?;
+            let engine::ListenHandles { wakes: [s_wake, a_wake], closed: [s_closed, a_closed], signals } =
+                self.engine.lock().await.listen_handles()?;
             tokio::select! {
-                () = s_wake.notified() => {}
-                () = a_wake.notified() => {}
+                () = s_wake.notified() => self.sync().await?,
+                () = a_wake.notified() => self.sync().await?,
+                () = signals.arrived.notified() => self.engine.lock().await.process_signals()?,
+                () = tokio::time::sleep_until(next_presence) => {
+                    self.engine.lock().await.announce_presence().await?;
+                    next_presence = tokio::time::Instant::now() + PRESENCE_EVERY;
+                }
                 () = s_closed => return Err(Error::NotConnected),
                 () = a_closed => return Err(Error::NotConnected),
             }
-            self.sync().await?;
         }
+    }
+
+    /// Tell a conversation's online members you are typing. Call it as you
+    /// type; it sends at most once every three seconds.
+    pub async fn send_typing(&self, conversation: ConversationId) -> Result<()> {
+        self.engine.lock().await.send_typing(conversation.0).await
+    }
+
+    /// Choose the presence others see. Kept on this device; announced now
+    /// and every ten minutes while listening, except when invisible.
+    pub async fn set_presence(&self, setting: PresenceSetting) -> Result<()> {
+        self.engine.lock().await.set_presence(setting).await
+    }
+
+    /// The presence you chose on this device.
+    pub async fn own_presence(&self) -> Result<PresenceSetting> {
+        self.engine.lock().await.own_presence()
+    }
+
+    /// What this device last heard of someone's presence.
+    pub async fn presence(&self, username: &str) -> Result<Presence> {
+        let mut engine = self.engine.lock().await;
+        let account = engine.resolve(username).await?;
+        Ok(engine.presence_of(&account))
     }
 
     /// Open a DM with `username`, creating it if needed.
@@ -523,11 +627,81 @@ impl Core {
         self.conversation(id)
     }
 
+    /// Create a named group with you as admin and these users as members.
+    pub async fn create_group(&self, name: &str, usernames: &[String]) -> Result<Conversation> {
+        let id = self.engine.lock().await.create_group(name, usernames).await?;
+        self.conversation(id)
+    }
+
     /// A conversation by ID.
     pub fn conversation(&self, id: ConversationId) -> Result<Conversation> {
         self.read(|c| {
             let row = store::conversation(c, &id.0)?.filter(|r| r.kind != store::KIND_SELF).ok_or(Error::NotFound("conversation"))?;
             conversation_from_row(c, &row)
+        })
+    }
+
+    /// As an admin: add people to a group, with all their devices.
+    pub async fn add_members(&self, conversation: ConversationId, usernames: &[String]) -> Result<()> {
+        self.engine.lock().await.add_members(conversation.0, usernames).await
+    }
+
+    /// As an admin: remove people from a group, with all their devices.
+    pub async fn remove_members(&self, conversation: ConversationId, usernames: &[String]) -> Result<()> {
+        self.engine.lock().await.remove_members(conversation.0, usernames).await
+    }
+
+    /// As an admin: rename a group.
+    pub async fn rename_group(&self, conversation: ConversationId, name: &str) -> Result<()> {
+        self.engine.lock().await.rename_group(conversation.0, name).await
+    }
+
+    /// As an admin: make a member an admin, or stop them being one. A group
+    /// always keeps at least one admin.
+    pub async fn set_admin(&self, conversation: ConversationId, username: &str, admin: bool) -> Result<()> {
+        self.engine.lock().await.set_admin(conversation.0, username, admin).await
+    }
+
+    /// As an admin: whether new members are shown past messages, and how many
+    /// days back (0 means all of them).
+    pub async fn set_history(&self, conversation: ConversationId, shared: bool, days: u32) -> Result<()> {
+        self.engine.lock().await.set_history(conversation.0, shared, days).await
+    }
+
+    /// Give this device fresh keys in every conversation now. This happens by
+    /// itself weekly; doing it at once limits what a copy of the device's
+    /// keys taken earlier can read from here on.
+    pub async fn refresh_keys(&self) -> Result<()> {
+        self.engine.lock().await.refresh_keys().await
+    }
+
+    /// Leave a group, with all your devices. It shows as left at once; the
+    /// other members' devices complete the removal.
+    pub async fn leave_group(&self, conversation: ConversationId) -> Result<()> {
+        self.engine.lock().await.leave_group(conversation.0).await
+    }
+
+    /// The members of a conversation, by the name you see for them.
+    pub async fn members(&self, conversation: ConversationId) -> Result<Vec<Member>> {
+        let me = self.engine.lock().await.me.as_ref().ok_or(Error::NotRegistered)?.account;
+        self.read(|c| {
+            store::conversation(c, &conversation.0)?.filter(|r| r.kind != store::KIND_SELF).ok_or(Error::NotFound("conversation"))?;
+            let (meta, accounts) = engine::group_members(c, &conversation.0)?;
+            let mut out = accounts
+                .into_iter()
+                .map(|(account, devices)| {
+                    Ok(Member {
+                        username: store::username_of(c, &account.0)?.unwrap_or_default(),
+                        shown_name: store::shown_name(c, Some(&conversation.0), &account.0)?,
+                        admin: meta.admins.iter().any(|a| a[..] == account.0),
+                        devices,
+                        you: account == me,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            // You first, then everyone by the name you see.
+            out.sort_by_key(|m| (!m.you, m.shown_name.to_lowercase()));
+            Ok(out)
         })
     }
 
@@ -685,6 +859,19 @@ fn core_futures_are_send(c: &Core, conv: ConversationId, msg: MessageId) {
     send(c.sync());
     send(c.listen());
     send(c.start_dm(""));
+    send(c.create_group("", &[]));
+    send(c.members(conv));
+    send(c.add_members(conv, &[]));
+    send(c.remove_members(conv, &[]));
+    send(c.rename_group(conv, ""));
+    send(c.set_admin(conv, "", true));
+    send(c.set_history(conv, true, 0));
+    send(c.leave_group(conv));
+    send(c.refresh_keys());
+    send(c.send_typing(conv));
+    send(c.set_presence(PresenceSetting::Away));
+    send(c.own_presence());
+    send(c.presence(""));
     send(c.send_text(conv, ""));
     send(c.edit_message(conv, msg, ""));
     send(c.delete_message(conv, msg));

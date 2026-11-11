@@ -90,6 +90,15 @@ CREATE TABLE IF NOT EXISTS outbox (
     content        BLOB NOT NULL,
     ciphertext     BLOB NOT NULL
 );
+-- Proposals waiting to reach the server. Unlike messages they cannot be
+-- re-encrypted for a later epoch: one that misses its epoch is dropped, and
+-- the device proposes again in the new epoch if it still needs to.
+CREATE TABLE IF NOT EXISTS outbox_proposals (
+    client_msg_id  BLOB PRIMARY KEY,
+    group_id       BLOB NOT NULL,
+    epoch          INTEGER NOT NULL,
+    request        BLOB NOT NULL
+);
 CREATE TABLE IF NOT EXISTS pending_groups (
     group_id  BLOB PRIMARY KEY,
     request   BLOB NOT NULL
@@ -189,6 +198,18 @@ const MIGRATIONS: &[&str] = &[
          name       TEXT NOT NULL,
          msg_id     BLOB,
          seq        INTEGER
+     );",
+    // 3: leaving a group takes until another member commits the removal; the
+    // conversation is shown as left from the moment the user leaves.
+    "ALTER TABLE conversations ADD COLUMN leaving INTEGER NOT NULL DEFAULT 0;",
+    // 4: when this device last replaced its own leaf in each group, for the
+    // weekly key refresh (design section 6, "Key refresh").
+    "ALTER TABLE conversations ADD COLUMN refreshed_at INTEGER NOT NULL DEFAULT 0;
+     UPDATE conversations SET refreshed_at = created_at;",
+    // 5: devices the directory lists as stale (unseen for 30 days).
+    "CREATE TABLE stale_devices (
+         device_id   BLOB PRIMARY KEY,
+         account_id  BLOB NOT NULL
      );",
 ];
 
@@ -299,6 +320,21 @@ pub fn upsert_account(conn: &Connection, account: &AccountId, username: &str, di
     Ok(())
 }
 
+/// Replace an account's stale devices with what the directory says now.
+pub fn set_stale_devices(conn: &Connection, account: &AccountId, devices: &[DeviceId]) -> Result<()> {
+    conn.execute("DELETE FROM stale_devices WHERE account_id = ?1", [&account.0[..]])?;
+    for d in devices {
+        conn.execute("INSERT OR REPLACE INTO stale_devices (device_id, account_id) VALUES (?1, ?2)", params![&d.0[..], &account.0[..]])?;
+    }
+    Ok(())
+}
+
+pub fn stale_devices(conn: &Connection) -> Result<std::collections::HashSet<DeviceId>> {
+    let mut stmt = conn.prepare("SELECT device_id FROM stale_devices")?;
+    let rows: Vec<Vec<u8>> = stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    Ok(rows.iter().filter_map(|d| DeviceId::from_slice(d).ok()).collect())
+}
+
 pub fn account_by_username(conn: &Connection, username: &str) -> Result<Option<(AccountId, bool)>> {
     let row: Option<(Vec<u8>, bool)> = conn
         .query_row("SELECT account_id, disabled FROM accounts WHERE username = ?1", [username], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -321,9 +357,13 @@ pub struct ConversationRow {
     pub cursor: u64,
     pub active: bool,
     pub following: bool,
+    /// The user left; the removal waits for another member to commit it.
+    pub leaving: bool,
+    /// When this device last replaced its own leaf here (Unix ms).
+    pub refreshed_at: u64,
 }
 
-const CONV_COLS: &str = "group_id, kind, peer_account, name, last_activity, cursor, active, following";
+const CONV_COLS: &str = "group_id, kind, peer_account, name, last_activity, cursor, active, following, leaving, refreshed_at";
 
 fn conv_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ConversationRow> {
     let g: Vec<u8> = r.get(0)?;
@@ -336,6 +376,8 @@ fn conv_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ConversationRow> {
         cursor: r.get::<_, i64>(5)? as u64,
         active: r.get(6)?,
         following: r.get(7)?,
+        leaving: r.get(8)?,
+        refreshed_at: r.get::<_, i64>(9)? as u64,
     })
 }
 
@@ -348,11 +390,26 @@ pub fn insert_conversation(
     active: bool,
 ) -> Result<()> {
     let now = i64_of(now_ms());
+    // Creating or joining gives this device a fresh leaf.
     conn.execute(
-        "INSERT OR IGNORE INTO conversations (group_id, kind, peer_account, name, created_at, last_activity, active)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6)",
+        "INSERT OR IGNORE INTO conversations (group_id, kind, peer_account, name, created_at, last_activity, active, refreshed_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?5)",
         params![&group[..], kind, peer.map(|p| p.0.to_vec()), name, now, active],
     )?;
+    Ok(())
+}
+
+/// Back in a group after being removed or leaving, with a fresh leaf.
+pub fn rejoin(conn: &Connection, group: &[u8]) -> Result<()> {
+    conn.execute(
+        "UPDATE conversations SET following = 1, leaving = 0, refreshed_at = ?1, last_activity = ?1 WHERE group_id = ?2",
+        params![i64_of(now_ms()), group],
+    )?;
+    Ok(())
+}
+
+pub fn set_refreshed(conn: &Connection, group: &[u8]) -> Result<()> {
+    conn.execute("UPDATE conversations SET refreshed_at = ?1 WHERE group_id = ?2", params![i64_of(now_ms()), group])?;
     Ok(())
 }
 
@@ -383,7 +440,7 @@ pub fn conversations(conn: &Connection) -> Result<Vec<ConversationRow>> {
 /// Groups that should hear about account-wide changes such as a new profile:
 /// every live conversation this device is still in, and the self group.
 pub fn broadcast_groups(conn: &Connection) -> Result<Vec<[u8; 16]>> {
-    let mut stmt = conn.prepare(&format!("SELECT {CONV_COLS} FROM conversations WHERE active = 1 AND following = 1"))?;
+    let mut stmt = conn.prepare(&format!("SELECT {CONV_COLS} FROM conversations WHERE active = 1 AND following = 1 AND leaving = 0"))?;
     Ok(stmt.query_map([], conv_row)?.map(|r| r.map(|c| c.group_id)).collect::<rusqlite::Result<_>>()?)
 }
 
@@ -406,6 +463,17 @@ pub fn followed_groups(conn: &Connection) -> Result<Vec<ConversationRow>> {
 pub fn stop_following(conn: &Connection, group: &[u8]) -> Result<()> {
     conn.execute("UPDATE conversations SET following = 0 WHERE group_id = ?1", [group])?;
     Ok(())
+}
+
+pub fn set_leaving(conn: &Connection, group: &[u8]) -> Result<()> {
+    conn.execute("UPDATE conversations SET leaving = 1 WHERE group_id = ?1", [group])?;
+    Ok(())
+}
+
+/// Groups this device is leaving and still in.
+pub fn leaving_groups(conn: &Connection) -> Result<Vec<[u8; 16]>> {
+    let mut stmt = conn.prepare(&format!("SELECT {CONV_COLS} FROM conversations WHERE leaving = 1 AND following = 1"))?;
+    Ok(stmt.query_map([], conv_row)?.map(|r| r.map(|c| c.group_id)).collect::<rusqlite::Result<_>>()?)
 }
 
 pub fn set_cursor(conn: &Connection, group: &[u8], seq: u64) -> Result<()> {
@@ -658,6 +726,38 @@ pub fn outbox_replace_ciphertext(conn: &Connection, client_msg_id: &[u8], cipher
 
 pub fn outbox_remove(conn: &Connection, client_msg_id: &[u8]) -> Result<()> {
     conn.execute("DELETE FROM outbox WHERE client_msg_id = ?1", [client_msg_id])?;
+    Ok(())
+}
+
+pub fn proposal_push(conn: &Connection, client_msg_id: &[u8], group: &[u8], epoch: u64, request: &[u8]) -> Result<()> {
+    conn.execute(
+        "INSERT INTO outbox_proposals (client_msg_id, group_id, epoch, request) VALUES (?1, ?2, ?3, ?4)",
+        params![client_msg_id, group, i64_of(epoch), request],
+    )?;
+    Ok(())
+}
+
+/// A proposal waiting to be sent.
+pub struct WaitingProposal {
+    pub client_msg_id: Vec<u8>,
+    pub group_id: Vec<u8>,
+    /// The only epoch it is valid in.
+    pub epoch: u64,
+    /// An encoded `Send` request.
+    pub request: Vec<u8>,
+}
+
+pub fn proposals_waiting(conn: &Connection) -> Result<Vec<WaitingProposal>> {
+    let mut stmt = conn.prepare("SELECT client_msg_id, group_id, epoch, request FROM outbox_proposals")?;
+    Ok(stmt
+        .query_map([], |r| {
+            Ok(WaitingProposal { client_msg_id: r.get(0)?, group_id: r.get(1)?, epoch: r.get::<_, i64>(2)? as u64, request: r.get(3)? })
+        })?
+        .collect::<rusqlite::Result<_>>()?)
+}
+
+pub fn proposal_remove(conn: &Connection, client_msg_id: &[u8]) -> Result<()> {
+    conn.execute("DELETE FROM outbox_proposals WHERE client_msg_id = ?1", [client_msg_id])?;
     Ok(())
 }
 

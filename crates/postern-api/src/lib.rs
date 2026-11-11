@@ -117,6 +117,21 @@ pub struct SafetyNumber {
     pub safety_number: String,
 }
 
+/// A member of a conversation.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct Member {
+    /// Their username.
+    pub username: String,
+    /// The name you see for them here.
+    pub shown_name: String,
+    /// They may add and remove people and change the group's details.
+    pub admin: bool,
+    /// How many of their devices are in the conversation.
+    pub devices: u32,
+    /// It is you.
+    pub you: bool,
+}
+
 /// A link code to enter on another device.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct LinkCode {
@@ -195,6 +210,23 @@ pub enum Event {
         /// Devices removed.
         removed: u32,
     },
+    /// Someone is typing. Show `text` until another arrives, or for six
+    /// seconds after the last one.
+    Typing {
+        /// Conversation ID, hex.
+        conversation: String,
+        /// Who.
+        username: String,
+        /// Their typing template filled with the name you see for them.
+        text: String,
+    },
+    /// Someone's presence changed.
+    Presence {
+        /// Whose.
+        username: String,
+        /// `online`, `away`, `dnd` or `offline`.
+        presence: String,
+    },
     /// Something you should know, usually a security warning.
     Notice {
         /// Conversation ID, if it concerns one.
@@ -246,6 +278,22 @@ fn identity(i: core::Identity) -> Identity {
     Identity { username: i.username, account_id: i.account_id, device_id: i.device_id, server: i.server, bot: i.bot }
 }
 
+fn presence_word(p: core::Presence) -> &'static str {
+    match p {
+        core::Presence::Offline => "offline",
+        core::Presence::Online => "online",
+        core::Presence::Away => "away",
+        core::Presence::DoNotDisturb => "dnd",
+    }
+}
+
+/// Someone's presence, as last heard.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct PresenceResult {
+    /// `online`, `away`, `dnd` or `offline`.
+    pub presence: String,
+}
+
 /// Convert a core event for the API.
 pub fn event(e: core::Event) -> Event {
     match e {
@@ -258,6 +306,8 @@ pub fn event(e: core::Event) -> Event {
         }
         core::Event::ProfileChanged { username } => Event::ProfileChanged { username },
         core::Event::DevicesChanged { username, added, removed } => Event::DevicesChanged { username, added, removed },
+        core::Event::Typing { conversation, username, text } => Event::Typing { conversation: conversation.to_string(), username, text },
+        core::Event::Presence { username, presence } => Event::Presence { username, presence: presence_word(presence).into() },
         core::Event::Notice { conversation, text } => Event::Notice { conversation: conversation.map(|c| c.to_string()), text },
     }
 }
@@ -277,6 +327,91 @@ pub struct RegisterParams {
     /// Register a bot account (needs a bot invite).
     #[serde(default)]
     pub bot: bool,
+}
+
+/// `create_group`: a named group with you as admin.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreateGroupParams {
+    /// The group's name.
+    pub name: String,
+    /// Usernames of the other members.
+    pub members: Vec<String>,
+}
+
+/// People to add to or remove from a group.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MembersParams {
+    /// Conversation ID, hex.
+    pub conversation: String,
+    /// Usernames.
+    pub members: Vec<String>,
+}
+
+/// `rename_group`: a group's new name.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RenameGroupParams {
+    /// Conversation ID, hex.
+    pub conversation: String,
+    /// The new name.
+    pub name: String,
+}
+
+/// `set_admin`: make a member an admin, or stop them being one.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetAdminParams {
+    /// Conversation ID, hex.
+    pub conversation: String,
+    /// The member's username.
+    pub username: String,
+    /// True to make them an admin, false to remove the role.
+    pub admin: bool,
+}
+
+/// `set_history`: whether new members are shown past messages.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetHistoryParams {
+    /// Conversation ID, hex.
+    pub conversation: String,
+    /// Share past messages with new members.
+    pub shared: bool,
+    /// With `shared`: how many days back; 0 means all of them.
+    #[serde(default)]
+    pub days: u32,
+}
+
+/// A conversation.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConversationParams {
+    /// Conversation ID, hex.
+    pub conversation: String,
+}
+
+/// The presence you choose to show.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PresenceChoice {
+    /// Shown online.
+    Online,
+    /// Shown away.
+    Away,
+    /// Shown as do not disturb.
+    Dnd,
+    /// Shown offline; nothing is sent, and you still receive everything.
+    Invisible,
+}
+
+/// `set_presence`: what others see.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetPresenceParams {
+    /// The presence to show.
+    pub presence: PresenceChoice,
 }
 
 /// `link_begin`: offer this new device for linking to an existing account.
@@ -461,11 +596,20 @@ methods! {
     "link_inspect", Connection, CodeParams, LinkRequest, "On one of your devices: which device a link code would add.";
     "link_approve", Connection, CodeParams, LinkRequest, "On one of your devices: add the device behind a link code.";
     "devices", Local, NoParams, Vec<Device>, "Your devices, oldest first.";
+    "refresh_keys", Connection, NoParams, Done, "Give this device fresh keys in every conversation now (otherwise weekly).";
     "rename_device", Connection, RenameDeviceParams, Done, "Name one of your devices.";
     "remove_device", Connection, DeviceParams, Done, "Remove another of your devices from your account and every conversation.";
     "whoami", Local, NoParams, Option<Identity>, "The account on this device, if any.";
     "sync", Connection, NoParams, Done, "Fetch everything new and send what is queued.";
     "start_dm", Connection, UserParams, Conversation, "Open a DM with a user, creating it if needed.";
+    "create_group", Connection, CreateGroupParams, Conversation, "Create a named group with you as admin.";
+    "members", Local, ConversationParams, Vec<Member>, "The members of a conversation.";
+    "add_members", Connection, MembersParams, Done, "As an admin: add people to a group.";
+    "remove_members", Connection, MembersParams, Done, "As an admin: remove people from a group.";
+    "rename_group", Connection, RenameGroupParams, Done, "As an admin: rename a group.";
+    "set_admin", Connection, SetAdminParams, Done, "As an admin: make a member an admin, or stop them being one.";
+    "set_history", Connection, SetHistoryParams, Done, "As an admin: whether new members are shown past messages.";
+    "leave_group", Connection, ConversationParams, Done, "Leave a group, with all your devices.";
     "conversations", Local, NoParams, Vec<Conversation>, "Your conversations, most recent first.";
     "messages", Local, MessagesParams, Vec<Message>, "The newest messages of a conversation, oldest first.";
     "send", Connection, SendParams, Message, "Send a text message.";
@@ -476,6 +620,9 @@ methods! {
     "set_conversation_name", Connection, ConversationNameParams, Done, "Set your display name in one conversation.";
     "set_nickname", Local, NicknameParams, Done, "Set your private nickname for someone.";
     "person", Local, UserParams, Person, "What you know about a person.";
+    "send_typing", Connection, ConversationParams, Done, "Tell a conversation you are typing (sent at most every 3 seconds).";
+    "set_presence", Connection, SetPresenceParams, Done, "Choose the presence others see.";
+    "presence", Local, UserParams, PresenceResult, "Someone's presence, as last heard by this device.";
     "safety_number", Local, UserParams, SafetyNumber, "The safety number between you and a user.";
 }
 
@@ -560,6 +707,11 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
             let ds = core.devices().await?;
             ok(ds.into_iter().map(|d| Device { id: d.id, name: d.name, this_device: d.this_device }).collect::<Vec<_>>())
         }
+        "refresh_keys" => {
+            params::<NoParams>(p)?;
+            core.refresh_keys().await?;
+            ok(Done {})
+        }
         "rename_device" => {
             let p: RenameDeviceParams = params(p)?;
             core.rename_device(&p.device, &p.name).await?;
@@ -582,6 +734,44 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
         "start_dm" => {
             let p: UserParams = params(p)?;
             ok(conversation(core.start_dm(&p.username).await?))
+        }
+        "create_group" => {
+            let p: CreateGroupParams = params(p)?;
+            ok(conversation(core.create_group(&p.name, &p.members).await?))
+        }
+        "members" => {
+            let p: ConversationParams = params(p)?;
+            let ms = core.members(id(&p.conversation)?).await?;
+            ok(ms
+                .into_iter()
+                .map(|m| Member { username: m.username, shown_name: m.shown_name, admin: m.admin, devices: m.devices, you: m.you })
+                .collect::<Vec<_>>())
+        }
+        "add_members" | "remove_members" => {
+            let p: MembersParams = params(p)?;
+            let conv = id(&p.conversation)?;
+            if name == "add_members" { core.add_members(conv, &p.members).await? } else { core.remove_members(conv, &p.members).await? }
+            ok(Done {})
+        }
+        "rename_group" => {
+            let p: RenameGroupParams = params(p)?;
+            core.rename_group(id(&p.conversation)?, &p.name).await?;
+            ok(Done {})
+        }
+        "set_admin" => {
+            let p: SetAdminParams = params(p)?;
+            core.set_admin(id(&p.conversation)?, &p.username, p.admin).await?;
+            ok(Done {})
+        }
+        "set_history" => {
+            let p: SetHistoryParams = params(p)?;
+            core.set_history(id(&p.conversation)?, p.shared, p.days).await?;
+            ok(Done {})
+        }
+        "leave_group" => {
+            let p: ConversationParams = params(p)?;
+            core.leave_group(id(&p.conversation)?).await?;
+            ok(Done {})
         }
         "conversations" => {
             params::<NoParams>(p)?;
@@ -649,6 +839,26 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 typing_template: x.typing_template,
                 note: x.note,
             })
+        }
+        "send_typing" => {
+            let p: ConversationParams = params(p)?;
+            core.send_typing(id(&p.conversation)?).await?;
+            ok(Done {})
+        }
+        "set_presence" => {
+            let p: SetPresenceParams = params(p)?;
+            let setting = match p.presence {
+                PresenceChoice::Online => core::PresenceSetting::Online,
+                PresenceChoice::Away => core::PresenceSetting::Away,
+                PresenceChoice::Dnd => core::PresenceSetting::DoNotDisturb,
+                PresenceChoice::Invisible => core::PresenceSetting::Invisible,
+            };
+            core.set_presence(setting).await?;
+            ok(Done {})
+        }
+        "presence" => {
+            let p: UserParams = params(p)?;
+            ok(PresenceResult { presence: presence_word(core.presence(&p.username).await?).into() })
         }
         "safety_number" => {
             let p: UserParams = params(p)?;

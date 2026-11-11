@@ -27,7 +27,7 @@
 use prost::{Message, Oneof};
 
 /// Bumped on any incompatible change to this protocol.
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 
 /// Largest frame either side accepts. A Welcome for a 250-device group is
 /// about 700 KB (spike 1); this leaves headroom.
@@ -325,6 +325,11 @@ pub struct DirectoryAccount {
     pub chain: Vec<Vec<u8>>,
     #[prost(bool, tag = "4")]
     pub disabled: bool,
+    /// Active devices not seen for 30 days. Their accounts' other devices,
+    /// or any member, remove their leaves from groups the account keeps
+    /// another device in; they are added back when they return.
+    #[prost(bytes = "vec", repeated, tag = "5")]
+    pub stale_devices: Vec<Vec<u8>>,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -466,7 +471,7 @@ pub struct GroupCreated {
     pub epoch: u64,
 }
 
-/// An MLS application message, in the group's current epoch.
+/// An MLS application message or proposal, in the group's current epoch.
 #[derive(Clone, PartialEq, Message)]
 pub struct Send {
     #[prost(bytes = "vec", tag = "1")]
@@ -540,6 +545,9 @@ pub enum EntryKind {
     Unspecified = 0,
     Application = 1,
     Commit = 2,
+    /// An MLS proposal, such as a member asking to be removed when leaving.
+    /// Sent with [`Send`]; a later commit by another member applies it.
+    Proposal = 3,
 }
 
 /// A group log entry. Carries no sender: MLS encrypts that inside.

@@ -120,9 +120,10 @@ pub fn join_config() -> MlsGroupJoinConfig {
         .build()
 }
 
-/// A builder for a new group with Postern's settings and the given metadata.
-pub fn group_builder(meta: &GroupMeta) -> Result<MlsGroupBuilder, Error> {
-    let extensions = Extensions::from_vec(vec![
+/// The group context extensions of a Postern group with this metadata, and
+/// nothing else. A commit that changes the metadata must set exactly these.
+pub fn group_context_extensions(meta: &GroupMeta) -> Result<Extensions<GroupContext>, Error> {
+    Extensions::from_vec(vec![
         Extension::Unknown(META_EXTENSION, UnknownExtension(meta.encode())),
         Extension::RequiredCapabilities(RequiredCapabilitiesExtension::new(
             &[ExtensionType::Unknown(META_EXTENSION)],
@@ -130,7 +131,12 @@ pub fn group_builder(meta: &GroupMeta) -> Result<MlsGroupBuilder, Error> {
             &[CredentialType::Basic],
         )),
     ])
-    .map_err(|_| Error::Malformed("group extensions"))?;
+    .map_err(|_| Error::Malformed("group extensions"))
+}
+
+/// A builder for a new group with Postern's settings and the given metadata.
+pub fn group_builder(meta: &GroupMeta) -> Result<MlsGroupBuilder, Error> {
+    let extensions = group_context_extensions(meta)?;
     Ok(MlsGroup::builder()
         .ciphersuite(SUITE)
         .with_wire_format_policy(PURE_CIPHERTEXT_WIRE_FORMAT_POLICY)

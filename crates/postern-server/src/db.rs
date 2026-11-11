@@ -151,8 +151,37 @@ CREATE TABLE IF NOT EXISTS invites (
 );
 ";
 
+/// Changes to existing tables, in order. `SCHEMA` creates version 1 (plus any
+/// tables added since); entry `i` takes the database from version `i + 1` to
+/// `i + 2`. Never edit a released entry: add a new one.
+const MIGRATIONS: &[&str] = &[
+    // 2: devices unseen for 30 days are flagged stale and listed in the
+    // directory, so their accounts' other devices can remove their leaves.
+    "ALTER TABLE devices ADD COLUMN stale INTEGER NOT NULL DEFAULT 0;",
+];
+
+/// Days without a login after which a device is stale (design section 6).
+pub const STALE_AFTER_DAYS: i64 = 30;
+
+fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(SCHEMA)?;
+    // Version 0 is a database from before versioning, with version 1's tables.
+    let version = conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?.max(1) as usize;
+    if version > MIGRATIONS.len() + 1 {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    for (i, sql) in MIGRATIONS.iter().enumerate().skip(version - 1) {
+        let tx = conn.transaction()?;
+        tx.execute_batch(sql)?;
+        tx.pragma_update(None, "user_version", i as i64 + 2)?;
+        tx.commit()?;
+    }
+    Ok(())
+}
+
 /// Open (creating if needed) the server database, encrypted with `key`.
-/// Fails if the key does not match an existing database.
+/// Fails if the key does not match an existing database, or if it was written
+/// by a newer server.
 pub fn open(path: &Path, key: &[u8; 32]) -> rusqlite::Result<Connection> {
     let conn = Connection::open(path)?;
     conn.pragma_update(None, "key", format!("x'{}'", hex::encode(key)))?;
@@ -165,7 +194,8 @@ pub fn open(path: &Path, key: &[u8; 32]) -> rusqlite::Result<Connection> {
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
-    conn.execute_batch(SCHEMA)?;
+    let mut conn = conn;
+    migrate(&mut conn)?;
     Ok(conn)
 }
 
@@ -324,8 +354,39 @@ pub fn device_for_login(conn: &mut Connection, device: &DeviceId) -> Result<(Acc
     }
     let account = account_id(&account)?;
     let chain = load_chain(conn, &account)?;
-    conn.execute("UPDATE devices SET last_seen_day = ?1 WHERE device_id = ?2", params![today(), &device.0[..]]).db()?;
+    let tx = write_tx(conn)?;
+    tx.execute("UPDATE devices SET last_seen_day = ?1 WHERE device_id = ?2", params![today(), &device.0[..]]).db()?;
+    // A stale device is back: its account's other devices add it again.
+    let was_stale = tx.execute("UPDATE devices SET stale = 0 WHERE device_id = ?1 AND stale = 1", [&device.0[..]]).db()? > 0;
+    if was_stale {
+        let version = bump_directory(&tx)?;
+        tx.execute("UPDATE accounts SET dir_version = ?1 WHERE account_id = ?2", params![version, &account.0[..]]).db()?;
+    }
+    tx.commit().db()?;
     Ok((account, chain))
+}
+
+/// Flag active devices unseen for [`STALE_AFTER_DAYS`] as stale, and publish
+/// it in the directory. Returns how many were flagged.
+pub fn mark_stale_devices(conn: &mut Connection) -> rusqlite::Result<usize> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let cutoff = today() - STALE_AFTER_DAYS;
+    let accounts: Vec<Vec<u8>> = {
+        let mut stmt = tx.prepare(
+            "SELECT DISTINCT account_id FROM devices WHERE active = 1 AND stale = 0 AND last_seen_day IS NOT NULL AND last_seen_day < ?1",
+        )?;
+        stmt.query_map([cutoff], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+    };
+    let n = tx.execute(
+        "UPDATE devices SET stale = 1 WHERE active = 1 AND stale = 0 AND last_seen_day IS NOT NULL AND last_seen_day < ?1",
+        [cutoff],
+    )?;
+    for a in accounts {
+        tx.execute("INSERT INTO meta (k, v) VALUES ('dir_version', 1) ON CONFLICT (k) DO UPDATE SET v = v + 1", [])?;
+        tx.execute("UPDATE accounts SET dir_version = (SELECT v FROM meta WHERE k = 'dir_version') WHERE account_id = ?1", [a])?;
+    }
+    tx.commit()?;
+    Ok(n)
 }
 
 /// Accounts changed since `since`, with their full chains.
@@ -337,9 +398,11 @@ pub fn directory(conn: &Connection, since: u64) -> Result<proto::DirectoryUpdate
     let rows: Vec<(Vec<u8>, String, bool)> =
         stmt.query_map([sql_i64(since)], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).db()?.collect::<rusqlite::Result<_>>().db()?;
     let mut accounts = Vec::with_capacity(rows.len());
+    let mut stale_stmt = conn.prepare_cached("SELECT device_id FROM devices WHERE account_id = ?1 AND active = 1 AND stale = 1").db()?;
     for (account_id, username, disabled) in rows {
         let chain = chain_links(conn, &account_id)?;
-        accounts.push(proto::DirectoryAccount { account_id, username, chain, disabled });
+        let stale_devices = stale_stmt.query_map([&account_id], |r| r.get(0)).db()?.collect::<rusqlite::Result<_>>().db()?;
+        accounts.push(proto::DirectoryAccount { account_id, username, chain, disabled, stale_devices });
     }
     Ok(proto::DirectoryUpdate { version: version as u64, accounts })
 }
@@ -363,9 +426,11 @@ pub fn append_chain(conn: &mut Connection, account: &AccountId, link: &[u8]) -> 
     for d in chain.devices() {
         match before.iter().find(|b| b.id == d.id) {
             None => {
+                // Counted as seen today, so a device linked and never
+                // opened becomes stale in 30 days rather than never.
                 tx.execute(
-                    "INSERT INTO devices (device_id, account_id, mls_sig_pub, active) VALUES (?1, ?2, ?3, 1)",
-                    params![&d.id.0[..], &account.0[..], &d.entry.mls_sig_pub[..]],
+                    "INSERT INTO devices (device_id, account_id, mls_sig_pub, active, last_seen_day) VALUES (?1, ?2, ?3, 1, ?4)",
+                    params![&d.id.0[..], &account.0[..], &d.entry.mls_sig_pub[..], today()],
                 )
                 .db()?;
             }
@@ -692,23 +757,28 @@ fn append_log(tx: &Connection, group: &[u8], seq: u64, epoch: u64, kind: proto::
     Ok(())
 }
 
-/// Append an application message. Returns (seq, epoch, newly appended).
+/// Append an application message or a proposal. Returns (seq, epoch, newly
+/// appended).
 pub fn send(conn: &mut Connection, req: &proto::Send) -> Result<(u64, u64, bool)> {
     check_len(&req.client_msg_id, 16, "client_msg_id")?;
     let header = postern_mls::parse_header(&req.message).map_err(|e| err(ErrorCode::BadRequest, e.to_string()))?;
+    let (content_type, kind) = match header.content_type {
+        ContentType::Proposal => (ContentType::Proposal, proto::EntryKind::Proposal),
+        _ => (ContentType::Application, proto::EntryKind::Application),
+    };
     let tx = write_tx(conn)?;
     // Idempotent retry: answered before the access check, since a retry may
     // come after a commit has changed the key. The id is a 16-byte secret.
-    if let Some((seq, epoch, kind)) = existing_entry(&tx, &req.group_id, &req.client_msg_id)? {
-        if kind != proto::EntryKind::Application as i32 {
-            return Err(err(ErrorCode::BadRequest, "client_msg_id already used for a commit"));
+    if let Some((seq, epoch, existing)) = existing_entry(&tx, &req.group_id, &req.client_msg_id)? {
+        if existing != kind as i32 {
+            return Err(err(ErrorCode::BadRequest, "client_msg_id already used for something else"));
         }
         return Ok((seq, epoch, false));
     }
     let (epoch, next_seq) = current_epoch(&tx, &req.group_id)?;
     check_access(&tx, &req.group_id, epoch, &req.access_key)?;
-    check_header(&header, &req.group_id, epoch, ContentType::Application)?;
-    append_log(&tx, &req.group_id, next_seq, epoch, proto::EntryKind::Application, &req.client_msg_id, &req.message)?;
+    check_header(&header, &req.group_id, epoch, content_type)?;
+    append_log(&tx, &req.group_id, next_seq, epoch, kind, &req.client_msg_id, &req.message)?;
     tx.commit().db()?;
     Ok((next_seq, epoch, true))
 }
@@ -822,4 +892,34 @@ pub fn collect_garbage(conn: &mut Connection) -> rusqlite::Result<usize> {
     n += tokens::collect_garbage(&tx)?;
     tx.commit()?;
     Ok(n)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_one_databases_are_migrated() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("server.db");
+        let key = [5u8; 32];
+        {
+            // A database written before schema versioning.
+            let c = Connection::open(&path).expect("create");
+            c.pragma_update(None, "key", format!("x'{}'", hex::encode(key))).expect("key");
+            c.execute_batch(SCHEMA).expect("v1 schema");
+        }
+        let c = open(&path, &key).expect("open migrates");
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).expect("version");
+        assert_eq!(version as usize, MIGRATIONS.len() + 1);
+        let has_stale: bool =
+            c.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('devices') WHERE name = 'stale')", [], |r| r.get(0)).expect("column");
+        assert!(has_stale);
+        drop(c);
+        // Opening again changes nothing; a newer schema is refused.
+        let c = open(&path, &key).expect("reopen");
+        c.pragma_update(None, "user_version", 99).expect("set version");
+        drop(c);
+        assert!(open(&path, &key).is_err());
+    }
 }

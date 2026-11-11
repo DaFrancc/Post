@@ -27,13 +27,15 @@ use prost::Message as _;
 use rusqlite::{Connection, Transaction};
 use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
+use zeroize::Zeroizing;
 
 use crate::content::{self, Body, Content};
+use crate::ephemeral;
 use crate::link::{self as linking, Channel, LinkCode};
 use crate::net::{ServerConn, expect_reply};
 use crate::provider::Provider;
 use crate::store::{self, KIND_DM, KIND_GROUP, KIND_SELF, NewMessage};
-use crate::{ConversationId, Error, Event, MessageId, Result};
+use crate::{ConversationId, Error, Event, MessageId, Presence, PresenceSetting, Result};
 
 /// Exporter label for group access keys (design section 8).
 pub const ACCESS_LABEL: &str = "postern/group-access/v1";
@@ -47,6 +49,40 @@ const MAX_FETCH_ROUNDS: usize = 10_000;
 /// After a claim finds no KeyPackages for a device, wait this long before
 /// spending another token on it.
 const KP_BACKOFF: std::time::Duration = std::time::Duration::from_secs(600);
+/// Whether a leaf belongs to a stale device whose account keeps another,
+/// non-stale device in the same group. Its account's other devices, or a
+/// group admin, remove such leaves (design section 6, "Stale devices"); an
+/// account's last leaf never is, so an account stays a member while all its
+/// devices are away.
+fn stale_and_replaceable(stale: &HashSet<DeviceId>, leaves: &[(LeafNodeIndex, LeafIdentity)], leaf: &LeafIdentity) -> bool {
+    stale.contains(&leaf.device) && leaves.iter().any(|(_, l)| l.account == leaf.account && l.device != leaf.device && !stale.contains(&l.device))
+}
+
+/// How often a device replaces its own leaf in each group (design section 6,
+/// "Key refresh"). Each group is due somewhat earlier, by a spread derived
+/// from its ID, so a device's refreshes do not all land at once.
+const REFRESH_INTERVAL_MS: u64 = 7 * 24 * 3600 * 1000;
+const REFRESH_SPREAD_MS: u64 = 24 * 3600 * 1000;
+
+/// Whether this device's leaf in group `gid`, last replaced at
+/// `refreshed_at`, should be replaced now. Leaves older than `force_before`
+/// are always due.
+fn refresh_due(gid: &[u8; 16], refreshed_at: u64, now: u64, force_before: u64) -> bool {
+    let spread = u64::from_be_bytes([gid[0], gid[1], gid[2], gid[3], gid[4], gid[5], gid[6], gid[7]]) % REFRESH_SPREAD_MS;
+    refreshed_at < force_before || now.saturating_sub(refreshed_at) >= REFRESH_INTERVAL_MS - spread
+}
+
+/// Typing signals go out at most this often per conversation.
+const TYPING_EVERY: std::time::Duration = std::time::Duration::from_secs(3);
+/// Someone silent this long is shown offline.
+const PRESENCE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25 * 60);
+/// Groups quiet this long are not sent repeated presence.
+const QUIET_GROUP_MS: u64 = 30 * 24 * 3600 * 1000;
+/// Signals sent before pausing a second, under the server's 20 a second.
+const SIGNALS_PER_BURST: usize = 15;
+
+/// Most accounts in one group. Postern serves a community of about 100.
+const MAX_GROUP_ACCOUNTS: usize = 150;
 /// Most KeyPackages the server holds for a device (its `MAX_KEY_PACKAGES`).
 const KP_MAX: u32 = 100;
 /// How long a new device waits for the user to enter its code on another
@@ -79,6 +115,10 @@ struct Plan {
     add: Vec<DeviceId>,
     /// Leaves of devices their accounts have removed.
     remove: Vec<LeafNodeIndex>,
+    /// Members' proposals (people leaving) wait to be committed.
+    proposals: bool,
+    /// This device's leaf is due for fresh keys.
+    refresh: bool,
 }
 
 /// KeyPackages claimed for one device. One-time packages are used first; the
@@ -97,6 +137,13 @@ impl KpPool {
     fn is_empty(&self) -> bool {
         self.one_time.is_empty() && self.last_resort.is_none()
     }
+}
+
+/// What the listen loop waits on.
+pub(crate) struct ListenHandles {
+    pub wakes: [std::sync::Arc<tokio::sync::Notify>; 2],
+    pub closed: [crate::net::Closed; 2],
+    pub signals: std::sync::Arc<crate::net::Signals>,
 }
 
 /// This device's identity and keys.
@@ -175,6 +222,8 @@ enum Outcome {
     /// Nicknames for these accounts changed.
     Nicknames(Vec<AccountId>),
     Conversation,
+    /// A commit added accounts that were not members: they need our profile.
+    NewMembers,
 }
 
 fn random16() -> Result<[u8; 16]> {
@@ -239,6 +288,15 @@ pub(crate) struct Engine {
     no_key_packages: HashMap<DeviceId, std::time::Instant>,
     /// Chain heads already warned about, so one problem is reported once.
     gossip_warned: HashSet<(AccountId, u64)>,
+    /// Devices the directory lists as stale.
+    stale: HashSet<DeviceId>,
+    /// Leaves last refreshed before this time (Unix ms) are due now; set by
+    /// an explicit refresh.
+    refresh_before: u64,
+    /// When this device last sent a typing signal to each group.
+    typing_sent: HashMap<[u8; 16], std::time::Instant>,
+    /// Others' presence and when it was last heard. Memory only, by design.
+    presence: HashMap<AccountId, (ephemeral::State, std::time::Instant)>,
     link: Option<PendingLink>,
     pub events: broadcast::Sender<Event>,
 }
@@ -246,6 +304,7 @@ pub(crate) struct Engine {
 impl Engine {
     pub fn new(conn: Connection, events: broadcast::Sender<Event>) -> Result<Self> {
         let chains = store::load_chains(&conn)?;
+        let stale = store::stale_devices(&conn)?;
         let mut e = Self {
             conn,
             me: None,
@@ -256,6 +315,10 @@ impl Engine {
             subscribed: Vec::new(),
             no_key_packages: HashMap::new(),
             gossip_warned: HashSet::new(),
+            stale,
+            refresh_before: 0,
+            typing_sent: HashMap::new(),
+            presence: HashMap::new(),
             link: None,
             events,
         };
@@ -306,10 +369,15 @@ impl Engine {
         self.session().is_ok() && self.anon().is_ok()
     }
 
-    /// Both connections' wake and close signals, for the listen loop.
-    pub fn signals(&self) -> Result<[(std::sync::Arc<tokio::sync::Notify>, crate::net::Closed); 2]> {
+    /// Both connections' wake and close signals, and the relayed signals,
+    /// for the listen loop.
+    pub fn listen_handles(&self) -> Result<ListenHandles> {
         let (s, a) = (self.session()?, self.anon()?);
-        Ok([(s.wake.clone(), s.closed_signal()), (a.wake.clone(), a.closed_signal())])
+        Ok(ListenHandles {
+            wakes: [s.wake.clone(), a.wake.clone()],
+            closed: [s.closed_signal(), a.closed_signal()],
+            signals: a.signals.clone(),
+        })
     }
 
     fn emit(&self, e: Event) {
@@ -799,7 +867,13 @@ impl Engine {
                 Err(e) => return Err(e),
             }
             store::save_chain(&tx, &verified)?;
+            let stale: Vec<DeviceId> = a.stale_devices.iter().filter_map(|d| DeviceId::from_slice(d).ok()).collect();
+            store::set_stale_devices(&tx, &account, &stale)?;
             tx.commit()?;
+            for d in verified.devices() {
+                self.stale.remove(&d.id);
+            }
+            self.stale.extend(stale);
             if let Some(before) = before {
                 let after: HashSet<DeviceId> = verified.active_devices().map(|d| d.id).collect();
                 let (added, removed) = (after.difference(&before).count() as u32, before.difference(&after).count() as u32);
@@ -980,13 +1054,300 @@ impl Engine {
         // The account's other devices join too. The server cannot know who is
         // asking, so this also consumes one of this device's own KeyPackages.
         kps.extend(self.claim(mine).await?);
+        let gid = self.create_conversation(GroupMeta::dm(&mine, &peer), kps).await?;
+        Ok(ConversationId(store::dm_with(&self.conn, &peer)?.map_or(gid, |c| c.group_id)))
+    }
 
+    /// Create a named group with this account as its admin and `usernames`
+    /// as members, each with all of their devices.
+    pub async fn create_group(&mut self, name: &str, usernames: &[String]) -> Result<ConversationId> {
+        check_group_name(name)?;
+        let mine = self.me()?.account;
+        let mut accounts = Vec::new();
+        for u in usernames {
+            let a = self.resolve(u).await?;
+            if a != mine && !accounts.iter().any(|(x, _)| *x == a) {
+                accounts.push((a, u.clone()));
+            }
+        }
+        if accounts.is_empty() {
+            return Err(Error::InvalidInput("a group needs at least one other member".into()));
+        }
+        if accounts.len() >= MAX_GROUP_ACCOUNTS {
+            return Err(Error::InvalidInput(format!("a group can have at most {MAX_GROUP_ACCOUNTS} members")));
+        }
+        let mut kps = Vec::new();
+        for (account, username) in &accounts {
+            let theirs = self.claim(*account).await?;
+            if theirs.is_empty() {
+                return Err(Error::PeerUnavailable(username.clone()));
+            }
+            kps.extend(theirs);
+        }
+        kps.extend(self.claim(mine).await?);
+        // New members see past messages, shared a week at a time on request
+        // (design section 6, "History for new members"); admins can change it.
+        let meta = GroupMeta::group(name, &mine, postern_mls::HistoryVisibility::Shared, 0);
+        Ok(ConversationId(self.create_conversation(meta, kps).await?))
+    }
+
+    /// Change a group as its admin: add accounts (with all their devices),
+    /// remove accounts (all their leaves, and their admin role), and edit the
+    /// group's details. Decided against the group's current state, and
+    /// decided again if another commit takes the epoch first.
+    async fn change_group(
+        &mut self,
+        gid: [u8; 16],
+        add: &[AccountId],
+        remove: &[AccountId],
+        mut edit: impl FnMut(&mut GroupMeta) -> Result<()> + Send,
+    ) -> Result<()> {
+        for _ in 0..3 {
+            self.sync_groups().await?;
+            if store::pending_commit(&self.conn, &gid)?.is_some() {
+                return Err(Error::InvalidInput("another change to this group is still being sent; try again shortly".into()));
+            }
+            let conv = store::conversation(&self.conn, &gid)?.filter(|c| c.following).ok_or(Error::NotFound("conversation"))?;
+            if conv.kind != KIND_GROUP {
+                return Err(Error::NotAllowed("only group chats have members and details to change"));
+            }
+            let mine = self.me()?.account;
+            let (meta, members) = group_members(&self.conn, &gid)?;
+            if !meta.admins.iter().any(|a| a[..] == mine.0) {
+                return Err(Error::NotAllowed("only the group's admins can do that"));
+            }
+            let mut new_meta = meta.clone();
+            edit(&mut new_meta)?;
+            new_meta.admins.retain(|a| !remove.iter().any(|r| a[..] == r.0));
+            if new_meta.admins.is_empty() {
+                return Err(Error::InvalidInput("a group needs at least one admin".into()));
+            }
+            let is_member = |a: &AccountId| members.iter().any(|(m, _)| m == a);
+            let to_add: Vec<AccountId> = add.iter().filter(|a| !is_member(a)).copied().collect();
+            if members.len() + to_add.len() > MAX_GROUP_ACCOUNTS {
+                return Err(Error::InvalidInput(format!("a group can have at most {MAX_GROUP_ACCOUNTS} members")));
+            }
+            let leaves: Vec<LeafNodeIndex> = {
+                let provider = Provider::on(&self.conn);
+                let group = load_group(&provider, &gid)?;
+                group.members().filter(|m| leaf_of_member(m).is_ok_and(|l| remove.contains(&l.account))).map(|m| m.index).collect()
+            };
+            let meta_change = (new_meta != meta).then_some(new_meta);
+            if to_add.is_empty() && leaves.is_empty() && meta_change.is_none() {
+                return Ok(());
+            }
+            let mut kps = Vec::new();
+            for a in &to_add {
+                let theirs = self.claim(*a).await?;
+                if theirs.is_empty() {
+                    let name = store::username_of(&self.conn, &a.0)?.unwrap_or_default();
+                    return Err(Error::PeerUnavailable(name));
+                }
+                kps.extend(theirs);
+            }
+            if self.commit_changes(gid, kps, leaves, meta_change, false).await? {
+                // Merged when it comes back through the log.
+                self.sync_groups().await?;
+                return self.flush_outbox().await;
+            }
+        }
+        Err(Error::InvalidInput("the group kept changing while this was being sent; try again".into()))
+    }
+
+    async fn accounts_of(&mut self, usernames: &[String]) -> Result<Vec<AccountId>> {
+        let mut out = Vec::new();
+        for u in usernames {
+            out.push(self.resolve(u).await?);
+        }
+        Ok(out)
+    }
+
+    /// Add people to a group, with all their devices.
+    pub async fn add_members(&mut self, gid: [u8; 16], usernames: &[String]) -> Result<()> {
+        let accounts = self.accounts_of(usernames).await?;
+        self.change_group(gid, &accounts, &[], |_| Ok(())).await
+    }
+
+    /// Remove people from a group, with all their devices.
+    pub async fn remove_members(&mut self, gid: [u8; 16], usernames: &[String]) -> Result<()> {
+        let accounts = self.accounts_of(usernames).await?;
+        if accounts.contains(&self.me()?.account) {
+            return Err(Error::InvalidInput("to leave a group, leave it rather than removing yourself".into()));
+        }
+        self.change_group(gid, &[], &accounts, |_| Ok(())).await
+    }
+
+    /// Rename a group.
+    pub async fn rename_group(&mut self, gid: [u8; 16], name: &str) -> Result<()> {
+        check_group_name(name)?;
+        self.change_group(gid, &[], &[], |m| {
+            m.name = name.to_string();
+            Ok(())
+        })
+        .await
+    }
+
+    /// Make a member an admin, or stop them being one.
+    pub async fn set_admin(&mut self, gid: [u8; 16], username: &str, admin: bool) -> Result<()> {
+        let account = self.resolve(username).await?;
+        let (_, members) = group_members(&self.conn, &gid)?;
+        if !members.iter().any(|(a, _)| *a == account) {
+            return Err(Error::InvalidInput(format!("{username} is not in this group")));
+        }
+        self.change_group(gid, &[], &[], |m| {
+            m.admins.retain(|a| a[..] != account.0);
+            if admin {
+                m.admins.push(account.0.to_vec());
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    /// Whether new members see past messages, and how many days back.
+    pub async fn set_history(&mut self, gid: [u8; 16], shared: bool, days: u32) -> Result<()> {
+        self.change_group(gid, &[], &[], |m| {
+            m.history = if shared { postern_mls::HistoryVisibility::Shared } else { postern_mls::HistoryVisibility::Hidden } as i32;
+            m.history_days = if shared { days } else { 0 };
+            Ok(())
+        })
+        .await
+    }
+
+    /// Leave a group, with all of this account's devices (design section 6,
+    /// "Group policy"). A member cannot commit its own removal, so this
+    /// proposes it and another member commits it; until then this device
+    /// keeps proposing in each new epoch, and shows the group as left.
+    pub async fn leave_group(&mut self, gid: [u8; 16]) -> Result<()> {
+        let conv = store::conversation(&self.conn, &gid)?.filter(|c| c.following).ok_or(Error::NotFound("conversation"))?;
+        if conv.kind != KIND_GROUP {
+            return Err(Error::NotAllowed("only group chats can be left"));
+        }
+        if conv.leaving {
+            return Ok(());
+        }
+        let mine = self.me()?.account;
+        let (meta, members) = group_members(&self.conn, &gid)?;
+        let others: Vec<AccountId> = members.iter().map(|(a, _)| *a).filter(|a| *a != mine).collect();
+        if let Some(heir) = others.first().copied() {
+            // Hand the group on first if we are its only admin among members,
+            // or nobody could manage it (and other clients would refuse the
+            // removal). The heir is the longest-standing other member.
+            let another_admin = meta.admins.iter().any(|a| others.iter().any(|o| a[..] == o.0));
+            if !another_admin {
+                self.change_group(gid, &[], &[], |m| {
+                    m.admins.push(heir.0.to_vec());
+                    Ok(())
+                })
+                .await?;
+            }
+        }
+        {
+            let tx = self.conn.transaction()?;
+            store::set_leaving(&tx, &gid)?;
+            if others.is_empty() {
+                // Nobody is left to commit a removal.
+                store::stop_following(&tx, &gid)?;
+            }
+            tx.commit()?;
+        }
+        self.emit_outcome(gid, Outcome::Conversation)?;
+        if others.is_empty() {
+            return Ok(());
+        }
+        self.propose_leaving(gid)?;
+        match self.flush_proposals().await {
+            Ok(()) | Err(Error::NotConnected | Error::Network(_)) => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Propose removing each of this account's leaves that this device has
+    /// not already proposed in the current epoch.
+    fn propose_leaving(&mut self, gid: [u8; 16]) -> Result<()> {
+        let me = self.me.as_ref().ok_or(Error::NotRegistered)?;
+        let tx = self.conn.transaction()?;
+        {
+            let provider = Provider::on(&tx);
+            let mut group = load_group(&provider, &gid)?;
+            if group.pending_commit().is_some() {
+                return Ok(());
+            }
+            let own = group.own_leaf_index();
+            let proposed: HashSet<LeafNodeIndex> = group
+                .pending_proposals()
+                .filter(|p| matches!(p.sender(), Sender::Member(i) if *i == own))
+                .filter_map(|p| match p.proposal() {
+                    Proposal::Remove(r) => Some(r.removed()),
+                    _ => None,
+                })
+                .collect();
+            let ours: Vec<LeafNodeIndex> = group
+                .members()
+                .filter(|m| leaf_of_member(m).is_ok_and(|l| l.account == me.account) && !proposed.contains(&m.index))
+                .map(|m| m.index)
+                .collect();
+            let access_key = access_key_of(&group, &provider)?;
+            let epoch = group.epoch().as_u64();
+            for leaf in ours {
+                let (msg, _) = group.propose_remove_member(&provider, &me.signer, leaf).map_err(mls)?;
+                let id = random16()?;
+                // Our own proposal comes back in the log, and this device
+                // cannot decrypt its own messages: recognise it by id.
+                store::record_own_send(&tx, &gid, &id)?;
+                let req = proto::Send {
+                    group_id: gid.to_vec(),
+                    access_key: access_key.clone(),
+                    client_msg_id: id.to_vec(),
+                    message: msg.tls_serialize_detached().map_err(mls)?,
+                };
+                store::proposal_push(&tx, &id, &gid, epoch, &req.encode_to_vec())?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Send waiting proposals. One whose epoch has passed is dropped.
+    async fn flush_proposals(&mut self) -> Result<()> {
+        for w in store::proposals_waiting(&self.conn)? {
+            let id = w.client_msg_id;
+            let current = {
+                let provider = Provider::on(&self.conn);
+                load_group(&provider, &w.group_id).map(|g| g.epoch().as_u64()).ok()
+            };
+            if current != Some(w.epoch) {
+                store::proposal_remove(&self.conn, &id)?;
+                continue;
+            }
+            let req = proto::Send::decode(w.request.as_slice()).map_err(|_| Error::Corrupt("waiting proposal"))?;
+            match self.anon()?.request(Request::Send(req)).await {
+                Ok(_) => store::proposal_remove(&self.conn, &id)?,
+                Err(Error::Server(e)) if matches!(e.code(), ErrorCode::WrongEpoch | ErrorCode::BadAccessKey) => {
+                    store::proposal_remove(&self.conn, &id)?;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+
+    /// For each group being left: propose again if a new epoch began, and
+    /// send what is waiting.
+    async fn continue_leaving(&mut self) -> Result<()> {
+        for gid in store::leaving_groups(&self.conn)? {
+            self.propose_leaving(gid)?;
+        }
+        self.flush_proposals().await
+    }
+
+    /// Build a group with `meta` and the devices behind `kps`, and register it.
+    async fn create_conversation(&mut self, meta: GroupMeta, kps: Vec<KeyPackage>) -> Result<[u8; 16]> {
         let gid = random16()?;
         let request = {
             let me = self.me.as_ref().ok_or(Error::NotRegistered)?;
             let tx = self.conn.transaction()?;
             let provider = Provider::on(&tx);
-            let meta = GroupMeta::dm(&me.account, &peer);
             let mut group = postern_mls::group_builder(&meta)
                 .map_err(mls)?
                 .with_group_id(GroupId::from_slice(&gid))
@@ -1009,7 +1370,7 @@ impl Engine {
             req
         };
         self.finish_create(gid, request).await?;
-        Ok(ConversationId(store::dm_with(&self.conn, &peer)?.map_or(gid, |c| c.group_id)))
+        Ok(gid)
     }
 
     /// Register a created group with the server, then merge it locally.
@@ -1057,7 +1418,14 @@ impl Engine {
     /// caller syncs and decides again. The commit is merged only when it shows
     /// up in the group's log, so messages logged before it in the same epoch
     /// are still read with the old keys.
-    async fn commit_changes(&mut self, gid: [u8; 16], adds: Vec<KeyPackage>, removes: Vec<LeafNodeIndex>) -> Result<bool> {
+    async fn commit_changes(
+        &mut self,
+        gid: [u8; 16],
+        adds: Vec<KeyPackage>,
+        removes: Vec<LeafNodeIndex>,
+        meta: Option<GroupMeta>,
+        refresh: bool,
+    ) -> Result<bool> {
         let req = {
             let me = self.me.as_ref().ok_or(Error::NotRegistered)?;
             let tx = self.conn.transaction()?;
@@ -1070,10 +1438,11 @@ impl Engine {
                     .filter_map(|kp| postern_mls::leaf_identity(kp.leaf_node()).ok())
                     .map(|l| l.device.0.to_vec())
                     .collect();
-                let bundle = group
-                    .commit_builder()
-                    .propose_adds(adds)
-                    .propose_removals(removes)
+                let mut builder = group.commit_builder().force_self_update(refresh).propose_adds(adds).propose_removals(removes);
+                if let Some(meta) = &meta {
+                    builder = builder.propose_group_context_extensions(postern_mls::group_context_extensions(meta).map_err(mls)?).map_err(mls)?;
+                }
+                let bundle = builder
                     .load_psks(provider.storage())
                     .map_err(mls)?
                     .build(provider.rand(), provider.crypto(), &me.signer, |_| true)
@@ -1146,7 +1515,17 @@ impl Engine {
         let tx = self.conn.transaction()?;
         {
             let provider = Provider::on(&tx);
-            load_group(&provider, &gid)?.merge_pending_commit(&provider).map_err(mls)?;
+            let mut group = load_group(&provider, &gid)?;
+            // A commit with a path gives this device's leaf fresh keys,
+            // whatever else it did.
+            if group.pending_commit().and_then(|s| s.update_path_leaf_node()).is_some() {
+                store::set_refreshed(&tx, &gid)?;
+            }
+            group.merge_pending_commit(&provider).map_err(mls)?;
+            let meta = GroupMeta::from_extensions(group.extensions()).map_err(mls)?;
+            if meta.conversation_kind() == Some(MlsKind::Group) {
+                store::set_name(&tx, &gid, &meta.name)?;
+            }
         }
         store::pending_commit_remove(&tx, &gid)?;
         store::set_cursor(&tx, &gid, seq)?;
@@ -1171,10 +1550,11 @@ impl Engine {
             let mut lost_race = false;
             for p in plans {
                 let adds: Vec<KeyPackage> = p.add.iter().filter_map(|d| pools.get_mut(d).and_then(KpPool::take)).collect();
-                if adds.is_empty() && p.remove.is_empty() {
+                // A commit takes every pending proposal along with it.
+                if adds.is_empty() && p.remove.is_empty() && !p.proposals && !p.refresh {
                     continue;
                 }
-                lost_race |= !self.commit_changes(p.gid, adds, p.remove).await?;
+                lost_race |= !self.commit_changes(p.gid, adds, p.remove, None, p.refresh).await?;
             }
             // Our commits are merged as they come back through the log.
             self.sync_groups().await?;
@@ -1183,6 +1563,14 @@ impl Engine {
             }
         }
         Ok(())
+    }
+
+    /// Give this device's leaf fresh keys in every group now, instead of
+    /// waiting for the weekly refresh: after a device may have been exposed.
+    pub async fn refresh_keys(&mut self) -> Result<()> {
+        self.refresh_before = store::now_ms();
+        self.reconcile().await?;
+        self.flush_outbox().await
     }
 
     fn plan_membership(&self) -> Result<Vec<Plan>> {
@@ -1198,26 +1586,45 @@ impl Engine {
                 continue;
             }
             let group = load_group(&provider, &c.group_id)?;
-            let mut present = HashSet::new();
+            // This account is leaving: another member must commit that, and
+            // no device of ours may be added back meanwhile.
+            let own = group.own_leaf_index();
+            let ours_proposed = group.pending_proposals().any(|p| match p.proposal() {
+                Proposal::Remove(r) => r.removed() == own,
+                _ => false,
+            });
+            if ours_proposed || c.leaving {
+                continue;
+            }
+            let proposals = group.pending_proposals().next().is_some();
+            let leaves: Vec<(LeafNodeIndex, LeafIdentity)> =
+                group.members().filter_map(|m| leaf_of_member(&m).ok().map(|l| (m.index, l))).collect();
+            let present: HashSet<DeviceId> = leaves.iter().filter(|(_, l)| l.account == me.account).map(|(_, l)| l.device).collect();
+            // Stale leaves are ours to remove if they are our own devices, or
+            // anyone's if we administer this group.
+            let meta = GroupMeta::from_extensions(group.extensions()).map_err(mls)?;
+            let group_admin = c.kind == KIND_GROUP && meta.admins.iter().any(|a| a[..] == me.account.0);
             let mut remove = Vec::new();
-            for m in group.members() {
-                let Ok(leaf) = leaf_of_member(&m) else { continue };
-                if leaf.account == me.account {
-                    present.insert(leaf.device);
-                }
+            for (index, leaf) in &leaves {
                 let removed = self.chains.get(&leaf.account).is_some_and(|ch| !ch.device(&leaf.device).is_some_and(|d| d.is_active()));
-                if removed {
-                    remove.push(m.index);
+                let may_remove_stale = leaf.account == me.account || group_admin;
+                if removed || (may_remove_stale && stale_and_replaceable(&self.stale, &leaves, leaf)) {
+                    remove.push(*index);
                 }
             }
-            // A retired duplicate DM only needs its stale devices removed.
+            // A retired duplicate DM only needs stale leaves removed. Stale
+            // devices of ours are added back once they return.
             let add: Vec<DeviceId> = if c.active {
-                mine.active_devices().map(|d| d.id).filter(|d| !present.contains(d) && !self.backing_off(d)).collect()
+                mine.active_devices()
+                    .map(|d| d.id)
+                    .filter(|d| !present.contains(d) && !self.backing_off(d) && !self.stale.contains(d))
+                    .collect()
             } else {
                 Vec::new()
             };
-            if !add.is_empty() || !remove.is_empty() {
-                out.push(Plan { gid: c.group_id, add, remove });
+            let refresh = refresh_due(&c.group_id, c.refreshed_at, store::now_ms(), self.refresh_before);
+            if !add.is_empty() || !remove.is_empty() || proposals || refresh {
+                out.push(Plan { gid: c.group_id, add, remove, proposals, refresh });
             }
         }
         Ok(out)
@@ -1334,7 +1741,7 @@ impl Engine {
     fn queue_body(&mut self, gid: [u8; 16], body: Body) -> Result<[u8; 16]> {
         let gid = self.live_group(gid)?;
         let conv = store::conversation(&self.conn, &gid)?.ok_or(Error::NotFound("conversation"))?;
-        if !conv.following {
+        if !conv.following || conv.leaving {
             return Err(Error::InvalidInput("you are no longer in this conversation".into()));
         }
         if !body_allowed(&body, conv.kind == KIND_SELF) {
@@ -1493,13 +1900,24 @@ impl Engine {
     /// Fetch and process everything new: mailbox, then groups, then send
     /// what is queued, then keep subscriptions current.
     pub async fn sync(&mut self) -> Result<()> {
-        let joined = self.sync_mailbox().await?;
+        // The directory first: device changes and stale devices decide what
+        // membership should be. It is one small request when nothing changed.
+        self.sync_directory().await?;
+        // Group logs before Welcomes: a device removed and added back while
+        // it was offline must see its removal before the Welcome, which only
+        // replaces a group the device is no longer in. Then the logs of
+        // anything just joined.
         self.sync_groups().await?;
+        let joined = self.sync_mailbox().await?;
+        if joined > 0 {
+            self.sync_groups().await?;
+        }
         match self.reconcile().await {
             // Out of tokens for today: membership catches up tomorrow.
             Err(Error::NoTokens) => tracing::warn!("no tokens left to update group members"),
             r => r?,
         }
+        self.continue_leaving().await?;
         self.flush_outbox().await?;
         self.resubscribe().await?;
         if joined > 0 {
@@ -1598,7 +2016,16 @@ impl Engine {
             for g in batch.groups {
                 let gid = group_id_of(&g.group_id)?;
                 if let Some(e) = g.error {
-                    tracing::debug!(error = %e, "group fetch refused");
+                    if e.code() == ErrorCode::BadAccessKey {
+                        // The server keeps every epoch a member could still be
+                        // in for 30 days, so this device fell behind for longer
+                        // than that, or the group is gone. Stop following it;
+                        // a member adding it back brings it in again.
+                        store::stop_following(&self.conn, &gid)?;
+                        self.notice(Some(&gid), "this device was away too long to catch up with this conversation; a member can add you back")?;
+                    } else {
+                        tracing::debug!(error = %e, "group fetch refused");
+                    }
                     continue;
                 }
                 for e in &g.entries {
@@ -1626,12 +2053,11 @@ impl Engine {
             if conv.kind == KIND_SELF && !req.welcome_to.is_empty() {
                 // A new device of ours joined: give it our profile and
                 // everything the self group keeps in step.
-                let mine = self.me()?.account;
-                if let Some(p) = store::profile(&self.conn, &mine.0)? {
-                    self.queue_body(gid, Body::Profile(profile_body(&p)))?;
-                }
+                self.share_profile(gid)?;
                 let snapshot = self_snapshot(&self.conn)?;
                 self.queue_body(gid, Body::SelfSync(snapshot))?;
+            } else if self.welcomes_another_account(&req)? {
+                self.share_profile(gid)?;
             }
             return self.emit_outcome(gid, Outcome::Conversation);
         }
@@ -1660,7 +2086,11 @@ impl Engine {
             };
             match step {
                 Step::Done((outcome, gossip)) => {
+                    let new_members = matches!(outcome, Outcome::NewMembers);
                     self.emit_outcome(gid, outcome)?;
+                    if new_members {
+                        self.share_profile(gid)?;
+                    }
                     if let Some((account, head)) = gossip {
                         self.check_gossip(account, &head).await?;
                     }
@@ -1676,6 +2106,22 @@ impl Engine {
             }
         }
         Ok(())
+    }
+
+    /// Queue this account's profile into a group, for members who lack it.
+    fn share_profile(&mut self, gid: [u8; 16]) -> Result<()> {
+        let mine = self.me()?.account;
+        match store::profile(&self.conn, &mine.0)? {
+            Some(p) => self.queue_body(gid, Body::Profile(profile_body(&p))).map(|_| ()),
+            None => Ok(()),
+        }
+    }
+
+    /// Whether a commit of ours welcomed a device of some other account.
+    fn welcomes_another_account(&self, req: &proto::Commit) -> Result<bool> {
+        let me = self.me()?;
+        let mine = self.chains.get(&me.account).ok_or(Error::Corrupt("own chain"))?;
+        Ok(req.welcome_to.iter().any(|d| DeviceId::from_slice(d).is_ok_and(|d| mine.device(&d).is_none())))
     }
 
     /// Every message carries its sender's chain head (design section 5,
@@ -1733,7 +2179,7 @@ impl Engine {
                     }
                 }
             }
-            Outcome::Conversation => {
+            Outcome::Conversation | Outcome::NewMembers => {
                 if let Some(c) = store::conversation(&self.conn, &gid)?
                     && c.kind != KIND_SELF
                 {
@@ -1753,6 +2199,172 @@ impl Engine {
         self.anon()?.request(Request::Subscribe(proto::Subscribe { groups: cursors })).await?;
         self.subscribed = now;
         Ok(())
+    }
+
+    // ------------------------------------------------------------ typing and presence
+
+    /// Tell a conversation's members who are online that the user is typing.
+    /// Call it as the user types; it sends at most once every three seconds.
+    pub async fn send_typing(&mut self, gid: [u8; 16]) -> Result<()> {
+        let gid = self.live_group(gid)?;
+        let conv = store::conversation(&self.conn, &gid)?.ok_or(Error::NotFound("conversation"))?;
+        if !conv.following || conv.leaving || conv.kind == KIND_SELF {
+            return Err(Error::InvalidInput("you are no longer in this conversation".into()));
+        }
+        if self.typing_sent.get(&gid).is_some_and(|t| t.elapsed() < TYPING_EVERY) {
+            return Ok(());
+        }
+        self.typing_sent.insert(gid, std::time::Instant::now());
+        self.send_signal(gid, ephemeral::Kind::Typing(ephemeral::Typing {})).await
+    }
+
+    /// The presence this account shows, as chosen on this device.
+    pub fn own_presence(&self) -> Result<PresenceSetting> {
+        Ok(match store::meta_str(&self.conn, "presence")?.as_deref() {
+            Some("away") => PresenceSetting::Away,
+            Some("dnd") => PresenceSetting::DoNotDisturb,
+            Some("invisible") => PresenceSetting::Invisible,
+            _ => PresenceSetting::Online,
+        })
+    }
+
+    /// Choose the presence others see, and announce it to every conversation.
+    pub async fn set_presence(&mut self, setting: PresenceSetting) -> Result<()> {
+        let word = match setting {
+            PresenceSetting::Online => "online",
+            PresenceSetting::Away => "away",
+            PresenceSetting::DoNotDisturb => "dnd",
+            PresenceSetting::Invisible => "invisible",
+        };
+        store::meta_put(&self.conn, "presence", word.as_bytes())?;
+        // Going invisible announces "offline" once, then nothing.
+        let state = match setting {
+            PresenceSetting::Online => ephemeral::State::Online,
+            PresenceSetting::Away => ephemeral::State::Away,
+            PresenceSetting::DoNotDisturb => ephemeral::State::DoNotDisturb,
+            PresenceSetting::Invisible => ephemeral::State::Offline,
+        };
+        self.announce(state, false).await
+    }
+
+    /// Repeat this account's presence, as a running app does every ten
+    /// minutes. Invisible sends nothing. Groups quiet for a month are
+    /// skipped, to keep relay traffic small.
+    pub async fn announce_presence(&mut self) -> Result<()> {
+        let state = match self.own_presence()? {
+            PresenceSetting::Online => ephemeral::State::Online,
+            PresenceSetting::Away => ephemeral::State::Away,
+            PresenceSetting::DoNotDisturb => ephemeral::State::DoNotDisturb,
+            PresenceSetting::Invisible => return Ok(()),
+        };
+        self.announce(state, true).await
+    }
+
+    async fn announce(&mut self, state: ephemeral::State, active_only: bool) -> Result<()> {
+        let cutoff = store::now_ms().saturating_sub(QUIET_GROUP_MS) as i64;
+        let groups: Vec<[u8; 16]> = store::broadcast_groups(&self.conn)?
+            .into_iter()
+            .filter(|g| !active_only || store::conversation(&self.conn, g).ok().flatten().is_some_and(|c| c.last_activity >= cutoff))
+            .collect();
+        for (i, gid) in groups.into_iter().enumerate() {
+            // The server relays at most 20 signals a second per connection.
+            if i > 0 && i % SIGNALS_PER_BURST == 0 {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+            self.send_signal(gid, ephemeral::Kind::Presence(ephemeral::PresenceSignal { state: state as i32 })).await?;
+        }
+        Ok(())
+    }
+
+    /// Sign, seal and relay one signal. Signals are best effort: one that
+    /// misses its epoch or a rate limit is simply dropped.
+    async fn send_signal(&mut self, gid: [u8; 16], kind: ephemeral::Kind) -> Result<()> {
+        let (payload, access_key) = {
+            let me = self.me.as_ref().ok_or(Error::NotRegistered)?;
+            let provider = Provider::on(&self.conn);
+            let group = load_group(&provider, &gid)?;
+            let key = Zeroizing::new(group.export_secret(provider.crypto(), ephemeral::EXPORTER_LABEL, &[], 32).map_err(mls)?);
+            let ctx = ephemeral::Context { group_id: &gid, epoch: group.epoch().as_u64(), key };
+            let signal = ephemeral::Signal {
+                account: me.account.0.to_vec(),
+                device: me.device.0.to_vec(),
+                sent_at_ms: store::now_ms(),
+                kind: Some(kind),
+            };
+            (ctx.seal(&signal, &me.keys.mls)?, access_key_of(&group, &provider)?)
+        };
+        let req = proto::SendEphemeral { group_id: gid.to_vec(), access_key, payload };
+        match self.anon()?.request(Request::SendEphemeral(req)).await {
+            Ok(_) => Ok(()),
+            Err(Error::Server(e)) if matches!(e.code(), ErrorCode::WrongEpoch | ErrorCode::BadAccessKey | ErrorCode::RateLimited) => {
+                tracing::debug!(error = %e, "signal dropped");
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Open the signals the server relayed, and report the ones that check
+    /// out. Never touches the database.
+    pub fn process_signals(&mut self) -> Result<()> {
+        let Ok(anon) = self.anon() else { return Ok(()) };
+        let waiting = anon.signals.take();
+        let mine = self.me()?.account;
+        for (group_id, payload) in waiting {
+            let Ok(gid) = group_id_of(&group_id) else { continue };
+            let Some(conv) = store::conversation(&self.conn, &gid)? else { continue };
+            if !conv.following || conv.leaving {
+                continue;
+            }
+            let opened = {
+                let provider = Provider::on(&self.conn);
+                let group = load_group(&provider, &gid)?;
+                let key = Zeroizing::new(group.export_secret(provider.crypto(), ephemeral::EXPORTER_LABEL, &[], 32).map_err(mls)?);
+                let ctx = ephemeral::Context { group_id: &gid, epoch: group.epoch().as_u64(), key };
+                let leaf_key = |a: &AccountId, d: &DeviceId| {
+                    group.members().find_map(|m| leaf_of_member(&m).ok().filter(|l| l.account == *a && l.device == *d).map(|l| l.signature_key))
+                };
+                ctx.open(&payload, leaf_key, store::now_ms())
+            };
+            let signal = match opened {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::debug!(error = %e);
+                    continue;
+                }
+            };
+            let Ok(account) = store::account_id(&signal.account) else { continue };
+            if account == mine {
+                continue;
+            }
+            let Some(username) = store::username_of(&self.conn, &account.0)? else { continue };
+            match signal.kind {
+                Some(ephemeral::Kind::Typing(_)) if conv.kind != KIND_SELF => {
+                    let template = store::profile(&self.conn, &account.0)?.map(|p| p.typing_template).unwrap_or_default();
+                    let name = store::shown_name(&self.conn, Some(&gid), &account.0)?;
+                    let text = content::render_typing(&template, &name);
+                    self.emit(Event::Typing { conversation: ConversationId(gid), username, text });
+                }
+                Some(ephemeral::Kind::Presence(p)) => {
+                    let state = ephemeral::State::try_from(p.state).unwrap_or(ephemeral::State::Offline);
+                    let changed = self.presence.insert(account, (state, std::time::Instant::now())).map(|(s, _)| s) != Some(state);
+                    if changed {
+                        self.emit(Event::Presence { username, presence: Presence::from(state) });
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// What this device last heard of someone's presence. Silence for 25
+    /// minutes means offline.
+    pub fn presence_of(&self, account: &AccountId) -> Presence {
+        match self.presence.get(account) {
+            Some((state, at)) if at.elapsed() < PRESENCE_TIMEOUT => Presence::from(*state),
+            _ => Presence::Offline,
+        }
     }
 
     // ------------------------------------------------------------ profile
@@ -1835,6 +2447,31 @@ fn compare_gossip(chain: &Chain, head: &content::ChainHead) -> Gossip {
         Some(_) => Gossip::Conflicts,
         None => Gossip::Ahead,
     }
+}
+
+/// A group's metadata and its member accounts, each with its number of
+/// devices, as this device's MLS state has them.
+pub(crate) fn group_members(conn: &Connection, gid: &[u8]) -> Result<(GroupMeta, Vec<(AccountId, u32)>)> {
+    let provider = Provider::on(conn);
+    let group = load_group(&provider, gid)?;
+    let meta = GroupMeta::from_extensions(group.extensions()).map_err(mls)?;
+    let mut counts: Vec<(AccountId, u32)> = Vec::new();
+    for m in group.members() {
+        let Ok(leaf) = leaf_of_member(&m) else { continue };
+        match counts.iter_mut().find(|(a, _)| *a == leaf.account) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((leaf.account, 1)),
+        }
+    }
+    Ok((meta, counts))
+}
+
+/// Group names follow the display-name rules and may not be empty.
+fn check_group_name(name: &str) -> Result<()> {
+    if name.trim().is_empty() {
+        return Err(Error::InvalidInput("give the group a name".into()));
+    }
+    content::check_display_name(name).map_err(|e| Error::InvalidInput(e.to_string().replace("display name", "group name")))
 }
 
 /// Device names follow the display-name rules and may not be empty.
@@ -1960,11 +2597,26 @@ fn join_from_welcome(
         _ => return Err(reject("not an invitation")),
     };
     let provider = Provider::on(tx);
-    let staged = StagedWelcome::new_from_welcome(&provider, &postern_mls::join_config(), welcome, None)
+    let builder = StagedWelcome::build_from_welcome(&provider, &postern_mls::join_config(), welcome)
         .map_err(|e| reject(format!("cannot open it: {e}")))?;
-    let gid: [u8; 16] = staged.group_context().group_id().as_slice().try_into().map_err(|_| reject("bad group id"))?;
-    if store::conversation(tx, &gid)?.is_some() {
+    // A Welcome for a group this device already has replaces that group only
+    // if the device is no longer in it (it was removed, or left): it is being
+    // added back, and the conversation and its messages carry on. A group the
+    // device is still in is never replaced, or anyone holding one of its
+    // KeyPackages could knock it out of a conversation with a forged Welcome
+    // reusing the group's ID. The ID is read before staging to decide, and
+    // checked against the verified one after.
+    let peeked: [u8; 16] =
+        builder.processed_welcome().unverified_group_info().group_id().as_slice().try_into().map_err(|_| reject("bad group id"))?;
+    let existing = store::conversation(tx, &peeked)?;
+    if existing.as_ref().is_some_and(|c| c.following && !c.leaving) {
         return Ok(None);
+    }
+    let builder = if existing.is_some() { builder.replace_old_group() } else { builder };
+    let staged = builder.build().map_err(|e| reject(format!("cannot open it: {e}")))?;
+    let gid: [u8; 16] = staged.group_context().group_id().as_slice().try_into().map_err(|_| reject("bad group id"))?;
+    if gid != peeked {
+        return Err(reject("an invitation's group changed while it was opened"));
     }
     let meta = GroupMeta::from_extensions(staged.group_context().extensions()).map_err(|e| reject(format!("bad group metadata: {e}")))?;
     let leaves = staged.members().map(|m| leaf_of_member(&m)).collect::<std::result::Result<Vec<_>, _>>()?;
@@ -1983,8 +2635,17 @@ fn join_from_welcome(
         }
         _ => {}
     }
-    staged.into_group(&provider).map_err(fatal)?;
-    install_conversation(tx, &gid, &meta, &me.account)?;
+    if existing.is_some() {
+        if let Ok(mut old) = load_group(&provider, &gid) {
+            old.delete(provider.storage()).map_err(fatal)?;
+        }
+        store::pending_commit_remove(tx, &gid)?;
+        store::rejoin(tx, &gid)?;
+        staged.into_group(&provider).map_err(fatal)?;
+    } else {
+        staged.into_group(&provider).map_err(fatal)?;
+        install_conversation(tx, &gid, &meta, &me.account)?;
+    }
     Ok(Some(gid))
 }
 
@@ -2021,16 +2682,39 @@ fn process_in_tx(
             }
             let removed = staged.self_removed();
             let new_meta = GroupMeta::from_extensions(staged.group_context().extensions()).map_err(fatal)?;
+            let members: HashSet<AccountId> = group.members().filter_map(|m| leaf_of_member(&m).ok()).map(|l| l.account).collect();
+            let adds_accounts = staged
+                .add_proposals()
+                .filter_map(|a| postern_mls::leaf_identity(a.add_proposal().key_package().leaf_node()).ok())
+                .any(|l| !members.contains(&l.account));
             group.merge_staged_commit(&provider, *staged).map_err(fatal)?;
             if removed {
                 store::stop_following(tx, gid)?;
             } else if new_meta.conversation_kind() == Some(MlsKind::Group) {
                 store::set_name(tx, gid, &new_meta.name)?;
             }
-            Ok((Outcome::Conversation, None))
+            let outcome = if adds_accounts && !removed { Outcome::NewMembers } else { Outcome::Conversation };
+            Ok((outcome, None))
         }
-        _ => Err(reject("an unsupported proposal was skipped")),
+        ProcessedMessageContent::ProposalMessage(p) => {
+            check_proposal(&group, &sender, &p)?;
+            group.store_pending_proposal(provider.storage(), *p).map_err(fatal)?;
+            Ok((Outcome::Nothing, None))
+        }
+        _ => Err(reject("an unsupported message was skipped")),
     }
+}
+
+/// The only proposal Postern sends: a member leaving, removing its own
+/// account's devices. Anything else is refused before it can reach the
+/// proposal store and ride along in an honest member's commit.
+fn check_proposal(group: &MlsGroup, sender: &AccountId, p: &QueuedProposal) -> std::result::Result<(), Fail> {
+    let Proposal::Remove(r) = p.proposal() else { return Err(reject("an unsupported proposal was skipped")) };
+    let target = group.members().find(|m| m.index == r.removed()).ok_or_else(|| reject("a proposal named no member"))?;
+    if leaf_of_member(&target)?.account != *sender {
+        return Err(reject("someone proposed removing another member"));
+    }
+    Ok(())
 }
 
 /// Policy for a commit by `committer` (design section 6, "Group policy").
@@ -2045,8 +2729,18 @@ fn check_commit(
     let is_dm = old.conversation_kind() == Some(MlsKind::Dm);
     let is_self = old.conversation_kind() == Some(MlsKind::SelfGroup);
     let is_admin = old.admins.iter().any(|a| a[..] == committer.0);
-    if new != old && (is_dm || is_self || !is_admin) {
-        return Err(reject("someone who is not an admin tried to change the group"));
+    if new != old {
+        if is_dm || is_self || !is_admin {
+            return Err(reject("someone who is not an admin tried to change the group"));
+        }
+        if new.kind != old.kind {
+            return Err(reject("someone tried to turn the group into a different kind of conversation"));
+        }
+        // Exactly Postern's extensions, so nothing rides along unchecked.
+        let expected = postern_mls::group_context_extensions(&new).map_err(fatal)?;
+        if staged.group_context().extensions() != &expected {
+            return Err(reject("a change set group details this app does not recognise"));
+        }
     }
     let members: Vec<LeafIdentity> = group.members().filter_map(|m| leaf_of_member(&m).ok()).collect();
     let current: HashSet<AccountId> = members.iter().map(|l| l.account).collect();
@@ -2072,12 +2766,24 @@ fn check_commit(
         }
         authorize(chains, std::slice::from_ref(&id))?;
     }
+    // Removals are justified by facts that do not change with time: the
+    // committer's own account, the member's own leave proposal, the device's
+    // removal from its chain, or an admin's decision. Staleness is not one of
+    // them: it comes and goes, and a device that came back would refuse its
+    // own earlier removal. Stale leaves are removed by their account's other
+    // devices or by an admin, which these rules already allow.
     for rem in staged.remove_proposals() {
         let idx = rem.remove_proposal().removed();
         let Some(m) = group.members().find(|m| m.index == idx) else { return Err(reject("a removal named no member")) };
         let leaf = leaf_of_member(&m)?;
         let device_removed = chains.get(&leaf.account).is_some_and(|c| !c.device(&leaf.device).is_some_and(|d| d.is_active()));
-        if !(leaf.account == *committer || device_removed || (!is_dm && !is_self && is_admin)) {
+        // Who asked: the committer, or the member whose proposal it commits.
+        let proposer = match rem.sender() {
+            Sender::Member(i) => group.members().find(|m| m.index == *i).and_then(|m| leaf_of_member(&m).ok()).map(|l| l.account),
+            _ => None,
+        };
+        let leaving = proposer == Some(leaf.account);
+        if !(leaf.account == *committer || leaving || device_removed || (!is_dm && !is_self && is_admin)) {
             // Perhaps the removal is in a chain link this device has not
             // fetched yet; the caller refreshes the directory and retries once.
             return Err(Fail::NeedDirectory);
@@ -2085,6 +2791,20 @@ fn check_commit(
     }
     if staged.update_proposals().next().is_some() {
         return Err(reject("an unsupported change was skipped"));
+    }
+    // A group always keeps an admin among its members, or nobody could
+    // manage it again.
+    if new.conversation_kind() == Some(MlsKind::Group) {
+        let removed: HashSet<LeafNodeIndex> = staged.remove_proposals().map(|r| r.remove_proposal().removed()).collect();
+        let after: HashSet<AccountId> = group
+            .members()
+            .filter(|m| !removed.contains(&m.index))
+            .filter_map(|m| leaf_of_member(&m).ok().map(|l| l.account))
+            .chain(staged.add_proposals().filter_map(|a| postern_mls::leaf_identity(a.add_proposal().key_package().leaf_node()).ok().map(|l| l.account)))
+            .collect();
+        if !new.admins.iter().any(|a| store::account_id(a).is_ok_and(|a| after.contains(&a))) {
+            return Err(reject("a change would have left the group with no admin"));
+        }
     }
     Ok(())
 }
@@ -2103,7 +2823,13 @@ fn handle_content(
         return Err(reject("a message's id did not match its delivery"));
     }
     let id: [u8; 16] = c.id.as_slice().try_into().map_err(|_| reject("bad message id"))?;
-    let in_self_group = store::conversation(tx, gid)?.is_some_and(|conv| conv.kind == KIND_SELF);
+    let conv = store::conversation(tx, gid)?;
+    if conv.as_ref().is_some_and(|conv| conv.leaving) {
+        // The user left: this device only follows the group until its
+        // removal lands, and keeps nothing more from it.
+        return Ok(Outcome::Nothing);
+    }
+    let in_self_group = conv.is_some_and(|conv| conv.kind == KIND_SELF);
     match &c.body {
         Some(b) if !body_allowed(b, in_self_group) => return Err(reject("a message of the wrong kind was skipped")),
         // A newer client's self-group data: nothing to show, nothing to store.
@@ -2208,9 +2934,31 @@ fn handle_content(
 }
 
 #[cfg(test)]
+#[path = "adversarial_tests.rs"]
+mod adversarial_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use postern_identity::chain::seal;
+
+    #[test]
+    fn refreshes_fall_due_weekly_spread_by_group() {
+        let day = 24 * 3600 * 1000;
+        let (a, b) = ([0u8; 16], [0xff; 16]);
+        let t0 = 1_000 * day;
+        // Never early, never later than a week.
+        for g in [&a, &b] {
+            assert!(!refresh_due(g, t0, t0 + 5 * day, 0));
+            assert!(refresh_due(g, t0, t0 + 7 * day, 0));
+        }
+        // Groups fall due at different times within the last day.
+        let first_due = |g: &[u8; 16]| (0..=7 * 24).find(|h| refresh_due(g, t0, t0 + h * 3600 * 1000, 0)).expect("due within a week");
+        assert_ne!(first_due(&a), first_due(&b));
+        // An explicit refresh makes every older leaf due at once.
+        assert!(refresh_due(&a, t0, t0 + 1, t0 + 1));
+        assert!(!refresh_due(&a, t0 + 2, t0 + 3, t0 + 1));
+    }
 
     #[test]
     fn gossiped_heads_are_compared_by_position() {

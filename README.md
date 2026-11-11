@@ -9,12 +9,13 @@ The original sketch is kept in [`DESIGN.md`](DESIGN.md).
 
 ## Status
 
-Phases 1 to 3 are done: identity, the server with metadata protection, the
+Phases 1 to 4 are done: identity, the server with metadata protection, the
 client core, the `postern` command-line client with a JSON-RPC daemon for bots,
-and multiple devices per account. DMs with unlimited edits (every version kept),
-deletes, profiles, device linking and removal, and nicknames synced between your
-own devices work end to end. Groups, the Flutter app, attachments, push and calls
-are later phases.
+multiple devices per account, and group chats. DMs and groups with unlimited
+edits (every version kept), deletes, profiles, admins, leaving, weekly key
+refresh, device linking and removal, nicknames synced between your own devices,
+typing indicators and presence work end to end. The Flutter app, attachments,
+push and calls are later phases.
 
 ## Layout
 
