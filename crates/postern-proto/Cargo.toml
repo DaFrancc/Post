@@ -1,0 +1,13 @@
+[package]
+name = "postern-proto"
+description = "Postern client-server wire protocol"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+prost.workspace = true
+
+[lints]
+workspace = true
