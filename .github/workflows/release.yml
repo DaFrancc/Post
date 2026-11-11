@@ -1,0 +1,69 @@
+# Build a release when a version tag is pushed, and leave it as a draft
+# (design section 12, "App updates"):
+#
+#   git tag -a v1.2.0      the tag message is the release notes; a line
+#   git push origin v1.2.0 "Min-Version: 1.1.0" marks older apps as too old
+#
+# CI never holds the release key. Signing happens on the maintainer's
+# machine with scripts/release-sign.sh, which checks the files, signs each
+# manifest and publishes the release. Only then do servers fetch it.
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: write
+
+jobs:
+  linux-x86_64:
+    # The oldest supported runner, so the build runs on older systems'
+    # libraries too.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version and notes
+        run: |
+          # The checkout may hold the tag without its message: fetch it whole.
+          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          version=${GITHUB_REF_NAME#v}
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" | sed '/-----BEGIN PGP SIGNATURE-----/,$d' > tag-message.txt
+          min=$(sed -n 's/^Min-Version: *//p' tag-message.txt | head -1)
+          grep -v '^Min-Version:' tag-message.txt > notes.txt || true
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "MIN_VERSION=${min:-0.0.0}" >> "$GITHUB_ENV"
+
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libssl-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+
+      - name: Build
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build linux --release --dart-define=POST_VERSION="$VERSION"
+
+      - name: Pack
+        run: app/linux/packaging/package.sh "$VERSION" dist
+
+      - name: Manifest (unsigned)
+        run: |
+          cargo run -q --release -p post-release -- manifest \
+            --version "$VERSION" --platform linux-x86_64 --min-version "$MIN_VERSION" \
+            --notes-file notes.txt --out dist/manifest-linux-x86_64.json \
+            "dist/post-$VERSION-linux-x86_64.tar.gz"
+
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --draft --title "Post $VERSION" --notes-file notes.txt dist/*
