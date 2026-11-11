@@ -56,6 +56,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 url = "2.5"
 tempfile = "3"
+# The Flutter app's bridge (crates/postern-ffi). Pinned exactly: it must equal
+# the flutter_rust_bridge_codegen version that generated the bindings, and the
+# Dart package version in app/pubspec.yaml.
+flutter_rust_bridge = "=2.13.0"
+# The app's database key lives in the platform keystore (design section 11).
+# Linux: the Secret Service (GNOME Keyring, KWallet), over encrypted D-Bus.
+keyring-core = "1.0"
+zbus-secret-service-keyring-store = { version = "1.0", features = ["rt-tokio-crypto-rust"] }
 # Anonymous tokens, RFC 9474. Uses rsa 0.10, which fixed the Marvin timing
 # side channel (RUSTSEC-2023-0071) by moving to constant-time arithmetic.
 blind-rsa-signatures = "0.18"
