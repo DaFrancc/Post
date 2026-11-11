@@ -18,6 +18,7 @@ mod link;
 mod net;
 mod provider;
 mod store;
+pub mod update;
 
 use std::fmt;
 use std::path::Path;
@@ -94,6 +95,10 @@ pub enum Error {
     /// The operating system's random number generator failed.
     #[error("randomness unavailable")]
     Rng,
+    /// Checking for, fetching or installing an app update failed; one
+    /// sentence saying why.
+    #[error("{0}")]
+    Update(String),
 }
 
 /// Result type for the core.

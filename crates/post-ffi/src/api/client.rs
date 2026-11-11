@@ -23,6 +23,35 @@ pub fn init_app() {
 /// An open profile: one account on this device.
 pub struct Client {
     core: Core,
+    profile_dir: PathBuf,
+    /// The update the last check found, for downloading and installing.
+    update: std::sync::Mutex<Option<core::update::Available>>,
+}
+
+/// A newer release of the app, checked against the release key.
+pub struct UpdateInfo {
+    /// Its version.
+    pub version: String,
+    /// What changed, as plain text.
+    pub notes: String,
+    /// When it was released (Unix ms).
+    pub released_at_ms: i64,
+    /// How much there is to download, in bytes.
+    pub size: u64,
+    /// This app is too old to keep talking to the server once it updates:
+    /// show it prominently.
+    pub required: bool,
+    /// The app can install it itself: it runs from an install that updates
+    /// can replace. Otherwise it can only say an update exists.
+    pub can_install: bool,
+}
+
+/// How far a download has got.
+pub struct UpdateProgress {
+    /// Bytes downloaded.
+    pub done: u64,
+    /// Bytes in all.
+    pub total: u64,
 }
 
 /// The account on this device.
@@ -273,6 +302,7 @@ impl Client {
     /// headless profiles stay out of the keystore.
     pub async fn open(profile_dir: String, key_file: Option<String>) -> Result<Client, PostError> {
         let dir = PathBuf::from(profile_dir);
+        let profile_dir = dir.clone();
         let core = tokio::task::spawn_blocking(move || -> anyhow::Result<Core> {
             let key = match key_file {
                 Some(f) => core::keyfile::read(std::path::Path::new(&f))?,
@@ -283,7 +313,61 @@ impl Client {
         .await
         .map_err(|_| PostError::new(ErrorKind::Other, "Opening the profile stopped unexpectedly."))?
         .map_err(from_anyhow)?;
-        Ok(Client { core })
+        Ok(Client { core, profile_dir, update: std::sync::Mutex::default() })
+    }
+
+    // ------------------------------------------------------------ updates
+
+    async fn updater(&self, current_version: &str) -> Result<core::update::Updater, PostError> {
+        let me = self.core.identity().await.ok_or(core::Error::NotRegistered)?;
+        Ok(core::update::Updater::new(&me.server, current_version, self.profile_dir.join("updates"))?)
+    }
+
+    fn found_update(&self) -> Result<core::update::Available, PostError> {
+        let found = self.update.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        found.ok_or_else(|| PostError::new(ErrorKind::Other, "Check for updates first."))
+    }
+
+    /// Ask this account's server for a release newer than `current_version`
+    /// (this app's), checked against the release key built into the app.
+    pub async fn check_update(&self, current_version: String) -> Result<Option<UpdateInfo>, PostError> {
+        let found = self.updater(&current_version).await?.check().await?;
+        *self.update.lock().unwrap_or_else(|p| p.into_inner()) = found.clone();
+        Ok(found.map(|a| UpdateInfo {
+            version: a.manifest.version.clone(),
+            notes: a.manifest.notes.clone(),
+            released_at_ms: ms(a.manifest.released_at_ms),
+            size: a.size,
+            required: a.required,
+            can_install: core::update::install_root().is_some(),
+        }))
+    }
+
+    /// Download the update the last check found, resuming a download left
+    /// part way; `sink` hears how far it has got.
+    pub async fn download_update(&self, current_version: String, sink: StreamSink<UpdateProgress>) -> Result<(), PostError> {
+        let found = self.found_update()?;
+        let updater = self.updater(&current_version).await?;
+        updater
+            .download(&found, |done, total| {
+                let _ = sink.add(UpdateProgress { done, total });
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// Install the downloaded update in place of this app's version. Gives
+    /// the program to start instead of this one; the running app keeps
+    /// running until it is restarted.
+    pub async fn install_update(&self, current_version: String) -> Result<String, PostError> {
+        let found = self.found_update()?;
+        let root = core::update::install_root()
+            .ok_or_else(|| PostError::new(ErrorKind::Other, "This copy of Post was not installed in a way it can update itself."))?;
+        let updater = self.updater(&current_version).await?;
+        let program = tokio::task::spawn_blocking(move || updater.install(&found, &root))
+            .await
+            .map_err(|_| PostError::new(ErrorKind::Other, "Installing stopped unexpectedly."))??;
+        Ok(program.to_string_lossy().into_owned())
     }
 
     // ------------------------------------------------------------ account

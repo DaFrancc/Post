@@ -8,7 +8,7 @@ import 'error.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `app_event`, `conversation`, `identity`, `message`, `ms`, `sentence`
+// These functions are ignored because they are not marked as `pub`: `app_event`, `conversation`, `found_update`, `identity`, `message`, `ms`, `sentence`, `updater`
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>
 abstract class Client implements RustOpaqueInterface {
@@ -25,6 +25,10 @@ abstract class Client implements RustOpaqueInterface {
     required String server,
     required String deviceName,
   });
+
+  /// Ask this account's server for a release newer than `current_version`
+  /// (this app's), checked against the release key built into the app.
+  Future<UpdateInfo?> checkUpdate({required String currentVersion});
 
   /// One conversation.
   Future<ConversationInfo> conversation({required String id});
@@ -47,6 +51,10 @@ abstract class Client implements RustOpaqueInterface {
   /// The account's devices, oldest first.
   Future<List<DeviceInfo>> devices();
 
+  /// Download the update the last check found, resuming a download left
+  /// part way; `sink` hears how far it has got.
+  Stream<UpdateProgress> downloadUpdate({required String currentVersion});
+
   /// Edit one of the user's messages. Every version stays visible.
   Future<MessageInfo> editMessage({
     required String conversation,
@@ -63,6 +71,11 @@ abstract class Client implements RustOpaqueInterface {
 
   /// The account on this device, if there is one yet.
   Future<Identity?> identity();
+
+  /// Install the downloaded update in place of this app's version. Gives
+  /// the program to start instead of this one; the running app keeps
+  /// running until it is restarted.
+  Future<String> installUpdate({required String currentVersion});
 
   /// Whether the app is connected to the server now.
   Future<bool> isConnected();
@@ -868,4 +881,79 @@ class SearchOptions {
           oldestFirst == other.oldestFirst &&
           limit == other.limit &&
           offset == other.offset;
+}
+
+/// A newer release of the app, checked against the release key.
+class UpdateInfo {
+  /// Its version.
+  final String version;
+
+  /// What changed, as plain text.
+  final String notes;
+
+  /// When it was released (Unix ms).
+  final PlatformInt64 releasedAtMs;
+
+  /// How much there is to download, in bytes.
+  final BigInt size;
+
+  /// This app is too old to keep talking to the server once it updates:
+  /// show it prominently.
+  final bool required_;
+
+  /// The app can install it itself: it runs from an install that updates
+  /// can replace. Otherwise it can only say an update exists.
+  final bool canInstall;
+
+  const UpdateInfo({
+    required this.version,
+    required this.notes,
+    required this.releasedAtMs,
+    required this.size,
+    required this.required_,
+    required this.canInstall,
+  });
+
+  @override
+  int get hashCode =>
+      version.hashCode ^
+      notes.hashCode ^
+      releasedAtMs.hashCode ^
+      size.hashCode ^
+      required_.hashCode ^
+      canInstall.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is UpdateInfo &&
+          runtimeType == other.runtimeType &&
+          version == other.version &&
+          notes == other.notes &&
+          releasedAtMs == other.releasedAtMs &&
+          size == other.size &&
+          required_ == other.required_ &&
+          canInstall == other.canInstall;
+}
+
+/// How far a download has got.
+class UpdateProgress {
+  /// Bytes downloaded.
+  final BigInt done;
+
+  /// Bytes in all.
+  final BigInt total;
+
+  const UpdateProgress({required this.done, required this.total});
+
+  @override
+  int get hashCode => done.hashCode ^ total.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is UpdateProgress &&
+          runtimeType == other.runtimeType &&
+          done == other.done &&
+          total == other.total;
 }
