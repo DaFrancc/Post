@@ -211,6 +211,13 @@ const MIGRATIONS: &[&str] = &[
          device_id   BLOB PRIMARY KEY,
          account_id  BLOB NOT NULL
      );",
+    // 6: how far the user has read each group, as a position in its server
+    // log; later messages from others are unread. A log position means the
+    // same on every device, and history fetched later sits below it. Every
+    // message already here counts as read.
+    "ALTER TABLE conversations ADD COLUMN read_seq INTEGER NOT NULL DEFAULT 0;
+     UPDATE conversations SET read_seq =
+         (SELECT COALESCE(MAX(seq), 0) FROM messages WHERE messages.group_id = conversations.group_id);",
 ];
 
 /// Create tables, both ours and OpenMLS's, and bring old databases up to date.
@@ -678,6 +685,61 @@ pub fn messages(conn: &Connection, groups: &[Vec<u8>], limit: u32) -> Result<Vec
     Ok(out)
 }
 
+/// Messages from others in `groups` past each group's read position, not
+/// deleted.
+pub fn unread(conn: &Connection, groups: &[Vec<u8>]) -> Result<u32> {
+    let mut stmt = conn.prepare(
+        "SELECT count(*) FROM messages m JOIN conversations c ON c.group_id = m.group_id
+         WHERE m.group_id = ?1 AND m.outgoing = 0 AND m.deleted_at IS NULL AND m.seq > c.read_seq",
+    )?;
+    let mut n = 0u32;
+    for g in groups {
+        n = n.saturating_add(stmt.query_row([g], |r| r.get::<_, u32>(0))?);
+    }
+    Ok(n)
+}
+
+/// Mark everything in `groups` read, up to the newest message each has.
+/// Returns whether anything changed. Positions only move forward.
+pub fn mark_read(conn: &Connection, groups: &[Vec<u8>]) -> Result<bool> {
+    let mut stmt = conn.prepare(
+        "UPDATE conversations SET read_seq = (SELECT MAX(seq) FROM messages WHERE group_id = ?1)
+         WHERE group_id = ?1 AND read_seq < (SELECT COALESCE(MAX(seq), 0) FROM messages WHERE group_id = ?1)",
+    )?;
+    let mut changed = false;
+    for g in groups {
+        changed |= stmt.execute([g])? > 0;
+    }
+    Ok(changed)
+}
+
+/// A notice, as stored.
+pub struct NoticeRow {
+    pub at: i64,
+    pub text: String,
+}
+
+/// The newest `limit` notices about `groups`, or about the account as a whole
+/// when `groups` is empty; oldest first.
+pub fn notices(conn: &Connection, groups: &[Vec<u8>], limit: u32) -> Result<Vec<NoticeRow>> {
+    let row = |r: &rusqlite::Row<'_>| Ok(NoticeRow { at: r.get(0)?, text: r.get(1)? });
+    let mut out: Vec<NoticeRow> = if groups.is_empty() {
+        let mut stmt = conn.prepare("SELECT at, text FROM notices WHERE group_id IS NULL ORDER BY pk DESC LIMIT ?1")?;
+        stmt.query_map([limit], row)?.collect::<rusqlite::Result<_>>()?
+    } else {
+        let mut stmt = conn.prepare("SELECT at, text FROM notices WHERE group_id = ?1 ORDER BY pk DESC LIMIT ?2")?;
+        let mut all = Vec::new();
+        for g in groups {
+            all.extend(stmt.query_map(params![g, limit], row)?.collect::<rusqlite::Result<Vec<_>>>()?);
+        }
+        all.sort_by_key(|n| std::cmp::Reverse(n.at));
+        all.truncate(limit as usize);
+        all
+    };
+    out.reverse();
+    Ok(out)
+}
+
 pub struct VersionRow {
     pub body: String,
     pub at: i64,
@@ -1044,6 +1106,20 @@ mod tests {
         // A newer schema is refused rather than misread.
         c.pragma_update(None, "user_version", 99).expect("set version");
         assert!(migrate(&mut c).is_err());
+    }
+
+    #[test]
+    fn notices_by_conversation() {
+        let c = db();
+        add_notice(&c, Some(&[1]), "first in one").expect("add");
+        add_notice(&c, None, "account wide").expect("add");
+        add_notice(&c, Some(&[2]), "in two").expect("add");
+        add_notice(&c, Some(&[1]), "second in one").expect("add");
+        let texts = |groups: &[Vec<u8>], limit| notices(&c, groups, limit).expect("read").into_iter().map(|n| n.text).collect::<Vec<_>>();
+        assert_eq!(texts(&[vec![1]], 10), ["first in one", "second in one"]);
+        assert_eq!(texts(&[vec![1]], 1), ["second in one"], "the newest, when limited");
+        assert_eq!(texts(&[], 10), ["account wide"]);
+        assert_eq!(texts(&[vec![1], vec![2]], 10).len(), 3);
     }
 
     #[test]

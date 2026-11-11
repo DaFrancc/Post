@@ -190,6 +190,10 @@ pub struct Conversation {
     pub last_activity_ms: u64,
     /// False once this device was removed: still readable, no longer updated.
     pub following: bool,
+    /// Messages from others since the user last read it.
+    pub unread: u32,
+    /// The newest message, for a preview.
+    pub last_message: Option<Message>,
 }
 
 /// Delivery state of a message.
@@ -232,6 +236,15 @@ pub struct Message {
     pub versions: u32,
     /// Delivery state.
     pub state: MessageState,
+}
+
+/// Something the user was told, usually a security warning.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Notice {
+    /// When (Unix ms, this device's clock).
+    pub at_ms: u64,
+    /// What happened, as a sentence starting in lower case.
+    pub text: String,
 }
 
 /// One version of a message.
@@ -419,7 +432,11 @@ pub(crate) fn conversation_from_row(conn: &Connection, c: &store::ConversationRo
         (Some(p), store::KIND_DM) => store::shown_name(conn, None, p)?,
         _ => c.name.clone(),
     };
+    let groups = store::conversation_groups(conn, &c.group_id)?;
+    let last_message = store::messages(conn, &groups, 1)?.first().map(|m| message_from_row(conn, m)).transpose()?;
     Ok(Conversation {
+        unread: store::unread(conn, &groups)?,
+        last_message,
         id: ConversationId(c.group_id),
         kind: if c.kind == store::KIND_DM { ConversationKind::Dm } else { ConversationKind::Group },
         title,
@@ -768,6 +785,40 @@ impl Core {
         self.read(|c| store::conversations(c)?.iter().map(|r| conversation_from_row(c, r)).collect())
     }
 
+    /// Mark a conversation read up to its newest message. Emits
+    /// [`Event::ConversationChanged`] if its unread count changed.
+    pub async fn mark_read(&self, conversation: ConversationId) -> Result<()> {
+        let engine = self.engine.lock().await;
+        let groups = store::conversation_groups(&engine.conn, &conversation.0)?;
+        if groups.is_empty() {
+            return Err(Error::NotFound("conversation"));
+        }
+        if store::mark_read(&engine.conn, &groups)? {
+            let row = store::conversation(&engine.conn, &conversation.0)?.ok_or(Error::NotFound("conversation"))?;
+            let _ = self.events.send(Event::ConversationChanged(conversation_from_row(&engine.conn, &row)?));
+        }
+        Ok(())
+    }
+
+    /// The newest `limit` notices about a conversation, or with `None` about
+    /// the account as a whole, oldest first. Notices are what
+    /// [`Event::Notice`] announced, kept.
+    pub fn notices(&self, conversation: Option<ConversationId>, limit: u32) -> Result<Vec<Notice>> {
+        self.read(|c| {
+            let groups = match conversation {
+                Some(id) => {
+                    let g = store::conversation_groups(c, &id.0)?;
+                    if g.is_empty() {
+                        return Err(Error::NotFound("conversation"));
+                    }
+                    g
+                }
+                None => Vec::new(),
+            };
+            Ok(store::notices(c, &groups, limit)?.into_iter().map(|n| Notice { at_ms: n.at as u64, text: n.text }).collect())
+        })
+    }
+
     /// The newest `limit` messages of a conversation, oldest first.
     pub fn messages(&self, conversation: ConversationId, limit: u32) -> Result<Vec<Message>> {
         self.read(|c| {
@@ -932,6 +983,7 @@ fn core_futures_are_send(c: &Core, conv: ConversationId, msg: MessageId) {
     send(c.own_presence());
     send(c.presence(""));
     send(c.send_text(conv, ""));
+    send(c.mark_read(conv));
     send(c.edit_message(conv, msg, ""));
     send(c.delete_message(conv, msg));
     send(c.set_profile(ProfileUpdate::default()));

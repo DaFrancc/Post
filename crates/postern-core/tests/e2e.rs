@@ -170,6 +170,49 @@ async fn dm_messages_edits_deletes_and_profiles() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unread_counts_and_previews() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+
+    let dm = alice.start_dm("bob").await.expect("dm");
+    alice.send_text(dm.id, "one").await.expect("send");
+    let two = alice.send_text(dm.id, "two").await.expect("send");
+    bob.sync().await.expect("bob sync");
+
+    let conv = bob.conversation(dm.id).expect("conversation");
+    assert_eq!(conv.unread, 2);
+    assert_eq!(conv.last_message.as_ref().and_then(|m| m.body.as_deref()), Some("two"));
+    // Your own messages are never unread.
+    assert_eq!(alice.conversation(dm.id).expect("conversation").unread, 0);
+
+    let mut events = bob.subscribe();
+    bob.mark_read(dm.id).await.expect("mark read");
+    let e = next_event(&mut events, |e| matches!(e, Event::ConversationChanged(_))).await;
+    let Event::ConversationChanged(c) = e else { unreachable!() };
+    assert_eq!(c.unread, 0);
+
+    // A deleted message stops counting; a new one counts.
+    alice.send_text(dm.id, "three").await.expect("send");
+    let four = alice.send_text(dm.id, "four").await.expect("send");
+    alice.delete_message(dm.id, four.id).await.expect("delete");
+    bob.sync().await.expect("bob sync");
+    let conv = bob.conversation(dm.id).expect("conversation");
+    assert_eq!(conv.unread, 1);
+    assert!(conv.last_message.as_ref().is_some_and(|m| m.deleted), "the newest message is the deleted one");
+
+    // Reading survives a restart, and an edit does not make a message unread.
+    bob.mark_read(dm.id).await.expect("mark read");
+    alice.edit_message(dm.id, two.id, "two, edited").await.expect("edit");
+    bob.sync().await.expect("bob sync");
+    assert_eq!(bob.conversation(dm.id).expect("conversation").unread, 0);
+    drop(bob);
+    let bob = Core::open(&dir.path().join("bob"), &DbKey::from_bytes([7; 32])).expect("reopen");
+    assert_eq!(bob.conversations().expect("conversations")[0].unread, 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn live_delivery_through_wakes() {
     let server = Server::start().await;
     let dir = tempfile::tempdir().expect("tempdir");
