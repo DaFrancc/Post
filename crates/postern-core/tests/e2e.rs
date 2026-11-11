@@ -457,6 +457,26 @@ async fn group_admins() {
     // The history setting is the admin's too.
     assert!(alice.set_history(g.id, false, 0).await.is_err());
     bob.set_history(g.id, true, 30).await.expect("history");
+
+    // Carol can be added back, and her device rejoins the same conversation.
+    bob.add_members(g.id, &["carol".into()]).await.expect("add carol back");
+    bob.send_text(g.id, "welcome back").await.expect("send");
+    carol.sync().await.expect("carol sync");
+    let back = carol.conversations().expect("conversations").into_iter().find(|x| x.id == g.id).expect("listed");
+    assert!(back.following, "carol is in again");
+    assert_eq!(last_in(&carol, g.id).as_deref(), Some("welcome back"));
+    carol.send_text(g.id, "thanks").await.expect("carol sends");
+    alice.sync().await.expect("alice sync");
+    assert_eq!(last_in(&alice, g.id).as_deref(), Some("thanks"));
+
+    // Removed and added back while she was not looking: on her next sync she
+    // sees the removal, then takes the new Welcome.
+    bob.remove_members(g.id, &["carol".into()]).await.expect("remove again");
+    bob.add_members(g.id, &["carol".into()]).await.expect("add again");
+    bob.send_text(g.id, "again").await.expect("send");
+    carol.sync().await.expect("carol sync");
+    assert!(carol.conversation(g.id).expect("conversation").following);
+    assert_eq!(last_in(&carol, g.id).as_deref(), Some("again"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

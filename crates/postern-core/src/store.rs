@@ -379,6 +379,15 @@ pub fn insert_conversation(
     Ok(())
 }
 
+/// Back in a group after being removed or leaving, with a fresh leaf.
+pub fn rejoin(conn: &Connection, group: &[u8]) -> Result<()> {
+    conn.execute(
+        "UPDATE conversations SET following = 1, leaving = 0, refreshed_at = ?1, last_activity = ?1 WHERE group_id = ?2",
+        params![i64_of(now_ms()), group],
+    )?;
+    Ok(())
+}
+
 pub fn set_refreshed(conn: &Connection, group: &[u8]) -> Result<()> {
     conn.execute("UPDATE conversations SET refreshed_at = ?1 WHERE group_id = ?2", params![i64_of(now_ms()), group])?;
     Ok(())

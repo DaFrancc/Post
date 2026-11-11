@@ -1874,8 +1874,15 @@ impl Engine {
     /// Fetch and process everything new: mailbox, then groups, then send
     /// what is queued, then keep subscriptions current.
     pub async fn sync(&mut self) -> Result<()> {
-        let joined = self.sync_mailbox().await?;
+        // Group logs before Welcomes: a device removed and added back while
+        // it was offline must see its removal before the Welcome, which only
+        // replaces a group the device is no longer in. Then the logs of
+        // anything just joined.
         self.sync_groups().await?;
+        let joined = self.sync_mailbox().await?;
+        if joined > 0 {
+            self.sync_groups().await?;
+        }
         match self.reconcile().await {
             // Out of tokens for today: membership catches up tomorrow.
             Err(Error::NoTokens) => tracing::warn!("no tokens left to update group members"),
@@ -1980,7 +1987,16 @@ impl Engine {
             for g in batch.groups {
                 let gid = group_id_of(&g.group_id)?;
                 if let Some(e) = g.error {
-                    tracing::debug!(error = %e, "group fetch refused");
+                    if e.code() == ErrorCode::BadAccessKey {
+                        // The server keeps every epoch a member could still be
+                        // in for 30 days, so this device fell behind for longer
+                        // than that, or the group is gone. Stop following it;
+                        // a member adding it back brings it in again.
+                        store::stop_following(&self.conn, &gid)?;
+                        self.notice(Some(&gid), "this device was away too long to catch up with this conversation; a member can add you back")?;
+                    } else {
+                        tracing::debug!(error = %e, "group fetch refused");
+                    }
                     continue;
                 }
                 for e in &g.entries {
@@ -2552,11 +2568,26 @@ fn join_from_welcome(
         _ => return Err(reject("not an invitation")),
     };
     let provider = Provider::on(tx);
-    let staged = StagedWelcome::new_from_welcome(&provider, &postern_mls::join_config(), welcome, None)
+    let builder = StagedWelcome::build_from_welcome(&provider, &postern_mls::join_config(), welcome)
         .map_err(|e| reject(format!("cannot open it: {e}")))?;
-    let gid: [u8; 16] = staged.group_context().group_id().as_slice().try_into().map_err(|_| reject("bad group id"))?;
-    if store::conversation(tx, &gid)?.is_some() {
+    // A Welcome for a group this device already has replaces that group only
+    // if the device is no longer in it (it was removed, or left): it is being
+    // added back, and the conversation and its messages carry on. A group the
+    // device is still in is never replaced, or anyone holding one of its
+    // KeyPackages could knock it out of a conversation with a forged Welcome
+    // reusing the group's ID. The ID is read before staging to decide, and
+    // checked against the verified one after.
+    let peeked: [u8; 16] =
+        builder.processed_welcome().unverified_group_info().group_id().as_slice().try_into().map_err(|_| reject("bad group id"))?;
+    let existing = store::conversation(tx, &peeked)?;
+    if existing.as_ref().is_some_and(|c| c.following && !c.leaving) {
         return Ok(None);
+    }
+    let builder = if existing.is_some() { builder.replace_old_group() } else { builder };
+    let staged = builder.build().map_err(|e| reject(format!("cannot open it: {e}")))?;
+    let gid: [u8; 16] = staged.group_context().group_id().as_slice().try_into().map_err(|_| reject("bad group id"))?;
+    if gid != peeked {
+        return Err(reject("an invitation's group changed while it was opened"));
     }
     let meta = GroupMeta::from_extensions(staged.group_context().extensions()).map_err(|e| reject(format!("bad group metadata: {e}")))?;
     let leaves = staged.members().map(|m| leaf_of_member(&m)).collect::<std::result::Result<Vec<_>, _>>()?;
@@ -2575,8 +2606,17 @@ fn join_from_welcome(
         }
         _ => {}
     }
-    staged.into_group(&provider).map_err(fatal)?;
-    install_conversation(tx, &gid, &meta, &me.account)?;
+    if existing.is_some() {
+        if let Ok(mut old) = load_group(&provider, &gid) {
+            old.delete(provider.storage()).map_err(fatal)?;
+        }
+        store::pending_commit_remove(tx, &gid)?;
+        store::rejoin(tx, &gid)?;
+        staged.into_group(&provider).map_err(fatal)?;
+    } else {
+        staged.into_group(&provider).map_err(fatal)?;
+        install_conversation(tx, &gid, &meta, &me.account)?;
+    }
     Ok(Some(gid))
 }
 
