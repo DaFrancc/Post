@@ -194,6 +194,76 @@ async fn state_survives_restart() {
     assert!(Core::open(&dir.path().join("bob"), &DbKey::from_bytes([8; 32])).is_err());
 }
 
+/// Link a second device to `account`'s owner. Returns it once it has joined.
+async fn link(server: &Server, dir: &Path, existing: &Core, name: &str) -> Core {
+    let device = Core::open(&dir.join(name), &DbKey::from_bytes([7; 32])).expect("open profile");
+    let code = device.begin_link(&server.url, name, false).await.expect("begin link");
+    assert_eq!(existing.link_inspect(&code).await.expect("inspect").name, name);
+    let finishing = {
+        let device = device.clone();
+        tokio::spawn(async move { device.finish_link().await })
+    };
+    let approved = existing.link_approve(&code).await.expect("approve");
+    let id = finishing.await.expect("join").expect("finish link");
+    assert_eq!(approved.device_id, id.device_id);
+    device
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn linked_device_joins_conversations() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    alice.set_profile(ProfileUpdate { display_name: Some("Alice A".into()), ..Default::default() }).await.expect("profile");
+    let dm = alice.start_dm("bob").await.expect("dm");
+    alice.send_text(dm.id, "before the phone").await.expect("send");
+    bob.sync().await.expect("bob sync");
+
+    let phone = link(&server, dir.path(), &alice, "phone").await;
+    let (laptop_id, phone_id) = (alice.identity().await.expect("id"), phone.identity().await.expect("id"));
+    assert_eq!(phone_id.username, "alice");
+    assert_eq!(phone_id.account_id, laptop_id.account_id, "one account");
+    assert_ne!(phone_id.device_id, laptop_id.device_id, "two devices");
+
+    // The phone is in the DM, without its history (that comes in phase 6).
+    phone.sync().await.expect("phone sync");
+    let convs = phone.conversations().expect("conversations");
+    assert_eq!(convs.iter().map(|c| c.id).collect::<Vec<_>>(), vec![dm.id]);
+    assert!(phone.messages(dm.id, 10).expect("messages").is_empty());
+    // Its profile came from the account's self group.
+    assert_eq!(phone.person("alice").await.expect("self").display_name, "Alice A");
+
+    // Bob reaches both devices; each device sees what the other sends.
+    bob.sync().await.expect("bob sync");
+    bob.send_text(dm.id, "hi both").await.expect("send");
+    phone.sync().await.expect("phone sync");
+    alice.sync().await.expect("alice sync");
+    let last = |c: &Core| c.messages(dm.id, 10).expect("messages").last().cloned().expect("a message");
+    assert_eq!(last(&phone).body.as_deref(), Some("hi both"));
+    assert_eq!(last(&alice).body.as_deref(), Some("hi both"));
+
+    phone.send_text(dm.id, "from the phone").await.expect("phone sends");
+    bob.sync().await.expect("bob sync");
+    alice.sync().await.expect("alice sync");
+    let at_bob = last(&bob);
+    assert_eq!((at_bob.body.as_deref(), at_bob.sender_username.as_str()), (Some("from the phone"), "alice"));
+    let at_laptop = last(&alice);
+    assert_eq!(at_laptop.body.as_deref(), Some("from the phone"));
+    assert!(at_laptop.outgoing, "a message from my other device is mine");
+
+    // A conversation started after linking includes the phone from the start.
+    let carol = server.client(dir.path(), "carol").await;
+    let dm2 = carol.start_dm("alice").await.expect("carol dm");
+    carol.send_text(dm2.id, "hello alice").await.expect("send");
+    phone.sync().await.expect("phone sync");
+    assert_eq!(last_in(&phone, dm2.id).as_deref(), Some("hello alice"));
+}
+
+fn last_in(c: &Core, conv: postern_core::ConversationId) -> Option<String> {
+    c.messages(conv, 10).expect("messages").last().and_then(|m| m.body.clone())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn registration_rules() {
     let server = Server::start().await;

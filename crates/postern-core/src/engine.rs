@@ -20,7 +20,7 @@ use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::OpenMlsProvider;
 use openmls_traits::types::SignatureScheme;
 use postern_identity::chain::validate_username;
-use postern_identity::{AccountId, Chain, DeviceId, DeviceKeys, HybridSigningKey, labels};
+use postern_identity::{AccountId, Chain, DeviceEntry, DeviceId, DeviceKeys, HybridSignature, HybridSigningKey, Link, Op, labels};
 use postern_mls::{ConversationKind as MlsKind, GroupMeta, LeafIdentity, SUITE};
 use postern_proto::{self as proto, ErrorCode, Reply, Request};
 use prost::Message as _;
@@ -29,6 +29,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
 
 use crate::content::{self, Body, Content};
+use crate::link::{self as linking, Channel, LinkCode};
 use crate::net::{ServerConn, expect_reply};
 use crate::provider::Provider;
 use crate::store::{self, KIND_DM, KIND_GROUP, KIND_SELF, NewMessage};
@@ -43,6 +44,60 @@ const TOKEN_BATCH: usize = 50;
 /// Upper bound on fetch rounds in one sync, so a misbehaving server cannot
 /// keep a client looping forever.
 const MAX_FETCH_ROUNDS: usize = 10_000;
+/// After a claim finds no KeyPackages for a device, wait this long before
+/// spending another token on it.
+const KP_BACKOFF: std::time::Duration = std::time::Duration::from_secs(600);
+/// Most KeyPackages the server holds for a device (its `MAX_KEY_PACKAGES`).
+const KP_MAX: u32 = 100;
+/// How long a new device waits for the user to enter its code on another
+/// device: as long as the server keeps the rendezvous.
+const LINK_WAIT_FOR_USER: std::time::Duration = std::time::Duration::from_secs(600);
+/// How long either device waits for the other's next automatic step.
+const LINK_WAIT_FOR_DEVICE: std::time::Duration = std::time::Duration::from_secs(180);
+
+/// A link this unregistered device has offered, waiting for another device
+/// of the account to accept it (design section 5, "Linking a device").
+pub(crate) struct PendingLink {
+    channel: Channel,
+    conn: ServerConn,
+    keys: DeviceKeys,
+    url: String,
+    domain: String,
+    bot: bool,
+}
+
+/// A device asking to be linked, as the accepting device sees it.
+pub(crate) struct LinkOffer {
+    pub entry: DeviceEntry,
+    pub name: String,
+}
+
+/// Membership changes one group needs.
+struct Plan {
+    gid: [u8; 16],
+    /// This account's devices missing from the group.
+    add: Vec<DeviceId>,
+    /// Leaves of devices their accounts have removed.
+    remove: Vec<LeafNodeIndex>,
+}
+
+/// KeyPackages claimed for one device. One-time packages are used first; the
+/// last-resort package may then be used for every remaining group.
+#[derive(Default)]
+struct KpPool {
+    one_time: Vec<KeyPackage>,
+    last_resort: Option<KeyPackage>,
+}
+
+impl KpPool {
+    fn take(&mut self) -> Option<KeyPackage> {
+        self.one_time.pop().or_else(|| self.last_resort.clone())
+    }
+
+    fn is_empty(&self) -> bool {
+        self.one_time.is_empty() && self.last_resort.is_none()
+    }
+}
 
 /// This device's identity and keys.
 pub(crate) struct Me {
@@ -178,13 +233,27 @@ pub(crate) struct Engine {
     session: Option<ServerConn>,
     anon: Option<ServerConn>,
     subscribed: Vec<(Vec<u8>, u64)>,
+    /// Devices whose last KeyPackage claim came back empty, and when.
+    no_key_packages: HashMap<DeviceId, std::time::Instant>,
+    link: Option<PendingLink>,
     pub events: broadcast::Sender<Event>,
 }
 
 impl Engine {
     pub fn new(conn: Connection, events: broadcast::Sender<Event>) -> Result<Self> {
         let chains = store::load_chains(&conn)?;
-        let mut e = Self { conn, me: None, registered: false, chains, session: None, anon: None, subscribed: Vec::new(), events };
+        let mut e = Self {
+            conn,
+            me: None,
+            registered: false,
+            chains,
+            session: None,
+            anon: None,
+            subscribed: Vec::new(),
+            no_key_packages: HashMap::new(),
+            link: None,
+            events,
+        };
         e.load_identity()?;
         Ok(e)
     }
@@ -328,7 +397,7 @@ impl Engine {
             self.conn.execute("DELETE FROM chain_links WHERE account_id = ?1", [&me.account.0[..]])?;
         }
         self.conn.execute(
-            "DELETE FROM meta WHERE k IN ('chain_seeds', 'mls_seed', 'account_id', 'username', 'domain', 'url', 'bot', 'registered')",
+            "DELETE FROM meta WHERE k IN ('chain_seeds', 'mls_seed', 'account_id', 'username', 'domain', 'url', 'bot', 'registered', 'kp_target')",
             [],
         )?;
         self.registered = false;
@@ -371,6 +440,8 @@ impl Engine {
 
     async fn after_login(&mut self, auth: proto::Authenticated) -> Result<()> {
         self.sync_directory().await?;
+        self.adopt_own_username()?;
+        self.settle_pending_link().await?;
         self.top_up_key_packages(Some((auth.key_packages_remaining, auth.has_last_resort))).await?;
         self.top_up_tokens().await?;
         let (anon, hello) = ServerConn::connect(&self.me()?.url).await?;
@@ -378,6 +449,7 @@ impl Engine {
         self.anon = Some(anon);
         self.subscribed.clear();
         self.retry_pending_groups().await?;
+        self.retry_pending_commits().await?;
         self.ensure_self_group().await?;
         self.sync().await
     }
@@ -421,6 +493,204 @@ impl Engine {
             req
         };
         self.finish_create(gid, request).await
+    }
+
+    /// The verified chain names the account's username; a linked device was
+    /// only told it by the device that linked it.
+    fn adopt_own_username(&mut self) -> Result<()> {
+        let Some(me) = self.me.as_mut() else { return Ok(()) };
+        if let Some(chain) = self.chains.get(&me.account)
+            && chain.username() != me.username
+        {
+            me.username = chain.username().to_string();
+            store::meta_put(&self.conn, "username", me.username.as_bytes())?;
+        }
+        Ok(())
+    }
+
+    // ------------------------------------------------------------ linking a device
+
+    /// On a new device: make keys and a code, and offer this device for
+    /// linking. Returns the code for the user to enter on a device that is
+    /// already part of their account.
+    pub async fn begin_link(&mut self, url: &str, name: &str, bot: bool) -> Result<LinkCode> {
+        if self.registered {
+            return Err(Error::AlreadyRegistered);
+        }
+        check_device_name(name)?;
+        let domain = domain_of(url)?;
+        let keys = DeviceKeys::generate()?;
+        let code = LinkCode::generate()?;
+        let channel = Channel::new(&code);
+        let (conn, hello) = ServerConn::connect(url).await?;
+        self.check_hello(&hello, &domain)?;
+        let offer = linking::Offer { entry: keys.entry(bot).encode(), name: name.into() };
+        channel.put(&conn, linking::SLOT_OFFER, &offer).await?;
+        self.link = Some(PendingLink { channel, conn, keys, url: url.into(), domain, bot });
+        Ok(code)
+    }
+
+    /// On the new device: wait for the other device to accept, countersign,
+    /// log in, and wait to be added to the account's conversations.
+    pub async fn finish_link(&mut self) -> Result<()> {
+        let link = self.link.take().ok_or_else(|| Error::InvalidInput("no link in progress; start one first".into()))?;
+        let waited_too_long = || Error::InvalidInput("the code was not entered in time; start again".into());
+        let answer: linking::Answer =
+            link.channel.get(&link.conn, linking::SLOT_ANSWER, LINK_WAIT_FOR_USER).await?.ok_or_else(waited_too_long)?;
+
+        // Countersign only a link that adds exactly this device.
+        let parsed = Link::decode(&answer.link)?;
+        let adds_me = matches!(&parsed.op, Op::AddDevice { device } if *device == link.keys.entry(link.bot));
+        let account = parsed.account_id.filter(|_| adds_me).ok_or_else(|| Error::Protocol("the other device sent a link that does not add this one".into()))?;
+        validate_username(&answer.username).map_err(|_| Error::Protocol("the other device sent an invalid username".into()))?;
+
+        // Keys are saved before the countersignature leaves: once it does,
+        // the link may land on the server whatever happens here.
+        self.forget_identity()?;
+        {
+            let tx = self.conn.transaction()?;
+            store::meta_put(&tx, "chain_seeds", &link.keys.chain.to_seeds()[..])?;
+            store::meta_put(&tx, "mls_seed", &link.keys.mls.to_bytes())?;
+            store::meta_put(&tx, "account_id", &account.0)?;
+            store::meta_put(&tx, "username", answer.username.as_bytes())?;
+            store::meta_put(&tx, "domain", link.domain.as_bytes())?;
+            store::meta_put(&tx, "url", link.url.as_bytes())?;
+            store::meta_put(&tx, "bot", if link.bot { b"1" } else { b"0" })?;
+            store::meta_put(&tx, "registered", b"0")?;
+            // Enough KeyPackages to be added to every conversation at once.
+            store::meta_put_u64(&tx, "kp_target", u64::from(answer.conversations.saturating_add(KP_LOW)))?;
+            tx.commit()?;
+        }
+        self.load_identity()?;
+
+        let sig = link.keys.cosign_link(&answer.link)?;
+        let cosign = linking::Cosign { ed25519: sig.ed25519_bytes().to_vec(), mldsa65: sig.mldsa65_bytes().to_vec() };
+        link.channel.put(&link.conn, linking::SLOT_COSIGN, &cosign).await?;
+        let done: Option<linking::Step> = link.channel.get(&link.conn, linking::SLOT_DONE, LINK_WAIT_FOR_DEVICE).await?;
+        if done.is_none() {
+            // The other device may still have uploaded the link; logging in
+            // tells. If it did not, connect forgets these keys.
+            tracing::warn!("the other device did not confirm the link");
+        }
+        self.connect().await?;
+        link.channel.put(&link.conn, linking::SLOT_READY, &linking::Step::default()).await?;
+        if link.channel.get::<linking::Step>(&link.conn, linking::SLOT_ADDED, LINK_WAIT_FOR_DEVICE).await?.is_some() {
+            self.sync().await?;
+        }
+        Ok(())
+    }
+
+    /// On an existing device: read the offer behind a code. Takes `&mut self`
+    /// although it changes nothing: a shared borrow of the engine held across
+    /// an await would make the future non-`Send` (the connection is not `Sync`).
+    async fn fetch_offer(&mut self, code: &str) -> Result<(Channel, ServerConn, LinkOffer)> {
+        let channel = Channel::new(&LinkCode::parse(code)?);
+        let (conn, hello) = ServerConn::connect(&self.me()?.url).await?;
+        self.check_hello(&hello, &self.me()?.domain)?;
+        let offer: linking::Offer = channel
+            .get(&conn, linking::SLOT_OFFER, std::time::Duration::from_secs(5))
+            .await?
+            .ok_or_else(|| Error::InvalidInput("no device is waiting with that code".into()))?;
+        let entry = DeviceEntry::decode(&offer.entry).map_err(|_| Error::Protocol("the new device sent an invalid key".into()))?;
+        let name = if check_device_name(&offer.name).is_ok() { offer.name } else { String::new() };
+        let me = self.me()?;
+        let chain = self.chains.get(&me.account).ok_or(Error::Corrupt("own chain"))?;
+        if chain.device(&entry.device_id()).is_some() {
+            return Err(Error::InvalidInput("that device is already linked".into()));
+        }
+        if entry.bot != chain.is_bot() {
+            return Err(Error::InvalidInput(if chain.is_bot() {
+                "this is a bot account; link the new device as a bot".into()
+            } else {
+                "the new device was set up as a bot, but this is not a bot account".into()
+            }));
+        }
+        Ok((channel, conn, LinkOffer { entry, name }))
+    }
+
+    /// On an existing device: what a code would link, for the user to confirm.
+    pub async fn link_inspect(&mut self, code: &str) -> Result<LinkOffer> {
+        Ok(self.fetch_offer(code).await?.2)
+    }
+
+    /// On an existing device: add the device behind `code` to this account,
+    /// then to every conversation.
+    pub async fn link_approve(&mut self, code: &str) -> Result<LinkOffer> {
+        let (channel, conn, offer) = self.fetch_offer(code).await?;
+        let (bytes, answer) = {
+            let me = self.me()?;
+            let chain = self.chains.get(&me.account).ok_or(Error::Corrupt("own chain"))?;
+            let bytes = chain.next_link(me.device, Op::AddDevice { device: offer.entry.clone() }, store::now_ms())?;
+            let conversations = u32::try_from(store::broadcast_groups(&self.conn)?.len()).unwrap_or(u32::MAX);
+            let answer = linking::Answer { link: bytes.clone(), username: me.username.clone(), conversations };
+            (bytes, answer)
+        };
+        channel.put(&conn, linking::SLOT_ANSWER, &answer).await?;
+        let cosign: linking::Cosign = channel
+            .get(&conn, linking::SLOT_COSIGN, LINK_WAIT_FOR_DEVICE)
+            .await?
+            .ok_or_else(|| Error::InvalidInput("the new device did not answer; start again".into()))?;
+        let cosig = HybridSignature::from_parts(&cosign.ed25519, &cosign.mldsa65)?;
+        let raw = postern_identity::chain::seal(&bytes, &self.me()?.keys.sign_link(&bytes)?, Some(&cosig));
+        self.append_own_link(raw).await?;
+        channel.put(&conn, linking::SLOT_DONE, &linking::Step::default()).await?;
+
+        // Add it everywhere once it has KeyPackages on the server. If it is
+        // slow, membership reconciliation adds it on a later sync instead.
+        if channel.get::<linking::Step>(&conn, linking::SLOT_READY, LINK_WAIT_FOR_DEVICE).await?.is_some() {
+            self.reconcile().await?;
+            // Sends what the self group's new member should hear first.
+            self.flush_outbox().await?;
+        }
+        let count = u32::try_from(store::broadcast_groups(&self.conn)?.len()).unwrap_or(u32::MAX);
+        channel.put(&conn, linking::SLOT_ADDED, &linking::Step { count }).await?;
+        Ok(offer)
+    }
+
+    /// Verify, record and upload a link to this account's own chain. The link
+    /// is kept until the server answers, so a lost reply is resolved at the
+    /// next login rather than leaving this device unsure of its own chain.
+    async fn append_own_link(&mut self, raw: Vec<u8>) -> Result<()> {
+        let account = self.me()?.account;
+        let mut chain = self.chains.get(&account).ok_or(Error::Corrupt("own chain"))?.clone();
+        let seq = chain.next_seq();
+        chain.append(&raw)?;
+        store::meta_put(&self.conn, "pending_link", &raw)?;
+        store::meta_put_u64(&self.conn, "pending_link_seq", seq)?;
+        match self.session()?.request(Request::AppendChain(proto::AppendChain { link: raw })).await {
+            Ok(_) => {
+                let tx = self.conn.transaction()?;
+                store::save_chain(&tx, &chain)?;
+                store::meta_delete(&tx, "pending_link")?;
+                tx.commit()?;
+                self.chains.insert(account, chain);
+                Ok(())
+            }
+            Err(Error::Server(e)) => {
+                store::meta_delete(&self.conn, "pending_link")?;
+                self.sync_directory().await?;
+                Err(Error::Server(e))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Settle a chain link whose upload had no answer: done if the server's
+    /// chain has it, uploaded again if the chain can still take it, dropped
+    /// if another link took its place.
+    async fn settle_pending_link(&mut self) -> Result<()> {
+        let Some(raw) = store::meta_get(&self.conn, "pending_link")? else { return Ok(()) };
+        let seq = store::meta_u64(&self.conn, "pending_link_seq")?;
+        let account = self.me()?.account;
+        let chain = self.chains.get(&account).ok_or(Error::Corrupt("own chain"))?;
+        match chain.clone().extend_from(seq, std::slice::from_ref(&raw)) {
+            Ok(0) => store::meta_delete(&self.conn, "pending_link"),
+            Ok(_) => self.append_own_link(raw).await,
+            Err(_) => {
+                store::meta_delete(&self.conn, "pending_link")?;
+                self.notice(None, "a device change made on this device was not accepted; check your devices")
+            }
+        }
     }
 
     // ------------------------------------------------------------ directory, key packages, tokens
@@ -483,10 +753,12 @@ impl Engine {
                 (expect_reply!(self.session()?.request(empty).await?, Reply::KeyPackageCount)?.remaining, true)
             }
         };
-        if remaining >= KP_LOW && has_last_resort {
+        // A newly linked device needs one per conversation it is about to join.
+        let target = u32::try_from(store::meta_u64(&self.conn, "kp_target")?).unwrap_or(KP_MAX).clamp(KP_TARGET, KP_MAX);
+        if remaining >= KP_LOW && has_last_resort && target == KP_TARGET {
             return Ok(());
         }
-        let n = KP_TARGET.saturating_sub(remaining) as usize;
+        let n = target.saturating_sub(remaining) as usize;
         let me = self.me.as_ref().ok_or(Error::NotRegistered)?;
         let (one_time, last_resort) = {
             let tx = self.conn.transaction()?;
@@ -508,6 +780,7 @@ impl Engine {
         self.session()?
             .request(Request::UploadKeyPackages(proto::UploadKeyPackages { key_packages: one_time, last_resort }))
             .await?;
+        store::meta_delete(&self.conn, "kp_target")?;
         Ok(())
     }
 
@@ -705,6 +978,231 @@ impl Engine {
             tx.commit()?;
         }
         self.after_join(gid).await
+    }
+
+    // ------------------------------------------------------------ commits
+
+    /// Stage a commit in `gid` adding `adds` and removing `removes`, record it,
+    /// and send it. Returns false if another commit took the epoch first; the
+    /// caller syncs and decides again. The commit is merged only when it shows
+    /// up in the group's log, so messages logged before it in the same epoch
+    /// are still read with the old keys.
+    async fn commit_changes(&mut self, gid: [u8; 16], adds: Vec<KeyPackage>, removes: Vec<LeafNodeIndex>) -> Result<bool> {
+        let req = {
+            let me = self.me.as_ref().ok_or(Error::NotRegistered)?;
+            let tx = self.conn.transaction()?;
+            let req = {
+                let provider = Provider::on(&tx);
+                let mut group = load_group(&provider, &gid)?;
+                let access_key = access_key_of(&group, &provider)?;
+                let welcome_to = adds
+                    .iter()
+                    .filter_map(|kp| postern_mls::leaf_identity(kp.leaf_node()).ok())
+                    .map(|l| l.device.0.to_vec())
+                    .collect();
+                let bundle = group
+                    .commit_builder()
+                    .propose_adds(adds)
+                    .propose_removals(removes)
+                    .load_psks(provider.storage())
+                    .map_err(mls)?
+                    .build(provider.rand(), provider.crypto(), &me.signer, |_| true)
+                    .map_err(mls)?
+                    .stage_commit(&provider)
+                    .map_err(mls)?;
+                let staged = group.pending_commit().ok_or(Error::Corrupt("pending commit"))?;
+                let next = staged.export_secret(provider.crypto(), ACCESS_LABEL, &[], 32).map_err(mls)?;
+                proto::Commit {
+                    group_id: gid.to_vec(),
+                    access_key,
+                    next_access_hash: Sha256::digest(&next).to_vec(),
+                    client_msg_id: random16()?.to_vec(),
+                    commit: bundle.commit().tls_serialize_detached().map_err(mls)?,
+                    welcome: bundle.to_welcome_msg().map(|w| w.tls_serialize_detached()).transpose().map_err(mls)?.unwrap_or_default(),
+                    welcome_to,
+                }
+            };
+            store::pending_commit_put(&tx, &gid, &req.client_msg_id, &req.encode_to_vec())?;
+            tx.commit()?;
+            req
+        };
+        self.send_commit(gid, req).await
+    }
+
+    /// Send a recorded commit. Retrying one the server already logged is
+    /// harmless: it answers with the existing entry.
+    async fn send_commit(&mut self, gid: [u8; 16], req: proto::Commit) -> Result<bool> {
+        match self.anon()?.request(Request::Commit(req)).await {
+            Ok(r) => {
+                expect_reply!(r, Reply::Accepted)?;
+                Ok(true)
+            }
+            Err(Error::Server(e)) if matches!(e.code(), ErrorCode::WrongEpoch | ErrorCode::BadAccessKey) => {
+                self.abandon_commit(gid)?;
+                Ok(false)
+            }
+            Err(Error::Server(e)) => {
+                self.abandon_commit(gid)?;
+                self.notice(Some(&gid), &format!("a change to the group's devices was refused: {}", e.message))?;
+                Err(Error::Server(e))
+            }
+            // Unknown outcome: keep it, and retry at the next login.
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Forget a pending commit that can no longer land.
+    fn abandon_commit(&mut self, gid: [u8; 16]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        {
+            let provider = Provider::on(&tx);
+            load_group(&provider, &gid)?.clear_pending_commit(provider.storage()).map_err(mls)?;
+        }
+        store::pending_commit_remove(&tx, &gid)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    async fn retry_pending_commits(&mut self) -> Result<()> {
+        for (gid, req) in store::pending_commits(&self.conn)? {
+            let req = proto::Commit::decode(req.as_slice()).map_err(|_| Error::Corrupt("pending commit"))?;
+            self.send_commit(group_id_of(&gid)?, req).await?;
+        }
+        Ok(())
+    }
+
+    /// Our own commit reached the log: merge it.
+    fn merge_own_commit(&mut self, gid: [u8; 16], seq: u64) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        {
+            let provider = Provider::on(&tx);
+            load_group(&provider, &gid)?.merge_pending_commit(&provider).map_err(mls)?;
+        }
+        store::pending_commit_remove(&tx, &gid)?;
+        store::set_cursor(&tx, &gid, seq)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    // ------------------------------------------------------------ membership
+
+    /// Bring every group in line with the verified device chains (design
+    /// section 6): add this account's devices that are missing, and remove
+    /// devices their accounts have removed. Any member may do either, so a
+    /// change does not depend on one device; if two race, the server takes
+    /// one commit per epoch and the other side finds nothing left to do.
+    pub async fn reconcile(&mut self) -> Result<()> {
+        for _ in 0..3 {
+            let plans = self.plan_membership()?;
+            if plans.is_empty() {
+                return Ok(());
+            }
+            let mut pools = self.claim_for(&plans).await?;
+            let mut lost_race = false;
+            for p in plans {
+                let adds: Vec<KeyPackage> = p.add.iter().filter_map(|d| pools.get_mut(d).and_then(KpPool::take)).collect();
+                if adds.is_empty() && p.remove.is_empty() {
+                    continue;
+                }
+                lost_race |= !self.commit_changes(p.gid, adds, p.remove).await?;
+            }
+            // Our commits are merged as they come back through the log.
+            self.sync_groups().await?;
+            if !lost_race {
+                return Ok(());
+            }
+        }
+        Ok(())
+    }
+
+    fn plan_membership(&self) -> Result<Vec<Plan>> {
+        let me = self.me()?;
+        let Some(mine) = self.chains.get(&me.account) else { return Ok(Vec::new()) };
+        if !mine.device(&me.device).is_some_and(|d| d.is_active()) {
+            return Ok(Vec::new());
+        }
+        let provider = Provider::on(&self.conn);
+        let mut out = Vec::new();
+        for c in store::followed_groups(&self.conn)? {
+            if store::pending_commit(&self.conn, &c.group_id)?.is_some() {
+                continue;
+            }
+            let group = load_group(&provider, &c.group_id)?;
+            let mut present = HashSet::new();
+            let mut remove = Vec::new();
+            for m in group.members() {
+                let Ok(leaf) = leaf_of_member(&m) else { continue };
+                if leaf.account == me.account {
+                    present.insert(leaf.device);
+                }
+                let removed = self.chains.get(&leaf.account).is_some_and(|ch| !ch.device(&leaf.device).is_some_and(|d| d.is_active()));
+                if removed {
+                    remove.push(m.index);
+                }
+            }
+            // A retired duplicate DM only needs its stale devices removed.
+            let add: Vec<DeviceId> = if c.active {
+                mine.active_devices().map(|d| d.id).filter(|d| !present.contains(d) && !self.backing_off(d)).collect()
+            } else {
+                Vec::new()
+            };
+            if !add.is_empty() || !remove.is_empty() {
+                out.push(Plan { gid: c.group_id, add, remove });
+            }
+        }
+        Ok(out)
+    }
+
+    fn backing_off(&self, device: &DeviceId) -> bool {
+        self.no_key_packages.get(device).is_some_and(|t| t.elapsed() < KP_BACKOFF)
+    }
+
+    /// Claim, for each device the plans add, one KeyPackage per group it is
+    /// missing from: one claim and one token per device.
+    async fn claim_for(&mut self, plans: &[Plan]) -> Result<HashMap<DeviceId, KpPool>> {
+        let mut wanted: HashMap<DeviceId, u32> = HashMap::new();
+        for d in plans.iter().flat_map(|p| &p.add) {
+            *wanted.entry(*d).or_default() += 1;
+        }
+        let account = self.me()?.account;
+        let crypto = postern_mls::crypto();
+        let mut pools = HashMap::new();
+        for (device, count) in wanted {
+            let token = self.take_token().await?;
+            let req = Request::ClaimKeyPackages(proto::ClaimKeyPackages {
+                token: Some(token),
+                account_id: account.0.to_vec(),
+                device_id: device.0.to_vec(),
+                count: count.min(proto::MAX_CLAIM),
+            });
+            let claimed = match self.anon()?.request(req).await {
+                Ok(r) => expect_reply!(r, Reply::ClaimedKeyPackages)?.key_packages,
+                Err(Error::Server(e)) if e.code() == ErrorCode::NotFound => Vec::new(),
+                Err(e) => return Err(e),
+            };
+            let mut pool = KpPool::default();
+            for c in claimed {
+                let authorized = |v: &postern_mls::ValidKeyPackage| {
+                    v.leaf.account == account
+                        && v.leaf.device == device
+                        && self.chains.get(&account).is_some_and(|ch| ch.authorizes_leaf(&device, &v.leaf.signature_key))
+                };
+                match postern_mls::validate_key_package(&c.key_package, &crypto) {
+                    Ok(v) if authorized(&v) && v.last_resort => pool.last_resort = Some(v.key_package),
+                    Ok(v) if authorized(&v) => pool.one_time.push(v.key_package),
+                    _ => self.notice(None, "the server returned a KeyPackage that does not belong to the device asked for")?,
+                }
+            }
+            if pool.is_empty() {
+                // The device has not uploaded any yet. Try again later rather
+                // than spend a token on every sync.
+                self.no_key_packages.insert(device, std::time::Instant::now());
+            } else {
+                self.no_key_packages.remove(&device);
+                pools.insert(device, pool);
+            }
+        }
+        Ok(pools)
     }
 
     async fn retry_pending_groups(&mut self) -> Result<()> {
@@ -915,6 +1413,11 @@ impl Engine {
     pub async fn sync(&mut self) -> Result<()> {
         let joined = self.sync_mailbox().await?;
         self.sync_groups().await?;
+        match self.reconcile().await {
+            // Out of tokens for today: membership catches up tomorrow.
+            Err(Error::NoTokens) => tracing::warn!("no tokens left to update group members"),
+            r => r?,
+        }
         self.flush_outbox().await?;
         self.resubscribe().await?;
         if joined > 0 {
@@ -1033,6 +1536,20 @@ impl Engine {
         if e.seq <= conv.cursor {
             return Ok(());
         }
+        if let Some((id, req)) = store::pending_commit(&self.conn, &gid)?
+            && id == e.client_msg_id
+        {
+            self.merge_own_commit(gid, e.seq)?;
+            let req = proto::Commit::decode(req.as_slice()).map_err(|_| Error::Corrupt("pending commit"))?;
+            if conv.kind == KIND_SELF && !req.welcome_to.is_empty() {
+                // A new device of ours joined: tell it who we are.
+                let mine = self.me()?.account;
+                if let Some(p) = store::profile(&self.conn, &mine.0)? {
+                    self.queue_body(gid, Body::Profile(profile_body(&p)))?;
+                }
+            }
+            return self.emit_outcome(gid, Outcome::Conversation);
+        }
         if store::is_own_send(&self.conn, &gid, &e.client_msg_id)? {
             let tx = self.conn.transaction()?;
             store::mark_sent(&tx, &gid, &e.client_msg_id, e.seq)?;
@@ -1141,6 +1658,14 @@ impl Engine {
         self.emit(Event::ProfileChanged { username: username.into() });
         Ok(())
     }
+}
+
+/// Device names follow the display-name rules and may not be empty.
+fn check_device_name(name: &str) -> Result<()> {
+    if name.trim().is_empty() {
+        return Err(Error::InvalidInput("give the device a name".into()));
+    }
+    content::check_display_name(name).map_err(|e| Error::InvalidInput(e.to_string().replace("display name", "device name")))
 }
 
 /// Whether a body belongs in a group: messages go in conversations, never in
@@ -1273,6 +1798,11 @@ fn process_in_tx(
         ProcessedMessageContent::ApplicationMessage(app) => handle_content(tx, me, gid, &sender, &sender_device, e, &app.into_bytes()),
         ProcessedMessageContent::StagedCommitMessage(staged) => {
             check_commit(&group, &staged, &sender, chains)?;
+            // Someone else's commit took this epoch, so ours can never land.
+            if store::pending_commit(tx, gid)?.is_some() {
+                group.clear_pending_commit(provider.storage()).map_err(fatal)?;
+                store::pending_commit_remove(tx, gid)?;
+            }
             let removed = staged.self_removed();
             let new_meta = GroupMeta::from_extensions(staged.group_context().extensions()).map_err(fatal)?;
             group.merge_staged_commit(&provider, *staged).map_err(fatal)?;
@@ -1331,8 +1861,10 @@ fn check_commit(
         let Some(m) = group.members().find(|m| m.index == idx) else { return Err(reject("a removal named no member")) };
         let leaf = leaf_of_member(&m)?;
         let device_removed = chains.get(&leaf.account).is_some_and(|c| !c.device(&leaf.device).is_some_and(|d| d.is_active()));
-        if !(leaf.account == *committer || device_removed || (!is_dm && is_admin)) {
-            return Err(reject("someone tried to remove a member without permission"));
+        if !(leaf.account == *committer || device_removed || (!is_dm && !is_self && is_admin)) {
+            // Perhaps the removal is in a chain link this device has not
+            // fetched yet; the caller refreshes the directory and retries once.
+            return Err(Fail::NeedDirectory);
         }
     }
     if staged.update_proposals().next().is_some() {

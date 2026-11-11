@@ -92,6 +92,14 @@ CREATE TABLE IF NOT EXISTS pending_groups (
     group_id  BLOB PRIMARY KEY,
     request   BLOB NOT NULL
 );
+-- A commit staged in OpenMLS and sent, or about to be sent, to the server.
+-- It is merged when it shows up in the group's log, and dropped if another
+-- commit took its epoch. At most one per group, as OpenMLS allows.
+CREATE TABLE IF NOT EXISTS pending_commits (
+    group_id       BLOB PRIMARY KEY,
+    client_msg_id  BLOB NOT NULL,
+    request        BLOB NOT NULL
+);
 -- Anonymous tokens (design section 8). Each is deleted before it is spent,
 -- so no token is ever presented twice.
 CREATE TABLE IF NOT EXISTS tokens (
@@ -195,6 +203,11 @@ pub fn meta_get(conn: &Connection, k: &str) -> Result<Option<Vec<u8>>> {
 
 pub fn meta_put(conn: &Connection, k: &str, v: &[u8]) -> Result<()> {
     conn.execute("INSERT INTO meta (k, v) VALUES (?1, ?2) ON CONFLICT (k) DO UPDATE SET v = excluded.v", params![k, v])?;
+    Ok(())
+}
+
+pub fn meta_delete(conn: &Connection, k: &str) -> Result<()> {
+    conn.execute("DELETE FROM meta WHERE k = ?1", [k])?;
     Ok(())
 }
 
@@ -630,6 +643,31 @@ pub fn pending_groups(conn: &Connection) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
 
 pub fn pending_group_remove(conn: &Connection, group: &[u8]) -> Result<()> {
     conn.execute("DELETE FROM pending_groups WHERE group_id = ?1", [group])?;
+    Ok(())
+}
+
+pub fn pending_commit_put(conn: &Connection, group: &[u8], client_msg_id: &[u8], request: &[u8]) -> Result<()> {
+    conn.execute(
+        "INSERT INTO pending_commits (group_id, client_msg_id, request) VALUES (?1, ?2, ?3)",
+        params![group, client_msg_id, request],
+    )?;
+    Ok(())
+}
+
+/// The pending commit for a group: (client_msg_id, request).
+pub fn pending_commit(conn: &Connection, group: &[u8]) -> Result<Option<(Vec<u8>, Vec<u8>)>> {
+    Ok(conn
+        .query_row("SELECT client_msg_id, request FROM pending_commits WHERE group_id = ?1", [group], |r| Ok((r.get(0)?, r.get(1)?)))
+        .optional()?)
+}
+
+pub fn pending_commits(conn: &Connection) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+    let mut stmt = conn.prepare("SELECT group_id, request FROM pending_commits")?;
+    Ok(stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?)
+}
+
+pub fn pending_commit_remove(conn: &Connection, group: &[u8]) -> Result<()> {
+    conn.execute("DELETE FROM pending_commits WHERE group_id = ?1", [group])?;
     Ok(())
 }
 

@@ -2404,10 +2404,12 @@ name = "postern-core"
 version = "0.1.0"
 dependencies = [
  "blind-rsa-signatures",
+ "chacha20poly1305",
  "ed25519-dalek",
  "futures-util",
  "getrandom 0.4.3",
  "hex",
+ "hkdf 0.12.4",
  "openmls",
  "openmls_basic_credential",
  "openmls_libcrux_crypto",

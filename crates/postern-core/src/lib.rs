@@ -11,6 +11,7 @@
 
 mod content;
 mod engine;
+mod link;
 mod net;
 mod provider;
 mod store;
@@ -262,6 +263,15 @@ pub struct Person {
     pub note: Option<String>,
 }
 
+/// A device asking to join this account, as shown before approving it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkRequest {
+    /// The new device's ID, hex.
+    pub device_id: String,
+    /// The name its user gave it; empty if none was valid.
+    pub name: String,
+}
+
 /// A change to this account's profile. `None` leaves a field unchanged.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProfileUpdate {
@@ -397,6 +407,33 @@ impl Core {
     pub async fn register(&self, server: &str, invite: &str, username: &str, bot: bool) -> Result<Identity> {
         self.engine.lock().await.register(server, invite, username, bot).await?;
         self.identity().await.ok_or(Error::NotRegistered)
+    }
+
+    /// On a new device: offer it for linking to an existing account on
+    /// `server`. Returns the code to enter on one of that account's devices;
+    /// then call [`Core::finish_link`]. `bot` must match the account.
+    pub async fn begin_link(&self, server: &str, device_name: &str, bot: bool) -> Result<String> {
+        Ok(self.engine.lock().await.begin_link(server, device_name, bot).await?.to_string())
+    }
+
+    /// On the new device: wait (up to ten minutes) for the code to be
+    /// entered and approved, then log in and join the account's conversations.
+    pub async fn finish_link(&self) -> Result<Identity> {
+        self.engine.lock().await.finish_link().await?;
+        self.identity().await.ok_or(Error::NotRegistered)
+    }
+
+    /// On an existing device: which device a link code would add.
+    pub async fn link_inspect(&self, code: &str) -> Result<LinkRequest> {
+        let offer = self.engine.lock().await.link_inspect(code).await?;
+        Ok(LinkRequest { device_id: offer.entry.device_id().to_string(), name: offer.name })
+    }
+
+    /// On an existing device: add the device behind a link code to this
+    /// account and to every conversation.
+    pub async fn link_approve(&self, code: &str) -> Result<LinkRequest> {
+        let offer = self.engine.lock().await.link_approve(code).await?;
+        Ok(LinkRequest { device_id: offer.entry.device_id().to_string(), name: offer.name })
     }
 
     /// Log in and catch up. Safe to call when already connected.
@@ -585,6 +622,10 @@ fn core_futures_are_send(c: &Core, conv: ConversationId, msg: MessageId) {
     fn send<T: Send>(_: T) {}
     send(c.identity());
     send(c.register("", "", "", false));
+    send(c.begin_link("", "", false));
+    send(c.finish_link());
+    send(c.link_inspect(""));
+    send(c.link_approve(""));
     send(c.connect());
     send(c.is_connected());
     send(c.sync());
