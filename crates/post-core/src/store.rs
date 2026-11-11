@@ -226,6 +226,9 @@ const MIGRATIONS: &[&str] = &[
          msg_id      BLOB,
          seq         INTEGER
      );",
+    // 8: how each person's messages arrive on screen (their profile's
+    // arrival preset; empty for the app's default).
+    "ALTER TABLE profiles ADD COLUMN arrival TEXT NOT NULL DEFAULT '';",
 ];
 
 /// Create tables, both ours and OpenMLS's, and bring old databases up to date.
@@ -922,16 +925,18 @@ pub struct ProfileRow {
     pub note_text: String,
     pub note_set_at: u64,
     pub note_expires_at: u64,
+    pub arrival: String,
 }
 
 /// Store a profile if it is newer than the one held. Returns whether it was.
 pub fn upsert_profile(conn: &Connection, account: &[u8], p: &ProfileRow) -> Result<bool> {
     let n = conn.execute(
-        "INSERT INTO profiles (account_id, version, display_name, typing_template, note_text, note_set_at, note_expires_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        "INSERT INTO profiles (account_id, version, display_name, typing_template, note_text, note_set_at, note_expires_at, arrival)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
          ON CONFLICT (account_id) DO UPDATE SET
            version = excluded.version, display_name = excluded.display_name, typing_template = excluded.typing_template,
-           note_text = excluded.note_text, note_set_at = excluded.note_set_at, note_expires_at = excluded.note_expires_at
+           note_text = excluded.note_text, note_set_at = excluded.note_set_at, note_expires_at = excluded.note_expires_at,
+           arrival = excluded.arrival
          WHERE excluded.version > profiles.version",
         params![
             account,
@@ -940,7 +945,8 @@ pub fn upsert_profile(conn: &Connection, account: &[u8], p: &ProfileRow) -> Resu
             p.typing_template,
             p.note_text,
             i64_of(p.note_set_at),
-            i64_of(p.note_expires_at)
+            i64_of(p.note_expires_at),
+            p.arrival
         ],
     )?;
     Ok(n > 0)
@@ -949,7 +955,8 @@ pub fn upsert_profile(conn: &Connection, account: &[u8], p: &ProfileRow) -> Resu
 pub fn profile(conn: &Connection, account: &[u8]) -> Result<Option<ProfileRow>> {
     Ok(conn
         .query_row(
-            "SELECT version, display_name, typing_template, note_text, note_set_at, note_expires_at FROM profiles WHERE account_id = ?1",
+            "SELECT version, display_name, typing_template, note_text, note_set_at, note_expires_at, arrival
+             FROM profiles WHERE account_id = ?1",
             [account],
             |r| {
                 Ok(ProfileRow {
@@ -959,6 +966,7 @@ pub fn profile(conn: &Connection, account: &[u8]) -> Result<Option<ProfileRow>> 
                     note_text: r.get(3)?,
                     note_set_at: r.get::<_, i64>(4)? as u64,
                     note_expires_at: r.get::<_, i64>(5)? as u64,
+                    arrival: r.get(6)?,
                 })
             },
         )

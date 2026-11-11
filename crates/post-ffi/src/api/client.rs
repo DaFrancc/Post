@@ -131,6 +131,9 @@ pub struct PersonInfo {
     pub note: Option<String>,
     /// The viewer compared safety numbers with them.
     pub verified: bool,
+    /// How their messages arrive on screen: a preset's name, or empty for
+    /// the default.
+    pub arrival: String,
 }
 
 /// One of this account's devices.
@@ -194,6 +197,8 @@ pub struct ProfileChange {
     pub note: Option<String>,
     /// With a new note: keep it until changed, rather than for 24 hours.
     pub note_keep: bool,
+    /// How the user's messages arrive on screen: a preset's name.
+    pub arrival: Option<String>,
 }
 
 /// What changed. The app re-reads what it shows for that kind.
@@ -317,6 +322,7 @@ impl Client {
             typing_template: change.typing_template,
             note: change.note,
             note_keep: change.note_keep,
+            arrival: change.arrival,
         };
         Ok(self.core.set_profile(update).await?)
     }
@@ -506,6 +512,7 @@ impl Client {
             typing_template: p.typing_template,
             note: p.note,
             verified: p.verified,
+            arrival: p.arrival,
         })
     }
 

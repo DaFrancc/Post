@@ -3603,6 +3603,7 @@ impl SseDecode for crate::api::client::PersonInfo {
         let mut var_typingTemplate = <String>::sse_decode(deserializer);
         let mut var_note = <Option<String>>::sse_decode(deserializer);
         let mut var_verified = <bool>::sse_decode(deserializer);
+        let mut var_arrival = <String>::sse_decode(deserializer);
         return crate::api::client::PersonInfo {
             username: var_username,
             shown_name: var_shownName,
@@ -3611,6 +3612,7 @@ impl SseDecode for crate::api::client::PersonInfo {
             typing_template: var_typingTemplate,
             note: var_note,
             verified: var_verified,
+            arrival: var_arrival,
         };
     }
 }
@@ -3662,11 +3664,13 @@ impl SseDecode for crate::api::client::ProfileChange {
         let mut var_typingTemplate = <Option<String>>::sse_decode(deserializer);
         let mut var_note = <Option<String>>::sse_decode(deserializer);
         let mut var_noteKeep = <bool>::sse_decode(deserializer);
+        let mut var_arrival = <Option<String>>::sse_decode(deserializer);
         return crate::api::client::ProfileChange {
             display_name: var_displayName,
             typing_template: var_typingTemplate,
             note: var_note,
             note_keep: var_noteKeep,
+            arrival: var_arrival,
         };
     }
 }
@@ -4143,6 +4147,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::PersonInfo {
             self.typing_template.into_into_dart().into_dart(),
             self.note.into_into_dart().into_dart(),
             self.verified.into_into_dart().into_dart(),
+            self.arrival.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -4230,6 +4235,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::ProfileChange {
             self.typing_template.into_into_dart().into_dart(),
             self.note.into_into_dart().into_dart(),
             self.note_keep.into_into_dart().into_dart(),
+            self.arrival.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -4637,6 +4643,7 @@ impl SseEncode for crate::api::client::PersonInfo {
         <String>::sse_encode(self.typing_template, serializer);
         <Option<String>>::sse_encode(self.note, serializer);
         <bool>::sse_encode(self.verified, serializer);
+        <String>::sse_encode(self.arrival, serializer);
     }
 }
 
@@ -4691,6 +4698,7 @@ impl SseEncode for crate::api::client::ProfileChange {
         <Option<String>>::sse_encode(self.typing_template, serializer);
         <Option<String>>::sse_encode(self.note, serializer);
         <bool>::sse_encode(self.note_keep, serializer);
+        <Option<String>>::sse_encode(self.arrival, serializer);
     }
 }
 

@@ -279,6 +279,9 @@ pub struct Person {
     pub note: Option<String>,
     /// You compared safety numbers with them.
     pub verified: bool,
+    /// How their messages arrive on screen (an app animation preset);
+    /// empty for the default.
+    pub arrival: String,
 }
 
 /// A device asking to join this account, as shown before approving it.
@@ -364,6 +367,8 @@ pub struct ProfileUpdate {
     pub note: Option<String>,
     /// With a new note: keep it until changed instead of 24 hours.
     pub note_keep: bool,
+    /// New arrival preset for your messages; empty restores the default.
+    pub arrival: Option<String>,
 }
 
 /// Something that happened, for live views.
@@ -923,6 +928,7 @@ impl Core {
             note_text: String::new(),
             note_set_at: 0,
             note_expires_at: 0,
+            arrival: String::new(),
         });
         let now = store::now_ms();
         let (note_text, note_set_at, note_expires_at) = match update.note {
@@ -938,6 +944,7 @@ impl Core {
                 note_text,
                 note_set_at,
                 note_expires_at,
+                arrival: update.arrival.unwrap_or(current.arrival),
             })
             .await
     }
@@ -967,6 +974,7 @@ impl Core {
                 nickname: store::nickname(c, &account.0)?.unwrap_or_default(),
                 typing_template: p.as_ref().map(|p| p.typing_template.clone()).unwrap_or_default(),
                 verified: store::is_verified(c, &account.0)?,
+                arrival: p.as_ref().map(|p| p.arrival.clone()).unwrap_or_default(),
                 note: p.filter(|p| !p.note_text.is_empty() && (p.note_expires_at == 0 || p.note_expires_at > now)).map(|p| p.note_text),
             })
         })

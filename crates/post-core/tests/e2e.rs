@@ -92,9 +92,12 @@ async fn dm_messages_edits_deletes_and_profiles() {
             typing_template: Some("the one who types is $$NAME$$".into()),
             note: Some("at the beach".into()),
             note_keep: false,
+            arrival: Some("decode".into()),
         })
         .await
         .expect("profile");
+    let bad = ProfileUpdate { arrival: Some("Not A Name".into()), ..Default::default() };
+    assert!(alice.set_profile(bad).await.is_err(), "an arrival style must be a short lowercase name");
 
     // Alice opens a DM and writes.
     let dm = alice.start_dm("bob").await.expect("start dm");
@@ -117,6 +120,7 @@ async fn dm_messages_edits_deletes_and_profiles() {
     let alice_seen_by_bob = bob.person("alice").await.expect("person");
     assert_eq!(alice_seen_by_bob.typing_template, "the one who types is $$NAME$$");
     assert_eq!(alice_seen_by_bob.note.as_deref(), Some("at the beach"));
+    assert_eq!(alice_seen_by_bob.arrival, "decode", "her messages arrive her way on Bob's screen too");
 
     // Bob replies.
     bob.send_text(dm.id, "hi alice").await.expect("reply");

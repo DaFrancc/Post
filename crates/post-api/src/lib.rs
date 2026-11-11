@@ -112,6 +112,9 @@ pub struct Person {
     pub note: Option<String>,
     /// You compared safety numbers with them.
     pub verified: bool,
+    /// How their messages arrive on screen in the app (a preset's name);
+    /// empty for the default.
+    pub arrival: String,
 }
 
 /// A safety number.
@@ -534,6 +537,11 @@ pub struct ProfileParams {
     /// Keep the new note until changed, instead of 24 hours.
     #[serde(default)]
     pub note_keep: bool,
+    /// How your messages arrive on screen in the app: a preset's name
+    /// (bubble, rise, decode, typewriter, focus, wave, instant); empty
+    /// restores the default.
+    #[serde(default)]
+    pub arrival: Option<String>,
 }
 
 /// `set_conversation_name`: your display name in one conversation.
@@ -831,6 +839,7 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 typing_template: p.typing_template,
                 note: p.note,
                 note_keep: p.note_keep,
+                arrival: p.arrival,
             })
             .await?;
             ok(Done {})
@@ -856,6 +865,7 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 typing_template: x.typing_template,
                 note: x.note,
                 verified: x.verified,
+                arrival: x.arrival,
             })
         }
         "set_verified" => {

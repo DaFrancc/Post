@@ -645,6 +645,10 @@ class PersonInfo {
   /// The viewer compared safety numbers with them.
   final bool verified;
 
+  /// How their messages arrive on screen: a preset's name, or empty for
+  /// the default.
+  final String arrival;
+
   const PersonInfo({
     required this.username,
     required this.shownName,
@@ -653,6 +657,7 @@ class PersonInfo {
     required this.typingTemplate,
     this.note,
     required this.verified,
+    required this.arrival,
   });
 
   @override
@@ -663,7 +668,8 @@ class PersonInfo {
       nickname.hashCode ^
       typingTemplate.hashCode ^
       note.hashCode ^
-      verified.hashCode;
+      verified.hashCode ^
+      arrival.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -676,7 +682,8 @@ class PersonInfo {
           nickname == other.nickname &&
           typingTemplate == other.typingTemplate &&
           note == other.note &&
-          verified == other.verified;
+          verified == other.verified &&
+          arrival == other.arrival;
 }
 
 /// The presence the user chooses to show.
@@ -724,11 +731,15 @@ class ProfileChange {
   /// With a new note: keep it until changed, rather than for 24 hours.
   final bool noteKeep;
 
+  /// How the user's messages arrive on screen: a preset's name.
+  final String? arrival;
+
   const ProfileChange({
     this.displayName,
     this.typingTemplate,
     this.note,
     required this.noteKeep,
+    this.arrival,
   });
 
   @override
@@ -736,7 +747,8 @@ class ProfileChange {
       displayName.hashCode ^
       typingTemplate.hashCode ^
       note.hashCode ^
-      noteKeep.hashCode;
+      noteKeep.hashCode ^
+      arrival.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -746,5 +758,6 @@ class ProfileChange {
           displayName == other.displayName &&
           typingTemplate == other.typingTemplate &&
           note == other.note &&
-          noteKeep == other.noteKeep;
+          noteKeep == other.noteKeep &&
+          arrival == other.arrival;
 }

@@ -2415,6 +2415,7 @@ impl Engine {
         content::check_display_name(&row.display_name).map_err(invalid)?;
         content::check_typing_template(&row.typing_template).map_err(invalid)?;
         content::check_note(&row.note_text).map_err(invalid)?;
+        content::check_arrival(&row.arrival).map_err(invalid)?;
         let mine = self.me()?.account;
         row.version = store::profile(&self.conn, &mine.0)?.map_or(0, |p| p.version) + 1;
         store::upsert_profile(&self.conn, &mine.0, &row)?;
@@ -2629,6 +2630,7 @@ fn profile_body(p: &store::ProfileRow) -> content::Profile {
             set_at_ms: p.note_set_at,
             expires_at_ms: p.note_expires_at,
         }),
+        arrival: p.arrival.clone(),
     }
 }
 
@@ -2990,6 +2992,9 @@ fn handle_content(
                 note_text: note.text,
                 note_set_at: note.set_at_ms,
                 note_expires_at: note.expires_at_ms,
+                // Only a look: one that is not a valid name is dropped
+                // rather than refusing the whole profile.
+                arrival: if content::check_arrival(&p.arrival).is_ok() { p.arrival.clone() } else { String::new() },
             };
             Ok(if store::upsert_profile(tx, &sender.0, &row)? { Outcome::Profile(*sender) } else { Outcome::Nothing })
         }

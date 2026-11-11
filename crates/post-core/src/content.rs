@@ -121,6 +121,12 @@ pub struct Profile {
     pub typing_template: String,
     #[prost(message, optional, tag = "5")]
     pub note: Option<Note>,
+    /// How this person's messages arrive on screen: the name of an app
+    /// animation preset, like `decode`. Empty means the app's default; a
+    /// name an app does not know also falls back to its default, so new
+    /// presets need no protocol change.
+    #[prost(string, tag = "6")]
+    pub arrival: String,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -177,6 +183,8 @@ pub const MAX_PLACEHOLDERS: usize = 3;
 pub const MAX_NOTE: usize = 60;
 /// How long a note lasts unless its owner chooses no expiry.
 pub const NOTE_DEFAULT_MS: u64 = 24 * 3600 * 1000;
+/// Longest arrival preset name.
+pub const MAX_ARRIVAL: usize = 32;
 
 /// Why a name, template or note is not allowed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -187,6 +195,8 @@ pub enum ProfileError {
     ControlCharacters(&'static str),
     #[error("a typing template must contain {NAME_PLACEHOLDER} between 1 and {MAX_PLACEHOLDERS} times")]
     Placeholders,
+    #[error("an arrival style is a short name of lowercase letters, digits and dashes")]
+    Arrival,
 }
 
 fn check_text(s: &str, what: &'static str, max: usize) -> Result<(), ProfileError> {
@@ -212,6 +222,16 @@ pub fn check_typing_template(s: &str) -> Result<(), ProfileError> {
         return Err(ProfileError::Placeholders);
     }
     Ok(())
+}
+
+/// Check an arrival preset's name: empty, or up to 32 lowercase ASCII
+/// letters, digits and dashes.
+pub fn check_arrival(s: &str) -> Result<(), ProfileError> {
+    if s.len() <= MAX_ARRIVAL && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-') {
+        Ok(())
+    } else {
+        Err(ProfileError::Arrival)
+    }
 }
 
 /// Check a note's text.
@@ -240,6 +260,16 @@ mod tests {
         assert!(check_typing_template(&format!("{} $$NAME$$", "x".repeat(80))).is_err());
         assert_eq!(render_typing("the one who types is $$NAME$$", "Alice"), "the one who types is Alice");
         assert_eq!(render_typing("", "Alice"), "Alice is typing");
+    }
+
+    #[test]
+    fn arrival_names() {
+        for ok in ["", "bubble", "decode", "type-writer", "wave2"] {
+            assert!(check_arrival(ok).is_ok(), "{ok}");
+        }
+        for bad in ["Bubble", "two words", "décode", "a_b", &"x".repeat(33)] {
+            assert_eq!(check_arrival(bad), Err(ProfileError::Arrival), "{bad}");
+        }
     }
 
     #[test]

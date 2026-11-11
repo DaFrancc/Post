@@ -2767,8 +2767,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   PersonInfo dco_decode_person_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
     return PersonInfo(
       username: dco_decode_String(arr[0]),
       shownName: dco_decode_String(arr[1]),
@@ -2777,6 +2777,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       typingTemplate: dco_decode_String(arr[4]),
       note: dco_decode_opt_String(arr[5]),
       verified: dco_decode_bool(arr[6]),
+      arrival: dco_decode_String(arr[7]),
     );
   }
 
@@ -2808,13 +2809,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ProfileChange dco_decode_profile_change(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return ProfileChange(
       displayName: dco_decode_opt_String(arr[0]),
       typingTemplate: dco_decode_opt_String(arr[1]),
       note: dco_decode_opt_String(arr[2]),
       noteKeep: dco_decode_bool(arr[3]),
+      arrival: dco_decode_opt_String(arr[4]),
     );
   }
 
@@ -3338,6 +3340,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_typingTemplate = sse_decode_String(deserializer);
     var var_note = sse_decode_opt_String(deserializer);
     var var_verified = sse_decode_bool(deserializer);
+    var var_arrival = sse_decode_String(deserializer);
     return PersonInfo(
       username: var_username,
       shownName: var_shownName,
@@ -3346,6 +3349,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       typingTemplate: var_typingTemplate,
       note: var_note,
       verified: var_verified,
+      arrival: var_arrival,
     );
   }
 
@@ -3378,11 +3382,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_typingTemplate = sse_decode_opt_String(deserializer);
     var var_note = sse_decode_opt_String(deserializer);
     var var_noteKeep = sse_decode_bool(deserializer);
+    var var_arrival = sse_decode_opt_String(deserializer);
     return ProfileChange(
       displayName: var_displayName,
       typingTemplate: var_typingTemplate,
       note: var_note,
       noteKeep: var_noteKeep,
+      arrival: var_arrival,
     );
   }
 
@@ -3877,6 +3883,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.typingTemplate, serializer);
     sse_encode_opt_String(self.note, serializer);
     sse_encode_bool(self.verified, serializer);
+    sse_encode_String(self.arrival, serializer);
   }
 
   @protected
@@ -3908,6 +3915,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.typingTemplate, serializer);
     sse_encode_opt_String(self.note, serializer);
     sse_encode_bool(self.noteKeep, serializer);
+    sse_encode_opt_String(self.arrival, serializer);
   }
 
   @protected

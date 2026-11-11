@@ -108,6 +108,10 @@ enum Command {
         /// Keep the note until changed, instead of 24 hours.
         #[arg(long)]
         keep_note: bool,
+        /// How your messages arrive in the app: bubble, rise, decode,
+        /// typewriter, focus, wave or instant ("" restores the default).
+        #[arg(long)]
+        arrival: Option<String>,
     },
     /// Set your display name in one conversation ("" clears it).
     Name { conversation: String, name: String },
@@ -322,9 +326,15 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         }
         Command::Delete { conversation, message } => ("delete", json!({ "conversation": conversation, "message": message })),
         Command::Versions { conversation, message } => ("versions", json!({ "conversation": conversation, "message": message })),
-        Command::Profile { display_name, typing_template, note, keep_note } => (
+        Command::Profile { display_name, typing_template, note, keep_note, arrival } => (
             "set_profile",
-            json!({ "display_name": display_name, "typing_template": typing_template, "note": note, "note_keep": keep_note }),
+            json!({
+                "display_name": display_name,
+                "typing_template": typing_template,
+                "note": note,
+                "note_keep": keep_note,
+                "arrival": arrival,
+            }),
         ),
         Command::Name { conversation, name } => ("set_conversation_name", json!({ "conversation": conversation, "name": name })),
         Command::Nickname { username, nickname } => ("set_nickname", json!({ "username": username, "nickname": nickname })),
@@ -421,7 +431,7 @@ fn print_human(method: &str, v: &Value) {
         }
         "person" => {
             println!("{} (@{})", s(v, "shown_name"), s(v, "username"));
-            for (k, label) in [("display_name", "display name"), ("nickname", "your nickname"), ("typing_template", "typing")] {
+            for (k, label) in [("display_name", "display name"), ("nickname", "your nickname"), ("typing_template", "typing"), ("arrival", "messages arrive")] {
                 if !s(v, k).is_empty() {
                     println!("{label}: {}", s(v, k));
                 }

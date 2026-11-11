@@ -650,9 +650,18 @@ message Profile {
   Avatar avatar = 3;           // blob reference and key (phase 6)
   string typing_template = 4;  // see below; empty means the standard text
   Note   note = 5;
+  string arrival = 6;          // how their messages arrive on screen; see below
 }
 message Note { string text = 1; uint64 set_at_ms = 2; uint64 expires_at_ms = 3; } // 0 = no expiry
 ```
+
+- **Arrival style.** Each person picks how their messages arrive on everyone's
+  screen: the name of an app animation preset (`bubble`, `rise`, `decode`,
+  `typewriter`, `focus`, `wave`, `instant`), up to 32 lowercase letters, digits and
+  dashes; empty means the app's default. An app that does not know a name uses its
+  default, so new presets need no protocol change, and a received name that is not
+  valid is dropped rather than refusing the profile. Viewers can turn everyone's
+  styles off, and the system's reduced-motion setting turns them all off.
 
 - **Distribution.** A profile is an ordinary message body, `Content.profile`, sent into
   every conversation the account follows whenever it changes. When a commit adds a
