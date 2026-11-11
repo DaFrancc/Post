@@ -10,6 +10,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../ui/controls.dart';
 import '../ui/format.dart';
+import '../ui/markup.dart' show plainText;
 import 'chat.dart';
 import 'dialogs.dart';
 import 'settings.dart';
@@ -577,7 +578,7 @@ String _preview(ConversationInfo c) {
       ? 'Message deleted'
       : m.unsupported
       ? 'A message this version cannot show'
-      : (m.body ?? '').replaceAll('\n', ' ');
+      : plainText(m.body ?? '').replaceAll('\n', ' ');
   final who = m.outgoing ? 'You: ' : (c.isGroup ? '${m.sender}: ' : '');
   return '$who$body';
 }

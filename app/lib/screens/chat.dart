@@ -11,6 +11,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../ui/controls.dart';
 import '../ui/format.dart';
+import '../ui/markup_text.dart';
 import 'dialogs.dart';
 import 'home.dart' show Panel;
 
@@ -1016,7 +1017,7 @@ class _MessageTileState extends State<_MessageTile> with SingleTickerProviderSta
         style: TextStyle(fontSize: 14, height: 1.5, fontStyle: FontStyle.italic, color: PColors.textFaint),
       );
     }
-    return Text(m.body ?? '', style: PType.text);
+    return MarkupText(m.body ?? '', style: PType.text);
   }
 }
 

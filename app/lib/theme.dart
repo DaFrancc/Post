@@ -24,6 +24,17 @@ abstract final class PColors {
   static const dialog = Color(0xFF12131F);
   static const messageHover = Color(0xFF141625);
   static const focusEdge = Color(0xFF3A4A8C);
+
+  // Formatted text.
+  /// Code blocks sit darker than the panel; inline code lighter, so it shows
+  /// within a line.
+  static const codeBg = Color(0xFF0C0D16);
+  static const codeInline = Color(0xFF1F2236);
+  static const codeText = Color(0xFFE2E5F0);
+  static const spoiler = Color(0xFF2A2D44);
+  static const spoilerShown = Color(0x1FFFFFFF);
+  static const quoteBar = Color(0xFF3A3E5C);
+  static const misspelled = Color(0xFFF25F7A);
   static const border = Color(0xFF1A1C2B);
   static const borderStrong = Color(0xFF2A2D44);
 

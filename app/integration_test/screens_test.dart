@@ -23,8 +23,15 @@ import 'package:postern/src/rust/frb_generated.dart';
 import 'package:postern/ui/controls.dart';
 
 const _shots = String.fromEnvironment('SHOTS', defaultValue: 'build/screens');
-const _port = 18090;
-const _url = 'ws://127.0.0.1:$_port/v1/ws';
+
+/// A free port, found when the test starts, so a server left over from a run
+/// that crashed can never be in the way.
+late int _port;
+String get _url => 'ws://127.0.0.1:$_port/v1/ws';
+
+/// Every process the test starts, one PID per line. A test that crashes may
+/// not get to tear down; tool/screens.sh stops whatever is listed here.
+final _pids = File('build/screens.pids');
 
 /// Release builds: seeding makes dozens of CLI calls, each doing
 /// post-quantum handshakes, which take seconds apiece unoptimised.
@@ -34,6 +41,14 @@ late Directory _work;
 final _processes = <Process>[];
 
 Map<String, String> get _serverEnv => {'POSTERN_DB': '${_work.path}/server.db', 'POSTERN_DB_KEY_FILE': '${_work.path}/server.key'};
+
+/// Keep a started process, to stop at the end.
+void _track(Process p) {
+  _processes.add(p);
+  _pids.writeAsStringSync('${p.pid}\n', mode: FileMode.append);
+  unawaited(p.stdout.drain<void>());
+  unawaited(p.stderr.drain<void>());
+}
 
 Future<String> _run(String exe, List<String> args, {Map<String, String>? env}) async {
   final r = await Process.run(exe, args, environment: env);
@@ -49,10 +64,10 @@ Future<dynamic> cliJson(String user, List<String> args) async => jsonDecode(awai
 
 Future<void> _startServer() async {
   await _run('$_bin/posternd', ['keygen', '${_work.path}/server.key']);
-  final server = await Process.start('$_bin/posternd', ['serve', '--domain', '127.0.0.1:$_port', '--listen', '127.0.0.1:$_port'], environment: _serverEnv);
-  _processes.add(server);
-  unawaited(server.stdout.drain<void>());
-  unawaited(server.stderr.drain<void>());
+  final probe = await ServerSocket.bind('127.0.0.1', 0);
+  _port = probe.port;
+  await probe.close();
+  _track(await Process.start('$_bin/posternd', ['serve', '--domain', '127.0.0.1:$_port', '--listen', '127.0.0.1:$_port'], environment: _serverEnv));
   for (var i = 0; i < 50; i++) {
     try {
       (await Socket.connect('127.0.0.1', _port)).destroy();
@@ -78,10 +93,7 @@ Future<void> _register(String user, {String? name, String? note}) async {
 /// Keep `user` online, with this presence, until the test ends.
 Future<void> _online(String user, String presence) async {
   await cli(user, ['presence', presence]);
-  final p = await Process.start('$_bin/postern', ['--profile', '${_work.path}/$user', '--db-key-file', '${_work.path}/$user.key', 'daemon', '--stdio']);
-  _processes.add(p);
-  unawaited(p.stdout.drain<void>());
-  unawaited(p.stderr.drain<void>());
+  _track(await Process.start('$_bin/postern', ['--profile', '${_work.path}/$user', '--db-key-file', '${_work.path}/$user.key', 'daemon', '--stdio']));
 }
 
 /// Accounts, conversations and messages to look at.
@@ -110,6 +122,12 @@ Future<String> _seed() async {
   await cli('sam', ['send', '--conversation', g, 'count me in. who has the quickdraws?']);
   await cli('alice', ['send', '--conversation', g, 'me, 12 of them']);
   await cli('alice', ['send', '--conversation', g, 'and two spare belay devices']);
+  await cli('carol', [
+    'send',
+    '--conversation',
+    g,
+    '**bold**, *italic*, __underline__, ~~strike~~, `code` and a ||secret||\n> a quote with **bold**\n```\nrope: 70 m\ndraws: 12\n```',
+  ]);
   await cli('bob', ['send', '--to', 'sam', 'checked the safety number on the call']);
   await cli('bob', ['send', '--to', 'sam', 'numbers match']);
   return g;
@@ -161,6 +179,8 @@ void main() {
 
   setUpAll(() async {
     _work = await Directory.systemTemp.createTemp('postern-screens-');
+    await _pids.parent.create(recursive: true);
+    _pids.writeAsStringSync('');
     await RustLib.init();
     await _startServer();
   });
