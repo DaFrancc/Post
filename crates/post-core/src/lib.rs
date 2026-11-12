@@ -422,6 +422,19 @@ pub struct Maintenance {
     pub underway: bool,
 }
 
+/// A single-use invite code, made by a host.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Invite {
+    /// The code. Shown once: the server keeps only its hash.
+    pub code: String,
+    /// When it stops working (Unix ms).
+    pub expires_at_ms: u64,
+    /// The address to sign up at with it: this account's server.
+    pub server: String,
+    /// It registers a bot account.
+    pub bot: bool,
+}
+
 /// The announcements channel at a glance.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Announcements {
@@ -1332,6 +1345,15 @@ impl Core {
     /// when it starts and when it is over. `starts_at_ms` of 0 starts it now.
     pub async fn plan_maintenance(&self, starts_at_ms: u64, minutes: u32, reason: &str, quiet: bool) -> Result<()> {
         self.engine.lock().await.plan_maintenance(starts_at_ms, minutes, reason, quiet).await
+    }
+
+    /// Make a single-use invite code for someone to create an account with
+    /// (hosts only), valid for `days` (1 to 30).
+    pub async fn create_invite(&self, bot: bool, days: u32) -> Result<Invite> {
+        let mut e = self.engine.lock().await;
+        let (code, expires_at_ms) = e.create_invite(bot, days).await?;
+        let server = e.me.as_ref().ok_or(Error::NotRegistered)?.url.clone();
+        Ok(Invite { code, expires_at_ms, server, bot })
     }
 
     /// Cancel the planned maintenance, or announce the one underway is over

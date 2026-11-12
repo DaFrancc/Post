@@ -2121,6 +2121,22 @@ impl Engine {
         self.sync_announcements().await
     }
 
+    /// Make a single-use invite code (hosts only). Gives the code and when
+    /// it expires (Unix ms).
+    pub async fn create_invite(&mut self, bot: bool, days: u32) -> Result<(String, u64)> {
+        if days == 0 || days > proto::MAX_INVITE_DAYS {
+            return Err(Error::InvalidInput(format!("an invite lasts from 1 to {} days", proto::MAX_INVITE_DAYS)));
+        }
+        match self.session()?.request(Request::CreateInvite(proto::CreateInvite { bot, days })).await {
+            Ok(r) => expect_reply!(r, Reply::Invite).map(|i| (i.code, i.expires_at_ms)),
+            // A server from before invites could be made in the app.
+            Err(Error::Server(e)) if e.code() == ErrorCode::BadRequest && e.message == "empty request" => {
+                Err(Error::InvalidInput("your server is too old to make invites from the app: ask whoever runs it to update it".into()))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     /// Cancel or end maintenance (hosts only), then fetch the announcement.
     pub async fn end_maintenance(&mut self) -> Result<()> {
         expect_reply!(self.session()?.request(Request::EndMaintenance(proto::EndMaintenance {})).await?, Reply::Empty)?;

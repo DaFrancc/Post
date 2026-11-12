@@ -75,6 +75,16 @@ void main() {
     await waitFor(t, find.textContaining('Maintenance planned for'), timeout: const Duration(seconds: 20));
     await _shot(t, 'announcements-02-host-planned');
 
+    // Hosts make invites in Settings.
+    await tap(t, find.byTooltip('Settings'));
+    await tap(t, find.text('Invites'));
+    await tap(t, find.text('Make an invite'));
+    await waitFor(t, find.text('Copy both'));
+    expect(find.textContaining('Works once, until'), findsOneWidget);
+    await _shot(t, 'announcements-02b-invite');
+    await tap(t, find.descendant(of: find.byType(Dialog), matching: find.byTooltip('Close')));
+    await settle(t);
+
     // A member: unread in the list, then the channel without a composer.
     await _open(t, 'bob');
     await waitFor(t, find.text('Announcements'));
@@ -83,5 +93,9 @@ void main() {
     await waitFor(t, find.textContaining('Sent automatically'));
     expect(find.widgetWithText(FilledButton, 'Announce'), findsNothing);
     await _shot(t, 'announcements-04-member');
+    // Members have no invites page.
+    await tap(t, find.byTooltip('Settings'));
+    await waitFor(t, find.text('Privacy'));
+    expect(find.text('Invites'), findsNothing);
   });
 }

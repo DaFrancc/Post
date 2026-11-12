@@ -576,6 +576,32 @@ async fn announcements_reach_everyone() {
     assert_eq!(phone.announcement_summary().expect("summary").unread, 0, "read on the laptop");
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hosts_make_invites() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let refused = bob.create_invite(false, 7).await.expect_err("bob is no host");
+    assert!(matches!(&refused, post_core::Error::Server(e) if e.code() == post_proto::ErrorCode::Forbidden), "{refused}");
+    {
+        let mut conn = post_server::db::open(&server.db, &server.key).expect("open server db");
+        post_server::announce::add_host(&mut conn, "alice").expect("add host");
+    }
+    assert!(alice.create_invite(false, 31).await.is_err(), "at most 30 days");
+    let invite = alice.create_invite(false, 3).await.expect("host makes an invite");
+    assert_eq!(invite.server, server.url);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_millis() as u64;
+    let three_days = 3 * 24 * 3600 * 1000;
+    assert!(invite.expires_at_ms > now + three_days - 60_000 && invite.expires_at_ms <= now + three_days + 60_000);
+
+    // Someone new signs up with it, once.
+    let carol = Core::open(&dir.path().join("carol"), &DbKey::from_bytes([7; 32])).expect("open profile");
+    carol.register(&invite.server, &invite.code, "carol", false).await.expect("register with the host's invite");
+    let dave = Core::open(&dir.path().join("dave"), &DbKey::from_bytes([7; 32])).expect("open profile");
+    assert!(dave.register(&invite.server, &invite.code, "dave", false).await.is_err(), "single use");
+}
+
 fn state_of(c: &Core, conv: post_core::ConversationId, id: post_core::MessageId) -> MessageState {
     c.message(conv, id).expect("message").state
 }

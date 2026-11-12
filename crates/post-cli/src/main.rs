@@ -186,6 +186,15 @@ enum Command {
     },
     /// As one of the server's hosts: post an announcement to everyone.
     Announce { text: String },
+    /// As one of the server's hosts: make a single-use invite code.
+    Invite {
+        /// For a bot account.
+        #[arg(long)]
+        bot: bool,
+        /// Days until it expires (1 to 30).
+        #[arg(long, default_value_t = 7)]
+        days: u32,
+    },
     /// Planned maintenance: see it, or as a host plan or end it.
     Maintenance {
         #[command(subcommand)]
@@ -488,6 +497,7 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         Command::Announcements { cmd: None, limit } => ("announcements", json!({ "limit": limit })),
         Command::Announcements { cmd: Some(AnnouncementsCommand::Read), .. } => ("mark_announcements_read", json!({})),
         Command::Announce { text } => ("announce", json!({ "text": text })),
+        Command::Invite { bot, days } => ("create_invite", json!({ "bot": bot, "days": days })),
         Command::Maintenance { cmd: MaintenanceCommand::Status } => ("announcement_summary", json!({})),
         Command::Maintenance { cmd: MaintenanceCommand::Plan { at, minutes, reason, quiet } } => {
             ("plan_maintenance", json!({ "starts_at_ms": at, "minutes": minutes, "reason": reason, "quiet": quiet }))
@@ -651,6 +661,15 @@ fn print_human(method: &str, v: &Value) {
             println!("safety number: {}", if v["verified"] == true { "verified" } else { "not verified" });
         }
         "safety_number" => println!("{}", s(v, "safety_number")),
+        "create_invite" => {
+            println!("{}", s(v, "code"));
+            eprintln!(
+                "single use{}, until {} UTC; sign up at {}",
+                if v["bot"] == true { ", for a bot" } else { "" },
+                time(v["expires_at_ms"].as_u64().unwrap_or(0)),
+                s(v, "server")
+            );
+        }
         "read_receipts" => println!("read receipts are {}", if v["on"] == true { "on" } else { "off" }),
         "message_receipts" => {
             if v["too_large"] == true {
@@ -881,6 +900,7 @@ mod tests {
             Command::Announcements { cmd: Some(AnnouncementsCommand::Read), limit: 5 },
             Command::Announce { text: "hi".into() },
             Command::ReadReceipts { set: None },
+            Command::Invite { bot: false, days: 7 },
             Command::Receipts { conversation: "00".into(), message: "00".into() },
             Command::ReadReceipts { set: Some("off".into()) },
             Command::Maintenance { cmd: MaintenanceCommand::Status },

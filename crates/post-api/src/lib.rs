@@ -856,6 +856,31 @@ pub struct PersonReceipt {
     pub state: String,
 }
 
+/// `create_invite`.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreateInviteParams {
+    /// For a bot account.
+    #[serde(default)]
+    pub bot: bool,
+    /// Days until it expires, 1 to 30; default 7.
+    #[serde(default)]
+    pub days: Option<u32>,
+}
+
+/// A single-use invite code.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct InviteCode {
+    /// The code.
+    pub code: String,
+    /// The server address to sign up at with it.
+    pub server: String,
+    /// When it stops working, Unix ms.
+    pub expires_at_ms: u64,
+    /// It registers a bot account.
+    pub bot: bool,
+}
+
 /// `set_read_receipts`.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -999,6 +1024,7 @@ methods! {
     "announce", Connection, AnnounceParams, Done, "As a host: post an announcement to everyone on the server.";
     "plan_maintenance", Connection, PlanMaintenanceParams, Done, "As a host: plan maintenance; everyone is told and reminded.";
     "end_maintenance", Connection, NoParams, Done, "As a host: cancel the planned maintenance, or announce it is over.";
+    "create_invite", Connection, CreateInviteParams, InviteCode, "As a host: make a single-use invite code for someone to sign up with.";
 }
 
 /// Find a method by name.
@@ -1343,6 +1369,11 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
         "end_maintenance" => {
             core.end_maintenance().await?;
             ok(Done {})
+        }
+        "create_invite" => {
+            let p: CreateInviteParams = params(p)?;
+            let i = core.create_invite(p.bot, p.days.unwrap_or(7)).await?;
+            ok(InviteCode { code: i.code, server: i.server, expires_at_ms: i.expires_at_ms, bot: i.bot })
         }
         _ => Err(ApiError { code: -32601, message: format!("unknown method {name}") }),
     }

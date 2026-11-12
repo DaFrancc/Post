@@ -61,6 +61,9 @@ abstract class Client implements RustOpaqueInterface {
     required List<String> usernames,
   });
 
+  /// As a host: make a single-use invite code, valid for `days`.
+  Future<InviteInfo> createInvite({required bool bot, required int days});
+
   /// Decline a ringing call.
   Future<void> declineCall({
     required String conversation,
@@ -848,6 +851,42 @@ class Identity {
           accountId == other.accountId &&
           deviceId == other.deviceId &&
           server == other.server &&
+          bot == other.bot;
+}
+
+/// A single-use invite code a host made.
+class InviteInfo {
+  /// The code. Shown once: the server keeps only its hash.
+  final String code;
+
+  /// The server address to sign up at with it.
+  final String server;
+
+  /// When it stops working (Unix ms).
+  final PlatformInt64 expiresAtMs;
+
+  /// It registers a bot account.
+  final bool bot;
+
+  const InviteInfo({
+    required this.code,
+    required this.server,
+    required this.expiresAtMs,
+    required this.bot,
+  });
+
+  @override
+  int get hashCode =>
+      code.hashCode ^ server.hashCode ^ expiresAtMs.hashCode ^ bot.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is InviteInfo &&
+          runtimeType == other.runtimeType &&
+          code == other.code &&
+          server == other.server &&
+          expiresAtMs == other.expiresAtMs &&
           bot == other.bot;
 }
 
