@@ -45,6 +45,9 @@ pub enum Error {
     /// Not connected to the server.
     #[error("not connected to the server")]
     NotConnected,
+    /// This profile was closed (logging out), so it no longer connects.
+    #[error("this profile is closed")]
+    Closed,
     /// The server refused a request.
     #[error("server: {0}")]
     Server(post_proto::Error),
@@ -657,12 +660,53 @@ fn owner_only(dir: &Path, db: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The files [`Core::open`] makes in a profile directory, and the folders
+/// kept beside them (`updates`: app updates being downloaded).
+const PROFILE_FILES: [&str; 4] = ["profile.db", "profile.db-wal", "profile.db-shm", "profile.db-journal"];
+const PROFILE_DIRS: [&str; 1] = ["updates"];
+
+/// Delete a profile from this device, after logging out (or giving up an
+/// account on its only device), once its `Core` is closed ([`Core::close`])
+/// so nothing writes there again. (Unix deletes files still open; Windows
+/// will need the `Core` dropped first.) Only what Post
+/// keeps there is removed, and the directory only if nothing else is in it,
+/// so a profile pointed at a folder holding other things leaves them alone.
+pub fn delete_profile(dir: &Path) -> Result<()> {
+    let storage = |p: &Path, e: std::io::Error| Error::Storage(format!("deleting {}: {e}", p.display()));
+    for name in PROFILE_FILES {
+        let p = dir.join(name);
+        match std::fs::remove_file(&p) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(storage(&p, e)),
+        }
+    }
+    for name in PROFILE_DIRS {
+        let p = dir.join(name);
+        match std::fs::remove_dir_all(&p) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(storage(&p, e)),
+        }
+    }
+    match std::fs::remove_dir(dir) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        // Something else lives there: leave it, and the folder.
+        Err(e) if e.kind() == std::io::ErrorKind::DirectoryNotEmpty => Ok(()),
+        Err(e) => Err(storage(dir, e)),
+    }
+}
+
 /// A client: one account on one device.
 #[derive(Clone)]
 pub struct Core {
     engine: Arc<tokio::sync::Mutex<Engine>>,
     reader: Arc<Mutex<Connection>>,
     events: broadcast::Sender<Event>,
+    /// Set once, by [`Core::close`]: what runs for as long as the profile is
+    /// open (`run`, an app's event stream) stops.
+    closed: tokio::sync::watch::Sender<bool>,
 }
 
 impl Core {
@@ -676,7 +720,37 @@ impl Core {
         let reader = store::open(&path, key)?;
         let (events, _) = broadcast::channel(1024);
         let engine = Engine::new(conn, events.clone())?;
-        Ok(Self { engine: Arc::new(tokio::sync::Mutex::new(engine)), reader: Arc::new(Mutex::new(reader)), events })
+        Ok(Self {
+            engine: Arc::new(tokio::sync::Mutex::new(engine)),
+            reader: Arc::new(Mutex::new(reader)),
+            events,
+            closed: tokio::sync::watch::Sender::new(false),
+        })
+    }
+
+    /// Close the profile for good: [`Core::run`] returns, both connections
+    /// drop, and nothing connects again. Reading still works until the
+    /// `Core` is dropped.
+    pub async fn close(&self) {
+        self.closed.send_replace(true);
+        self.engine.lock().await.close();
+    }
+
+    /// Resolves once the profile is closed.
+    pub async fn closed(&self) {
+        let mut rx = self.closed.subscribe();
+        // Only fails if the sender is gone, which is `self`.
+        let _ = rx.wait_for(|c| *c).await;
+    }
+
+    /// Log out: this device removes itself from the account, then the
+    /// profile closes. Refused on the account's only device, which would
+    /// lose the account. Then delete the profile's files with
+    /// [`delete_profile`].
+    pub async fn log_out(&self) -> Result<()> {
+        self.engine.lock().await.log_out().await?;
+        self.close().await;
+        Ok(())
     }
 
     fn read<T>(&self, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
@@ -783,6 +857,13 @@ impl Core {
     /// the connection drops. Waits quietly while there is no account yet.
     /// Cancel it by dropping or aborting the task running it.
     pub async fn run(&self) {
+        tokio::select! {
+            () = self.closed() => {}
+            () = self.keep_connected() => {}
+        }
+    }
+
+    async fn keep_connected(&self) {
         let mut delay = std::time::Duration::from_secs(1);
         loop {
             match self.connect().await {

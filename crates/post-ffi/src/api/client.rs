@@ -24,6 +24,9 @@ pub fn init_app() {
 pub struct Client {
     core: Core,
     profile_dir: PathBuf,
+    /// The database key is in the platform keystore (not a key file), so
+    /// deleting the profile deletes it there too.
+    keystore: bool,
     /// The update the last check found, for downloading and installing.
     update: std::sync::Mutex<Option<core::update::Available>>,
 }
@@ -384,6 +387,7 @@ impl Client {
     pub async fn open(profile_dir: String, key_file: Option<String>) -> Result<Client, PostError> {
         let dir = PathBuf::from(profile_dir);
         let profile_dir = dir.clone();
+        let keystore = key_file.is_none();
         let core = tokio::task::spawn_blocking(move || -> anyhow::Result<Core> {
             let key = match key_file {
                 Some(f) => core::keyfile::read(std::path::Path::new(&f))?,
@@ -394,7 +398,37 @@ impl Client {
         .await
         .map_err(|_| PostError::new(ErrorKind::Other, "Opening the profile stopped unexpectedly."))?
         .map_err(from_anyhow)?;
-        Ok(Client { core, profile_dir, update: std::sync::Mutex::default() })
+        Ok(Client { core, profile_dir, keystore, update: std::sync::Mutex::default() })
+    }
+
+    // ------------------------------------------------------------ logging out
+
+    /// Log out: this device leaves the account, after sending what is
+    /// queued, and the profile closes. Needs the server. Refused on the
+    /// account's only device (check `devices()` first), which would lose
+    /// the account. Then call `delete_profile`.
+    pub async fn log_out(&self) -> Result<(), PostError> {
+        Ok(self.core.log_out().await?)
+    }
+
+    /// Close the profile and delete it from this device: its database, its
+    /// downloads, and its key in the keystore. After `log_out`, or alone to
+    /// give up an account on its only device. The `Client` is finished
+    /// afterwards; open a new one for the welcome screens.
+    pub async fn delete_profile(&self) -> Result<(), PostError> {
+        self.core.close().await;
+        let dir = self.profile_dir.clone();
+        let keystore = self.keystore;
+        tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+            if keystore {
+                crate::keystore::delete_profile(&dir)
+            } else {
+                Ok(core::delete_profile(&dir)?)
+            }
+        })
+        .await
+        .map_err(|_| PostError::new(ErrorKind::Other, "Deleting the profile stopped unexpectedly."))?
+        .map_err(from_anyhow)
     }
 
     // ------------------------------------------------------------ updates
@@ -556,11 +590,15 @@ impl Client {
         Ok(self.core.sync().await?)
     }
 
-    /// Live events, until the Dart stream is closed.
+    /// Live events, until the Dart stream is closed or the profile is.
     pub async fn events(&self, sink: StreamSink<AppEvent>) {
         let mut rx = self.core.subscribe();
         loop {
-            match rx.recv().await {
+            let next = tokio::select! {
+                () = self.core.closed() => return,
+                next = rx.recv() => next,
+            };
+            match next {
                 Ok(e) => {
                     if sink.add(app_event(e)).is_err() {
                         return;

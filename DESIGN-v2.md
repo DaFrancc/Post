@@ -315,8 +315,18 @@ Any device publishes `RemoveDevice`. Two things follow:
 - Contacts learn of the removal from the chain head in the account's next message
   (below), or at their next directory fetch.
 
-A device cannot remove itself yet; another device of the account removes it. Signing
-out a device from itself, which would also wipe its local data, comes with the app.
+**Logging out** is a device removing itself, which the chain allows for any device
+but the last. The device sends what it has queued, publishes `RemoveDevice` for
+itself and closes for good: it stops reconnecting, and the server refuses it anyway.
+It cannot commit its own removal from groups, so the other members do, as for any
+removed device. Then it deletes its profile: the database, its downloads and its key
+in the keystore, and only the files Post made, so a profile pointed at a folder
+holding other things leaves them alone.
+
+On an account's only device there is nothing to remove it with, and without a device
+nobody can reach the account again. The app says so and offers only to delete the
+profile from the device, which loses the account; the server keeps the chain, and
+the username stays taken.
 
 ### Verification
 
@@ -1412,7 +1422,6 @@ Verified:
 
 Deferred:
 
-- Signing a device out from itself (section 5, "Removing a device").
 - History for a newly linked device (phase 6, with attachments).
 - A QR code in the CLI; the app will show one.
 

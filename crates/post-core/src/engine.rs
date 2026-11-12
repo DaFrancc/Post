@@ -282,6 +282,8 @@ pub(crate) struct Engine {
     pub conn: Connection,
     pub me: Option<Me>,
     pub registered: bool,
+    /// Closed for good (logging out): never connects again.
+    closed: bool,
     chains: HashMap<AccountId, Chain>,
     session: Option<ServerConn>,
     anon: Option<ServerConn>,
@@ -313,6 +315,7 @@ impl Engine {
             conn,
             me: None,
             registered: false,
+            closed: false,
             chains,
             session: None,
             anon: None,
@@ -484,6 +487,9 @@ impl Engine {
 
     /// Log in, then bring everything up to date.
     pub async fn connect(&mut self) -> Result<()> {
+        if self.closed {
+            return Err(Error::Closed);
+        }
         if self.is_connected() {
             return Ok(());
         }
@@ -779,6 +785,37 @@ impl Engine {
         self.append_own_link(raw).await?;
         self.reconcile().await?;
         self.flush_outbox().await
+    }
+
+    /// Log out: this device signs its own removal from the account (design
+    /// section 4 allows any device to remove itself, but never the last
+    /// one). Members' devices then remove its leaves, as for any removed
+    /// device; it cannot commit its own removal. Sends what is queued first,
+    /// so nothing written here is lost.
+    pub async fn log_out(&mut self) -> Result<()> {
+        self.connect().await?;
+        self.flush_outbox().await?;
+        let raw = {
+            let me = self.me()?;
+            let chain = self.chains.get(&me.account).ok_or(Error::Corrupt("own chain"))?;
+            if chain.active_devices().count() <= 1 {
+                return Err(Error::InvalidInput(
+                    "this is the account's only device: link another device before logging out, or the account is lost".into(),
+                ));
+            }
+            let bytes = chain.next_link(me.device, Op::RemoveDevice { device_id: me.device }, store::now_ms())?;
+            post_identity::chain::seal(&bytes, &me.keys.sign_link(&bytes)?, None)
+        };
+        self.append_own_link(raw).await?;
+        self.close();
+        Ok(())
+    }
+
+    /// Stop for good: drop both connections, and refuse to connect again.
+    pub fn close(&mut self) {
+        self.closed = true;
+        self.session = None;
+        self.anon = None;
     }
 
     /// Verify, record and upload a link to this account's own chain. The link

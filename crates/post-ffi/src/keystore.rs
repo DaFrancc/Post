@@ -52,6 +52,20 @@ pub fn key_for(dir: &Path) -> anyhow::Result<DbKey> {
     load_or_create(&entry_for(dir)?, dir.join("profile.db").exists())
 }
 
+/// Delete the profile in `dir` (see `post_core::delete_profile`), then its
+/// key from the keystore. In that order: a key without its profile is only
+/// clutter, but a profile without its key could never be opened again.
+pub fn delete_profile(dir: &Path) -> anyhow::Result<()> {
+    ensure_store()?;
+    // Named by the canonical path, so found before the folder goes.
+    let entry = entry_for(dir)?;
+    post_core::delete_profile(dir)?;
+    match entry.delete_credential() {
+        Ok(()) | Err(KeyError::NoEntry) => Ok(()),
+        Err(e) => Err(anyhow!("the profile is deleted, but the keyring kept its key: {e}")),
+    }
+}
+
 fn load_or_create(entry: &Entry, profile_exists: bool) -> anyhow::Result<DbKey> {
     match entry.get_secret() {
         Ok(secret) => key_from(Zeroizing::new(secret)),

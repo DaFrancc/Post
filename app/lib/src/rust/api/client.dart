@@ -64,6 +64,12 @@ abstract class Client implements RustOpaqueInterface {
     required String messageId,
   });
 
+  /// Close the profile and delete it from this device: its database, its
+  /// downloads, and its key in the keystore. After `log_out`, or alone to
+  /// give up an account on its only device. The `Client` is finished
+  /// afterwards; open a new one for the welcome screens.
+  Future<void> deleteProfile();
+
   /// The account's devices, oldest first.
   Future<List<DeviceInfo>> devices();
 
@@ -78,7 +84,7 @@ abstract class Client implements RustOpaqueInterface {
     required String text,
   });
 
-  /// Live events, until the Dart stream is closed.
+  /// Live events, until the Dart stream is closed or the profile is.
   Stream<AppEvent> events();
 
   /// On the new device: wait (up to ten minutes) for the code to be
@@ -114,6 +120,12 @@ abstract class Client implements RustOpaqueInterface {
 
   /// On this device: which device a link code would add.
   Future<LinkRequestInfo> linkInspect({required String code});
+
+  /// Log out: this device leaves the account, after sending what is
+  /// queued, and the profile closes. Needs the server. Refused on the
+  /// account's only device (check `devices()` first), which would lose
+  /// the account. Then call `delete_profile`.
+  Future<void> logOut();
 
   /// Mark a conversation read, on all the user's devices.
   Future<void> markRead({required String conversation});

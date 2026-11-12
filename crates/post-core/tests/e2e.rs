@@ -718,6 +718,63 @@ async fn removed_device_is_cut_off() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn logging_out_leaves_the_account() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let dm = alice.start_dm("bob").await.expect("dm");
+    let phone = link(&server, dir.path(), &alice, "phone").await;
+    phone.sync().await.expect("phone sync");
+    bob.sync().await.expect("bob sync");
+
+    // The phone logs out while staying connected in the background, as the
+    // app does: the connection loop ends with it.
+    let running = tokio::spawn({
+        let phone = phone.clone();
+        async move { phone.run().await }
+    });
+    phone.send_text(dm.id, "bye from the phone").await.expect("send");
+    phone.log_out().await.expect("log out");
+    tokio::time::timeout(Duration::from_secs(5), running).await.expect("run stops on closing").expect("run");
+    assert!(matches!(phone.connect().await, Err(post_core::Error::Closed)));
+
+    // Alice's laptop sees one device left, and the conversation goes on
+    // without the phone: Bob's client removes its leaf, justified by the
+    // chain, and Alice accepts that.
+    alice.sync().await.expect("alice sync");
+    let devices = alice.devices().await.expect("devices");
+    assert_eq!(devices.len(), 1);
+    assert!(devices[0].this_device);
+    bob.sync().await.expect("bob sync");
+    assert_eq!(last_in(&bob, dm.id).as_deref(), Some("bye from the phone"), "queued before leaving, so it was sent");
+    bob.send_text(dm.id, "see you").await.expect("send");
+    alice.sync().await.expect("alice sync");
+    assert_eq!(last_in(&alice, dm.id).as_deref(), Some("see you"));
+
+    // The laptop is the last device: logging out there would lose the
+    // account, so it is refused and nothing changes.
+    assert!(matches!(alice.log_out().await, Err(post_core::Error::InvalidInput(_))));
+    alice.send_text(dm.id, "still here").await.expect("still works");
+    bob.sync().await.expect("bob sync");
+    assert_eq!(last_in(&bob, dm.id).as_deref(), Some("still here"));
+
+    // Deleting the profile removes Post's files and the folder.
+    let phone_dir = dir.path().join("phone");
+    assert!(phone_dir.join("profile.db").exists());
+    drop(phone);
+    post_core::delete_profile(&phone_dir).expect("delete");
+    assert!(!phone_dir.exists());
+    // In a folder holding other things too, those stay.
+    let shared = dir.path().join("shared");
+    drop(Core::open(&shared, &DbKey::from_bytes([9; 32])).expect("open"));
+    std::fs::write(shared.join("notes.txt"), "mine").expect("write");
+    post_core::delete_profile(&shared).expect("delete");
+    assert!(!shared.join("profile.db").exists());
+    assert_eq!(std::fs::read_to_string(shared.join("notes.txt")).expect("kept"), "mine");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn group_chat() {
     let server = Server::start().await;
     let dir = tempfile::tempdir().expect("tempdir");
