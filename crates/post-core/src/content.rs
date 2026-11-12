@@ -19,8 +19,13 @@ pub struct Content {
     /// The sender's device chain head, for chain-head gossip (design section 5).
     #[prost(message, optional, tag = "3")]
     pub sender_chain: Option<ChainHead>,
-    #[prost(oneof = "Body", tags = "10, 13, 14, 16, 17, 18, 30")]
+    #[prost(oneof = "Body", tags = "10, 13, 14, 16, 17, 18, 19, 30")]
     pub body: Option<Body>,
+    /// Not something to show: a client that does not know this body drops
+    /// it, rather than showing "unsupported, update the app". Set on
+    /// receipts, and on any later body that is bookkeeping.
+    #[prost(bool, tag = "4")]
+    pub silent: bool,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -46,9 +51,25 @@ pub enum Body {
     Profile(Profile),
     #[prost(message, tag = "18")]
     ConversationName(ConversationName),
+    #[prost(message, tag = "19")]
+    Receipt(Receipt),
     /// Self group only.
     #[prost(message, tag = "30")]
     SelfSync(SelfSync),
+}
+
+/// How far the sender's account has received and read this group (design
+/// section 7, "Receipts"), as positions in its log: every message from
+/// someone else up to `delivered` reached one of the sender's devices, and
+/// up to `read` the sender has read. 0 says nothing: `read` stays 0 while
+/// read receipts are off. Positions only move forward, so receipts merge by
+/// taking the larger, in any order.
+#[derive(Clone, PartialEq, Message)]
+pub struct Receipt {
+    #[prost(uint64, tag = "1")]
+    pub delivered: u64,
+    #[prost(uint64, tag = "2")]
+    pub read: u64,
 }
 
 /// A call starting, someone joining or leaving it, declining it, or it
@@ -139,6 +160,30 @@ pub struct SelfSync {
     /// read announcement's ID. Merges by taking the larger, like `read`.
     #[prost(uint64, tag = "6")]
     pub announcements_read: u64,
+    /// Account-wide settings, such as whether to send read receipts.
+    #[prost(message, repeated, tag = "7")]
+    pub settings: Vec<SettingEntry>,
+}
+
+/// One account-wide setting. An empty value restores the default.
+#[derive(Clone, PartialEq, Message)]
+pub struct SettingEntry {
+    #[prost(string, tag = "1")]
+    pub key: String,
+    #[prost(string, tag = "2")]
+    pub value: String,
+}
+
+/// The setting that turns read receipts off ("0"); on by default.
+pub const SETTING_READ_RECEIPTS: &str = "read_receipts";
+
+/// A setting's key: short, a-z and `_` or `.`; and its value, short.
+pub fn check_setting(s: &SettingEntry) -> Result<(), &'static str> {
+    let key_ok = !s.key.is_empty() && s.key.len() <= 32 && s.key.bytes().all(|b| b.is_ascii_lowercase() || b == b'_' || b == b'.');
+    if !key_ok || s.value.len() > 64 {
+        return Err("a setting has an invalid name or value");
+    }
+    Ok(())
 }
 
 #[derive(Clone, PartialEq, Message)]

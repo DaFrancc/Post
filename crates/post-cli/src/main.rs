@@ -168,6 +168,12 @@ enum Command {
     },
     /// Mark a conversation read on all your devices.
     Read { conversation: String },
+    /// Whether you send read receipts; `on` or `off` to change it, on all
+    /// your devices. Off, you also do not see when others read yours.
+    ReadReceipts {
+        #[arg(value_parser = ["on", "off"])]
+        set: Option<String>,
+    },
     /// Show the server's announcements, or mark them read.
     Announcements {
         #[command(subcommand)]
@@ -474,6 +480,8 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         Command::SafetyNumber { username } => ("safety_number", json!({ "username": username })),
         Command::Verify { username, undo } => ("set_verified", json!({ "username": username, "verified": !undo })),
         Command::Read { conversation } => ("mark_read", json!({ "conversation": conversation })),
+        Command::ReadReceipts { set: None } => ("read_receipts", json!({})),
+        Command::ReadReceipts { set: Some(s) } => ("set_read_receipts", json!({ "on": s == "on" })),
         Command::Announcements { cmd: None, limit } => ("announcements", json!({ "limit": limit })),
         Command::Announcements { cmd: Some(AnnouncementsCommand::Read), .. } => ("mark_announcements_read", json!({})),
         Command::Announce { text } => ("announce", json!({ "text": text })),
@@ -613,7 +621,7 @@ fn print_human(method: &str, v: &Value) {
                 if m["edited"] == true {
                     tags.push(format!("edited, {} versions", m["versions"]));
                 }
-                if matches!(s(m, "state"), "pending" | "failed") {
+                if matches!(s(m, "state"), "pending" | "failed" | "sent" | "delivered" | "read") {
                     tags.push(s(m, "state").to_string());
                 }
                 let tags = if tags.is_empty() { String::new() } else { format!("  ({})", tags.join("; ")) };
@@ -640,6 +648,7 @@ fn print_human(method: &str, v: &Value) {
             println!("safety number: {}", if v["verified"] == true { "verified" } else { "not verified" });
         }
         "safety_number" => println!("{}", s(v, "safety_number")),
+        "read_receipts" => println!("read receipts are {}", if v["on"] == true { "on" } else { "off" }),
         "announcements" => {
             for a in v.as_array().into_iter().flatten() {
                 println!("{}  {}", time(a["at_ms"].as_u64().unwrap_or(0)), announcement_text(a));
@@ -857,6 +866,8 @@ mod tests {
             Command::Announcements { cmd: None, limit: 5 },
             Command::Announcements { cmd: Some(AnnouncementsCommand::Read), limit: 5 },
             Command::Announce { text: "hi".into() },
+            Command::ReadReceipts { set: None },
+            Command::ReadReceipts { set: Some("off".into()) },
             Command::Maintenance { cmd: MaintenanceCommand::Status },
             Command::Maintenance { cmd: MaintenanceCommand::Plan { at: None, minutes: 5, reason: String::new(), quiet: false } },
             Command::Maintenance { cmd: MaintenanceCommand::End },

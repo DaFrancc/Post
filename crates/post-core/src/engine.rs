@@ -226,7 +226,14 @@ enum Outcome {
     NewMembers,
     /// A call event, sent or received.
     Call(calls::Seen),
+    /// Another member's receipt moved: the ticks on our messages may change.
+    Receipts,
 }
+
+/// Receipts are sent only in conversations of at most this many accounts:
+/// each one is a message every member receives, and in a large group they
+/// would outnumber the messages themselves.
+pub const MAX_RECEIPT_ACCOUNTS: usize = 32;
 
 fn random16() -> Result<[u8; 16]> {
     let mut b = [0u8; 16];
@@ -1845,6 +1852,7 @@ impl Engine {
             id: id.to_vec(),
             sent_at_ms: now,
             sender_chain: Some(content::ChainHead { seq: chain.next_seq() - 1, head: chain.head().0.to_vec() }),
+            silent: matches!(body, Body::Receipt(_)),
             body: Some(body.clone()),
         };
         let bytes = c.encode_to_vec();
@@ -1889,6 +1897,11 @@ impl Engine {
             Body::SelfSync(s) if s.snapshot => Outcome::Nothing,
             Body::SelfSync(s) => Outcome::SelfSync(apply_self_sync(&tx, s, SyncSource::Local(Some(&id)))?),
             Body::Call(c) => Outcome::Call(calls::Seen { sender: me.account, device: me.device, sent_at: now, event: c.clone() }),
+            // What this account has said, so it is not said again.
+            Body::Receipt(r) => {
+                store::raise_receipt(&tx, &gid, &me.account.0, r.delivered, r.read)?;
+                Outcome::Nothing
+            }
         };
         tx.commit()?;
         self.emit_outcome(gid, outcome)?;
@@ -2008,6 +2021,9 @@ impl Engine {
             r => r?,
         }
         self.continue_leaving().await?;
+        if let Err(e) = self.queue_receipts() {
+            tracing::warn!(error = %e, "could not queue receipts");
+        }
         self.flush_outbox().await?;
         self.resubscribe().await?;
         if joined > 0 {
@@ -2374,9 +2390,94 @@ impl Engine {
                     && c.kind != KIND_SELF
                 {
                     self.emit(Event::ConversationChanged(crate::conversation_from_row(&self.conn, &c)?));
+                    // Who is a member decides whose receipts count; someone
+                    // just added counts as having what came before.
+                    let joined_at = if matches!(outcome, Outcome::NewMembers) { store::group_position(&self.conn, &gid)? } else { 0 };
+                    self.refresh_ticks_or_warn(gid, joined_at);
                 }
             }
             Outcome::Call(seen) => self.apply_call(gid, &seen)?,
+            Outcome::Receipts => self.refresh_ticks_or_warn(gid, 0),
+        }
+        Ok(())
+    }
+
+    /// Ticks are a convenience: failing to work them out never stops a sync.
+    fn refresh_ticks_or_warn(&self, gid: [u8; 16], joined_at: u64) {
+        if let Err(e) = self.refresh_ticks(gid, joined_at) {
+            tracing::warn!(error = %e, "could not update receipts");
+        }
+    }
+
+    /// Work out again how far every other member has received and read a
+    /// group, and tell the app about our messages whose ticks changed.
+    fn refresh_ticks(&self, gid: [u8; 16], joined_at: u64) -> Result<()> {
+        let me = self.me()?.account;
+        let (_, members) = group_members(&self.conn, &gid)?;
+        let others: Vec<AccountId> = members.into_iter().map(|(a, _)| a).filter(|a| *a != me).collect();
+        let ((old_d, old_r), (new_d, new_r)) = store::set_receipt_floors(&self.conn, &gid, &others, joined_at)?;
+        // Floors can fall too, when someone behind joins: both ways change ticks.
+        let ranges = [(old_d.min(new_d), old_d.max(new_d)), (old_r.min(new_r), old_r.max(new_r))];
+        let mut seen = HashSet::new();
+        for (from, to) in ranges {
+            for id in store::own_messages_between(&self.conn, &gid, from, to, 200)? {
+                if seen.insert(id.clone())
+                    && let Some(m) = store::message(&self.conn, &gid, &id)?
+                {
+                    self.emit(Event::MessageChanged(crate::message_from_row(&self.conn, &m)?));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Queue a receipt in each conversation where this account has received
+    /// or read more than it has said: how far, as log positions. One per
+    /// conversation however many messages arrived, and none in large groups
+    /// or in a group this device is leaving.
+    fn queue_receipts(&mut self) -> Result<()> {
+        let me = self.me()?.account;
+        let read_on = store::read_receipts_on(&self.conn)?;
+        for c in store::followed_groups(&self.conn)? {
+            if c.kind == KIND_SELF || c.leaving || !c.active {
+                continue;
+            }
+            let gid = c.group_id;
+            let delivered = store::newest_received(&self.conn, &gid)?;
+            if delivered == 0 {
+                continue;
+            }
+            let read = if read_on { store::read_position(&self.conn, &gid)?.min(delivered) } else { 0 };
+            let (said_delivered, said_read) = store::receipt(&self.conn, &gid, &me.0)?;
+            if delivered <= said_delivered && read <= said_read {
+                continue;
+            }
+            if group_members(&self.conn, &gid)?.1.len() > MAX_RECEIPT_ACCOUNTS {
+                continue;
+            }
+            self.queue_body(gid, Body::Receipt(content::Receipt { delivered, read }))?;
+        }
+        Ok(())
+    }
+
+    /// Queue receipts and send them, when only receipts changed (reading a
+    /// conversation). Offline, they go with the next sync.
+    async fn send_receipts(&mut self) -> Result<()> {
+        self.queue_receipts()?;
+        match self.flush_outbox().await {
+            Ok(()) | Err(Error::NotConnected | Error::Network(_)) => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Send read receipts or stop, on all this account's devices.
+    pub async fn set_read_receipts(&mut self, on: bool) -> Result<()> {
+        let entry = content::SettingEntry { key: content::SETTING_READ_RECEIPTS.into(), value: if on { String::new() } else { "0".into() } };
+        self.sync_to_own_devices(content::SelfSync { settings: vec![entry], ..Default::default() }).await?;
+        // Turned on: say how far we have read now, rather than at the next
+        // message.
+        if on {
+            self.send_receipts().await?;
         }
         Ok(())
     }
@@ -2651,7 +2752,8 @@ impl Engine {
             let read = moved.into_iter().map(|(group, seq)| content::ReadEntry { group, seq }).collect();
             self.sync_to_own_devices(content::SelfSync { read, ..Default::default() }).await?;
         }
-        Ok(())
+        // The read receipt: blue ticks for whoever wrote.
+        self.send_receipts().await
     }
 
     /// Mark (or unmark) someone's safety number as verified, on every one of
@@ -2957,7 +3059,7 @@ fn check_device_name(name: &str) -> Result<()> {
 fn body_allowed(body: &Body, self_group: bool) -> bool {
     match body {
         Body::Profile(_) => true,
-        Body::Text(_) | Body::Edit(_) | Body::Delete(_) | Body::ConversationName(_) | Body::Call(_) => !self_group,
+        Body::Text(_) | Body::Edit(_) | Body::Delete(_) | Body::ConversationName(_) | Body::Call(_) | Body::Receipt(_) => !self_group,
         Body::SelfSync(_) => self_group,
     }
 }
@@ -2981,6 +3083,9 @@ fn check_self_sync(s: &content::SelfSync) -> std::result::Result<(), String> {
     }
     if s.read.iter().any(|r| r.group.len() != 16) {
         return Err("a read position names an invalid group".into());
+    }
+    for setting in &s.settings {
+        content::check_setting(setting)?;
     }
     Ok(())
 }
@@ -3023,6 +3128,9 @@ fn apply_self_sync(tx: &Connection, s: &content::SelfSync, from: SyncSource<'_>)
     for d in &s.device_names {
         set(store::Synced::DeviceName, &d.device, &d.name)?;
     }
+    for setting in &s.settings {
+        set(store::Synced::Setting, setting.key.as_bytes(), &setting.value)?;
+    }
     for v in &s.verified {
         if set(store::Synced::Verified, &v.account, if v.verified { store::VERIFIED } else { "" })? {
             changes.people.extend(store::account_id(&v.account).ok());
@@ -3054,6 +3162,10 @@ fn self_snapshot(conn: &Connection) -> Result<content::SelfSync> {
             .collect(),
         read: store::read_positions(conn)?.into_iter().map(|(group, seq)| content::ReadEntry { group, seq }).collect(),
         announcements_read: store::meta_u64(conn, store::META_ANNOUNCEMENTS_READ)?,
+        settings: store::synced_all(conn, store::Synced::Setting)?
+            .into_iter()
+            .map(|(key, value)| content::SettingEntry { key: String::from_utf8_lossy(&key).into_owned(), value })
+            .collect(),
         snapshot: true,
     })
 }
@@ -3456,6 +3568,18 @@ fn handle_content(
             check_self_sync(s).map_err(reject)?;
             Ok(Outcome::SelfSync(apply_self_sync(tx, s, SyncSource::Log { seq: e.seq, snapshot: s.snapshot })?))
         }
+        Some(Body::Receipt(r)) => {
+            // Positions before the receipt itself: nobody has received what
+            // comes after it.
+            if r.delivered >= e.seq || r.read >= e.seq {
+                return Err(reject("a receipt claimed messages not yet sent"));
+            }
+            let moved = store::raise_receipt(tx, gid, &sender.0, r.delivered, r.read)?;
+            // Our own other devices' receipts only stop this one repeating them.
+            Ok(if moved && sender != me { Outcome::Receipts } else { Outcome::Nothing })
+        }
+        // Bookkeeping from a newer client: nothing to show.
+        None if c.silent => Ok(Outcome::Nothing),
         None => {
             let added = store::insert_message(tx, &new_message(None))?;
             Ok(if added { Outcome::Added(id) } else { Outcome::Nothing })

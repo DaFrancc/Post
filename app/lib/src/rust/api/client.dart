@@ -191,6 +191,9 @@ abstract class Client implements RustOpaqueInterface {
   /// Someone's presence, as this device last heard it.
   Future<PresenceState> presence({required String username});
 
+  /// Whether the user sends read receipts (on unless turned off).
+  Future<bool> readReceipts();
+
   /// Give this device fresh keys in every conversation now.
   Future<void> refreshKeys();
 
@@ -272,6 +275,10 @@ abstract class Client implements RustOpaqueInterface {
 
   /// Change the user's profile and share it with every conversation.
   Future<void> setProfile({required ProfileChange change});
+
+  /// Send read receipts or stop, on all the user's devices. Off, the user
+  /// also stops seeing when others read theirs.
+  Future<void> setReadReceipts({required bool enabled});
 
   /// Set (or with `None` clear) an app setting on this device.
   Future<void> setSetting({required String key, String? value});
@@ -984,6 +991,12 @@ class MessageInfo {
   /// The server refused it.
   final bool failed;
 
+  /// Yours, and every other member has it: two ticks.
+  final bool delivered;
+
+  /// Yours, and every other member read it: two blue ticks.
+  final bool read;
+
   const MessageInfo({
     required this.id,
     required this.conversation,
@@ -998,6 +1011,8 @@ class MessageInfo {
     required this.versions,
     required this.pending,
     required this.failed,
+    required this.delivered,
+    required this.read,
   });
 
   @override
@@ -1014,7 +1029,9 @@ class MessageInfo {
       edited.hashCode ^
       versions.hashCode ^
       pending.hashCode ^
-      failed.hashCode;
+      failed.hashCode ^
+      delivered.hashCode ^
+      read.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1033,7 +1050,9 @@ class MessageInfo {
           edited == other.edited &&
           versions == other.versions &&
           pending == other.pending &&
-          failed == other.failed;
+          failed == other.failed &&
+          delivered == other.delivered &&
+          read == other.read;
 }
 
 /// One version of an edited message.

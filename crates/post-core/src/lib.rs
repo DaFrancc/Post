@@ -288,8 +288,14 @@ pub struct Conversation {
 pub enum MessageState {
     /// Written locally, not yet accepted by the server.
     Pending,
-    /// Accepted by the server.
+    /// Accepted by the server: one tick.
     Sent,
+    /// Your message reached every other member (one of each one's devices):
+    /// two ticks. Members whose apps send no receipts are not waited for.
+    Delivered,
+    /// Every other member read your message: two blue ticks. Shown only
+    /// while you send read receipts yourself, as in other messengers.
+    Read,
     /// Received from someone else.
     Received,
     /// The server refused it.
@@ -743,10 +749,12 @@ pub(crate) fn message_from_row(conn: &Connection, m: &store::MessageRow) -> Resu
         unsupported: m.unsupported,
         edited: m.versions > 1,
         versions: m.versions,
-        state: match m.state {
-            store::STATE_PENDING => MessageState::Pending,
-            store::STATE_SENT => MessageState::Sent,
-            store::STATE_FAILED => MessageState::Failed,
+        state: match (m.state, m.receipt) {
+            (store::STATE_PENDING, _) => MessageState::Pending,
+            (store::STATE_SENT, store::RECEIPT_READ) if store::read_receipts_on(conn)? => MessageState::Read,
+            (store::STATE_SENT, store::RECEIPT_READ | store::RECEIPT_DELIVERED) => MessageState::Delivered,
+            (store::STATE_SENT, _) => MessageState::Sent,
+            (store::STATE_FAILED, _) => MessageState::Failed,
             _ => MessageState::Received,
         },
     })
@@ -1192,6 +1200,19 @@ impl Core {
     /// unread count changed.
     pub async fn mark_read(&self, conversation: ConversationId) -> Result<()> {
         self.engine.lock().await.mark_read(conversation.0).await
+    }
+
+    /// Whether you send read receipts: on unless turned off. Delivery
+    /// receipts always go.
+    pub fn read_receipts(&self) -> Result<bool> {
+        self.read(store::read_receipts_on)
+    }
+
+    /// Turn read receipts on or off, on all your devices. Off, others do
+    /// not see when you read their messages, and you do not see when they
+    /// read yours.
+    pub async fn set_read_receipts(&self, on: bool) -> Result<()> {
+        self.engine.lock().await.set_read_receipts(on).await
     }
 
     /// Record that you compared safety numbers with `username` (or, with

@@ -187,6 +187,10 @@ pub struct MessageInfo {
     pub pending: bool,
     /// The server refused it.
     pub failed: bool,
+    /// Yours, and every other member has it: two ticks.
+    pub delivered: bool,
+    /// Yours, and every other member read it: two blue ticks.
+    pub read: bool,
 }
 
 /// One version of an edited message.
@@ -953,6 +957,17 @@ impl Client {
         Ok(self.core.set_verified(&username, verified).await?)
     }
 
+    /// Whether the user sends read receipts (on unless turned off).
+    pub async fn read_receipts(&self) -> Result<bool, PostError> {
+        Ok(self.core.read_receipts()?)
+    }
+
+    /// Send read receipts or stop, on all the user's devices. Off, the user
+    /// also stops seeing when others read theirs.
+    pub async fn set_read_receipts(&self, enabled: bool) -> Result<(), PostError> {
+        Ok(self.core.set_read_receipts(enabled).await?)
+    }
+
     /// Someone's presence, as this device last heard it.
     pub async fn presence(&self, username: String) -> Result<PresenceState, PostError> {
         Ok(match self.core.presence(&username).await? {
@@ -1067,6 +1082,8 @@ fn message(m: core::Message) -> MessageInfo {
         versions: m.versions,
         pending: m.state == core::MessageState::Pending,
         failed: m.state == core::MessageState::Failed,
+        delivered: matches!(m.state, core::MessageState::Delivered | core::MessageState::Read),
+        read: m.state == core::MessageState::Read,
     }
 }
 

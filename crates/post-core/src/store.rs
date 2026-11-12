@@ -348,6 +348,26 @@ const MIGRATIONS: &[&str] = &[
     // 11: what a notice is about, for how it is shown: 'notice' (security
     // and other warnings, as every earlier one was), 'call', 'missed_call'.
     "ALTER TABLE notices ADD COLUMN kind TEXT NOT NULL DEFAULT 'notice';",
+    // 12: receipts (design section 7, "Receipts"). How far each account has
+    // received and read each group, from its receipts; the positions every
+    // other member has reached, for the ticks on our own messages; and what
+    // this account last said in its own receipts. Plus account-wide
+    // settings synced like nicknames (whether to send read receipts).
+    "CREATE TABLE receipts (
+         group_id       BLOB NOT NULL,
+         account_id     BLOB NOT NULL,
+         delivered_seq  INTEGER NOT NULL DEFAULT 0,
+         read_seq       INTEGER NOT NULL DEFAULT 0,
+         PRIMARY KEY (group_id, account_id)
+     );
+     ALTER TABLE conversations ADD COLUMN delivered_floor INTEGER NOT NULL DEFAULT 0;
+     ALTER TABLE conversations ADD COLUMN read_floor INTEGER NOT NULL DEFAULT 0;
+     CREATE TABLE synced_settings (
+         key     BLOB PRIMARY KEY,
+         name    TEXT NOT NULL,
+         msg_id  BLOB,
+         seq     INTEGER
+     );",
 ];
 
 /// Create tables, both ours and OpenMLS's, and bring old databases up to date.
@@ -765,6 +785,9 @@ pub struct MessageRow {
     pub deleted: bool,
     pub body: Option<String>,
     pub versions: u32,
+    /// How far the other members' receipts reach it: 0, or
+    /// [`RECEIPT_DELIVERED`] or [`RECEIPT_READ`].
+    pub receipt: i64,
 }
 
 /// A message's columns as [`msg_row`] reads them, from `messages m`.
@@ -773,9 +796,16 @@ macro_rules! msg_columns {
         "m.group_id, m.id, m.sender_account, m.outgoing, m.sent_at, m.state, m.unsupported, m.deleted_at IS NOT NULL,
        (SELECT body FROM message_versions v WHERE v.group_id = m.group_id AND v.message_id = m.id
          ORDER BY v.seq IS NULL DESC, v.seq DESC, v.pk DESC LIMIT 1),
-       (SELECT count(*) FROM message_versions v WHERE v.group_id = m.group_id AND v.message_id = m.id)"
+       (SELECT count(*) FROM message_versions v WHERE v.group_id = m.group_id AND v.message_id = m.id),
+       COALESCE((SELECT CASE WHEN m.seq <= rc.read_floor THEN 2 WHEN m.seq <= rc.delivered_floor THEN 1 ELSE 0 END
+                 FROM conversations rc WHERE rc.group_id = m.group_id), 0)"
     };
 }
+
+/// [`MessageRow::receipt`]: every other member has received it.
+pub const RECEIPT_DELIVERED: i64 = 1;
+/// [`MessageRow::receipt`]: every other member has read it.
+pub const RECEIPT_READ: i64 = 2;
 
 const MSG_SELECT: &str = concat!("SELECT ", msg_columns!(), " FROM messages m");
 
@@ -791,6 +821,7 @@ fn msg_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<MessageRow> {
         deleted: r.get(7)?,
         body: r.get(8)?,
         versions: r.get(9)?,
+        receipt: r.get(10)?,
     })
 }
 
@@ -1234,21 +1265,119 @@ pub enum Synced {
     DeviceName,
     /// Verified safety numbers, keyed by account: [`VERIFIED`] or empty.
     Verified,
+    /// Account-wide settings, keyed by name; empty is the default.
+    Setting,
 }
 
 /// The value [`Synced::Verified`] holds for a verified account.
 pub const VERIFIED: &str = "1";
 
 impl Synced {
-    const ALL: [Synced; 3] = [Synced::Nickname, Synced::DeviceName, Synced::Verified];
+    const ALL: [Synced; 4] = [Synced::Nickname, Synced::DeviceName, Synced::Verified, Synced::Setting];
 
     fn table(self) -> (&'static str, &'static str) {
         match self {
             Synced::Nickname => ("nicknames", "account_id"),
             Synced::DeviceName => ("device_names", "device_id"),
             Synced::Verified => ("verified", "account_id"),
+            Synced::Setting => ("synced_settings", "key"),
         }
     }
+}
+
+/// Whether this account sends read receipts (on unless turned off).
+pub fn read_receipts_on(conn: &Connection) -> Result<bool> {
+    Ok(synced_get(conn, Synced::Setting, crate::content::SETTING_READ_RECEIPTS.as_bytes())?.as_deref() != Some("0"))
+}
+
+// ---------------------------------------------------------------- receipts
+
+/// Record an account's receipt for a group: its positions only move
+/// forward. Returns whether either moved.
+pub fn raise_receipt(conn: &Connection, group: &[u8], account: &[u8], delivered: u64, read: u64) -> Result<bool> {
+    let n = conn.execute(
+        "INSERT INTO receipts (group_id, account_id, delivered_seq, read_seq) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT (group_id, account_id) DO UPDATE SET
+             delivered_seq = MAX(delivered_seq, excluded.delivered_seq),
+             read_seq = MAX(read_seq, excluded.read_seq)
+         WHERE excluded.delivered_seq > delivered_seq OR excluded.read_seq > read_seq",
+        params![group, account, i64_of(delivered), i64_of(read)],
+    )?;
+    Ok(n > 0)
+}
+
+/// An account's positions in a group, from its receipts: (delivered, read).
+pub fn receipt(conn: &Connection, group: &[u8], account: &[u8]) -> Result<(u64, u64)> {
+    let r: Option<(i64, i64)> = conn
+        .query_row("SELECT delivered_seq, read_seq FROM receipts WHERE group_id = ?1 AND account_id = ?2", params![group, account], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .optional()?;
+    let (d, rd) = r.unwrap_or((0, 0));
+    Ok((u64::try_from(d).unwrap_or(0), u64::try_from(rd).unwrap_or(0)))
+}
+
+/// Set the positions every other member has reached, from their receipts:
+/// the least of each over `members`. A member with no receipt yet holds the
+/// ticks back, from `joined_at`: 0 for those who were there from the start
+/// (or whose joining this device did not see), and the group's position for
+/// members just added, who count as having what came before them. Returns
+/// the old and new (delivered, read) floors; with no other members, both 0.
+pub fn set_receipt_floors(conn: &Connection, group: &[u8], members: &[AccountId], joined_at: u64) -> Result<((u64, u64), (u64, u64))> {
+    let old: (i64, i64) = conn
+        .query_row("SELECT delivered_floor, read_floor FROM conversations WHERE group_id = ?1", [group], |r| Ok((r.get(0)?, r.get(1)?)))
+        .optional()?
+        .unwrap_or((0, 0));
+    let mut floor: Option<(u64, u64)> = None;
+    for a in members {
+        conn.execute(
+            "INSERT OR IGNORE INTO receipts (group_id, account_id, delivered_seq, read_seq) VALUES (?1, ?2, ?3, ?3)",
+            params![group, &a.0[..], i64_of(joined_at)],
+        )?;
+        let (d, r) = receipt(conn, group, &a.0)?;
+        floor = Some(floor.map_or((d, r), |(fd, fr)| (fd.min(d), fr.min(r))));
+    }
+    let new = floor.unwrap_or((0, 0));
+    conn.execute(
+        "UPDATE conversations SET delivered_floor = ?2, read_floor = ?3 WHERE group_id = ?1",
+        params![group, i64_of(new.0), i64_of(new.1)],
+    )?;
+    let old = (u64::try_from(old.0).unwrap_or(0), u64::try_from(old.1).unwrap_or(0));
+    Ok((old, new))
+}
+
+/// The newest log position of a message from someone else in a group: how
+/// far this account has received it.
+pub fn newest_received(conn: &Connection, group: &[u8]) -> Result<u64> {
+    let n: Option<i64> = conn.query_row("SELECT MAX(seq) FROM messages WHERE group_id = ?1 AND outgoing = 0", [group], |r| r.get(0))?;
+    Ok(n.and_then(|n| u64::try_from(n).ok()).unwrap_or(0))
+}
+
+/// How far this device has the group's log: its cursor, or a later message
+/// of ours already placed.
+pub fn group_position(conn: &Connection, group: &[u8]) -> Result<u64> {
+    let n: Option<i64> = conn.query_row(
+        "SELECT MAX(COALESCE((SELECT cursor FROM conversations WHERE group_id = ?1), 0), COALESCE((SELECT MAX(seq) FROM messages WHERE group_id = ?1), 0))",
+        [group],
+        |r| r.get(0),
+    )?;
+    Ok(n.and_then(|n| u64::try_from(n).ok()).unwrap_or(0))
+}
+
+/// The user's read position in a group.
+pub fn read_position(conn: &Connection, group: &[u8]) -> Result<u64> {
+    let n: Option<i64> = conn.query_row("SELECT read_seq FROM conversations WHERE group_id = ?1", [group], |r| r.get(0)).optional()?;
+    Ok(n.and_then(|n| u64::try_from(n).ok()).unwrap_or(0))
+}
+
+/// Our own messages in a group whose log positions fall in `(from, to]`,
+/// newest first, at most `limit`: those whose ticks just changed.
+pub fn own_messages_between(conn: &Connection, group: &[u8], from: u64, to: u64, limit: u32) -> Result<Vec<Vec<u8>>> {
+    let mut stmt = conn.prepare(
+        "SELECT id FROM messages WHERE group_id = ?1 AND outgoing = 1 AND seq > ?2 AND seq <= ?3 AND deleted_at IS NULL
+         ORDER BY seq DESC LIMIT ?4",
+    )?;
+    Ok(stmt.query_map(params![group, i64_of(from), i64_of(to), limit], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?)
 }
 
 /// Whether the user verified this account's safety number.

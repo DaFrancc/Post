@@ -80,7 +80,9 @@ pub struct Message {
     pub edited: bool,
     /// Number of versions, the original included.
     pub versions: u32,
-    /// `pending`, `sent`, `received` or `failed`.
+    /// Yours: `pending`, `sent` (the server has it), `delivered` (everyone
+    /// else has it), `read` (everyone else read it) or `failed`. Others':
+    /// `received`.
     pub state: String,
 }
 
@@ -391,6 +393,8 @@ fn message(m: core::Message) -> Message {
         state: match m.state {
             core::MessageState::Pending => "pending",
             core::MessageState::Sent => "sent",
+            core::MessageState::Delivered => "delivered",
+            core::MessageState::Read => "read",
             core::MessageState::Received => "received",
             core::MessageState::Failed => "failed",
         }
@@ -830,6 +834,22 @@ pub struct VerifiedParams {
     pub verified: bool,
 }
 
+/// `set_read_receipts`.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ReadReceiptsParams {
+    /// Send read receipts (the default), or not. Off, you also do not see
+    /// when others read yours. Delivery receipts always go.
+    pub on: bool,
+}
+
+/// Whether read receipts are on.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct ReadReceipts {
+    /// On.
+    pub on: bool,
+}
+
 /// `announcements`: the newest announcements.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -940,6 +960,8 @@ methods! {
     "safety_number", Local, UserParams, SafetyNumber, "The safety number between you and a user.";
     "set_verified", Connection, VerifiedParams, Done, "Record that you compared safety numbers with a user, or withdraw it.";
     "mark_read", Connection, ConversationParams, Done, "Mark a conversation read, on all your devices.";
+    "read_receipts", Local, NoParams, ReadReceipts, "Whether you send read receipts.";
+    "set_read_receipts", Connection, ReadReceiptsParams, Done, "Send read receipts or stop, on all your devices.";
     // A connection: calls live in memory, so a one-shot CLI must fetch first.
     "calls", Connection, NoParams, Vec<CallInfo>, "The live calls, in every conversation.";
     "call_start", Connection, CallStartParams, CallJoined, "Start a call (signalling only: bring your own audio with the token).";
@@ -1247,6 +1269,12 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
         "safety_number" => {
             let p: UserParams = params(p)?;
             ok(SafetyNumber { safety_number: core.safety_number(&p.username).await? })
+        }
+        "read_receipts" => ok(ReadReceipts { on: core.read_receipts()? }),
+        "set_read_receipts" => {
+            let p: ReadReceiptsParams = params(p)?;
+            core.set_read_receipts(p.on).await?;
+            ok(Done {})
         }
         "announcements" => {
             let p: AnnouncementsParams = params(p)?;
