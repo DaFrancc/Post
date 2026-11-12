@@ -81,7 +81,7 @@ run_release() {
   printf 'FROM %s\nRUN rm /var/run && mkdir /var/run\n' "$runner_base" | podman build -q -t "$runner_image" -f - >/dev/null
   say "release.yml on $label"
   # The tag push CI builds from, as act's event.
-  printf '{"ref": "refs/tags/v%s"}\n' "$version" >"$work/event.json"
+  printf '{"ref": "refs/tags/app-v%s"}\n' "$version" >"$work/event.json"
   (
     cd "$work/src"
     # --pull=false: the runner image is the one just built here. No Docker

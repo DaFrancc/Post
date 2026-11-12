@@ -1,18 +1,26 @@
 #!/usr/bin/env bash
 # Making a Post release, start to finish (design section 12, "App updates").
 #
-#   scripts/release.sh new 0.2.0     tag a version and push it: CI builds a draft
-#   scripts/release.sh sign          check, sign and publish the newest draft
-#   scripts/release.sh status        which releases are drafts, which published
+#   scripts/release.sh new app 0.3.0      tag an app version and push it: CI
+#                                         builds a draft app release
+#   scripts/release.sh new server 0.3.0   tag a server version and push it:
+#                                         CI builds its server image
+#   scripts/release.sh changes            what changed in each since its last release
+#   scripts/release.sh sign               check, sign and publish the newest app draft
+#   scripts/release.sh status             which releases are drafts, which published
 #
-# `new` opens your editor for the release notes (what apps show as "What's
-# new"). A line "Min-Version: 0.1.0" in them marks older apps as too old for
-# the server. CI then builds the release, which takes a few minutes.
+# The app and the server have their own versions (tags app-vX.Y.Z and
+# server-vX.Y.Z): release whichever changed. They agree through the
+# protocol, not their numbers. `new` lists what changed since that side's
+# last release, then opens your editor for the notes: for the app, what it
+# shows as "What's new", where a line "Min-Version: 0.1.0" marks older apps
+# as too old. CI then builds it, which takes a few minutes. Before tagging,
+# run scripts/ci-local.sh: the same builds, here.
 #
 # `sign` downloads the draft, checks every file against its manifest, asks for
 # the release key's passphrase, signs, and publishes after you confirm. The
 # key is ~/post-release.key unless POST_RELEASE_KEY names another file, and it
-# never leaves this machine. `sign v0.2.0` picks a draft other than the newest.
+# never leaves this machine. `sign app-v0.3.0` picks a draft other than the newest.
 #
 # Needs the GitHub CLI (gh), signed in with write access to the repository.
 set -euo pipefail
@@ -24,8 +32,46 @@ cd "$(dirname "$0")/.."
 die() { echo "$*" >&2; exit 1; }
 
 usage() {
-  sed -n '3,6p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '3,10p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
+}
+
+# What goes into each side, for listing what changed: its own code and the
+# code it shares.
+paths_for() {
+  case $1 in
+    app) echo app crates/post-core crates/post-ffi crates/post-proto crates/post-identity crates/post-mls crates/post-release Cargo.lock ;;
+    # deploy/ too: servers run a server release's checkout, server.sh included.
+    server) echo crates/post-server crates/post-proto crates/post-identity crates/post-mls crates/post-release deploy Cargo.lock ;;
+  esac
+}
+
+# The newest release tag of a side; before tags were split, the newest vX.Y.Z.
+last_tag() {
+  local t
+  t=$(git tag -l "$1-v[0-9]*" --sort=-v:refname | grep -E "^$1-v[0-9]+\.[0-9]+\.[0-9]+$" | head -1 || true)
+  [[ -n $t ]] || t=$(git tag -l 'v[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+  printf '%s' "$t"
+}
+
+# Commits since a side's last release that touch it.
+show_changes() {
+  local kind=$1 since
+  since=$(last_tag "$kind")
+  # shellcheck disable=SC2046 # the paths are words on purpose
+  if [[ -n $since ]]; then
+    echo "$kind: changes since $since"
+    git log --oneline "$since..HEAD" -- $(paths_for "$kind") | sed 's/^/  /' | grep . || echo "  none"
+  else
+    echo "$kind: no release yet"
+  fi
+}
+
+cmd_changes() {
+  git fetch -q --tags origin
+  show_changes app
+  echo
+  show_changes server
 }
 
 newest_draft() {
@@ -34,10 +80,14 @@ newest_draft() {
 }
 
 cmd_new() {
-  local version=${1:-}
-  [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "usage: release.sh new X.Y.Z  (for example: release.sh new 0.2.0)"
-  local tag=v$version
+  local kind=${1:-} version=${2:-}
+  [[ $kind == app || $kind == server ]] && [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "usage: release.sh new app|server X.Y.Z  (for example: release.sh new app 0.3.0)"
+  local tag=$kind-v$version
+  git fetch -q --tags origin
   git rev-parse -q --verify "refs/tags/$tag" >/dev/null && die "$tag already exists"
+  show_changes "$kind"
+  echo
   # The release is built from the pushed commit, so local changes never get
   # in; say which ones, in case something meant for it is not committed.
   local changed
@@ -55,16 +105,27 @@ cmd_new() {
     || die "push $branch first, so CI builds the same commit you have"
   echo "Tagging $(git log -1 --format='%h %s') as $tag."
   echo "Your editor opens for the release notes."
-  git tag -a "$tag" -e -m "Post $version
+  if [[ $kind == app ]]; then
+    git tag -a "$tag" -e -m "Post $version
 
 # Below, write what changed: the app shows it as \"What's new\".
 # Lines starting with # are left out.
 #
 # To mark older apps as too old for the server, add a line like:
 # Min-Version: 0.1.0"
+  else
+    git tag -a "$tag" -e -m "Post server $version
+
+# Below, write what changed, for whoever runs a server.
+# Lines starting with # are left out."
+  fi
   git push -q origin "$tag"
   echo "Pushed $tag. CI is building it: https://github.com/$repo/actions"
-  echo "When it finishes, run: scripts/release.sh sign"
+  if [[ $kind == app ]]; then
+    echo "When it finishes, run: scripts/release.sh sign"
+  else
+    echo "When it finishes, servers take it with: deploy/server.sh update"
+  fi
 }
 
 cmd_sign() {
@@ -73,7 +134,8 @@ cmd_sign() {
     tag=$(newest_draft)
     [[ -n $tag ]] || die "there is no draft release to sign (CI may still be building: scripts/release.sh status)"
   fi
-  [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "usage: release.sh sign [vX.Y.Z]"
+  # App releases only; the first ones were tagged vX.Y.Z.
+  [[ $tag =~ ^(app-)?v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "usage: release.sh sign [app-vX.Y.Z]"
   [[ -f $key ]] || die "no release key at $key (set POST_RELEASE_KEY to where it is)"
   [[ $(gh release view "$tag" -R "$repo" --json isDraft -q .isDraft) == true ]] \
     || die "$tag is not a draft release (already published, or not built yet)"
@@ -111,7 +173,7 @@ cmd_status() {
   local list
   list=$(gh release list -R "$repo" --limit 10 --json tagName,isDraft,isLatest \
     -q '.[] | "\(.tagName)\t\(if .isDraft then "draft: sign it with scripts/release.sh sign" elif .isLatest then "published, latest" else "published" end)"')
-  if [[ -n $list ]]; then column -t -s $'\t' <<<"$list"; else echo "No releases yet. Start one with: scripts/release.sh new X.Y.Z"; fi
+  if [[ -n $list ]]; then column -t -s $'\t' <<<"$list"; else echo "No releases yet. Start one with: scripts/release.sh new app X.Y.Z"; fi
   local running
   running=$(gh run list -R "$repo" --workflow release.yml --status in_progress --json displayTitle -q '.[].displayTitle' 2>/dev/null || true)
   [[ -z $running ]] || echo "CI still building: $running"
@@ -119,6 +181,7 @@ cmd_status() {
 
 case ${1:-} in
   new) shift; cmd_new "$@" ;;
+  changes) cmd_changes ;;
   sign) shift; cmd_sign "$@" ;;
   status) cmd_status ;;
   ""|help|-h|--help) usage 0 ;;

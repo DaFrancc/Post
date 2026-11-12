@@ -6,8 +6,10 @@
 #       Set up the server, or set it up again: safe to re-run. Installs
 #       Podman, makes way on ports 80 and 443, opens the firewall, makes the
 #       secrets, starts everything, checks HTTPS and prints the first invite.
-#   deploy/server.sh update [--image SOURCE] [--no-pull]
-#       Newer code: pulls this clone, then a new server image, and restarts.
+#   deploy/server.sh update [--version X.Y.Z] [--image SOURCE] [--no-pull]
+#       The newest server release (or the one given): checks it out in this
+#       clone, downloads its image, and restarts. --no-pull keeps the
+#       checkout as it is.
 #   deploy/server.sh invite [--bot] [--days N]
 #       A code for someone to create an account with.
 #   deploy/server.sh url
@@ -45,10 +47,13 @@
 #       Bring a backup up on a new server, then set it up as install does.
 #       Only where there is no Post server yet: it never overwrites one.
 #
+# Servers run releases (tags server-vX.Y.Z; the app has its own versions).
 # SOURCE is where the server image comes from:
-#   ci       downloaded: the image CI built for this checkout's commit (the
-#            default). CI builds one for every push, in a few minutes.
-#   build    built here from this checkout (slow on a small server)
+#   ci       downloaded: the image CI built for a server release (the
+#            default). A checkout that is not a release switches to the
+#            newest release first.
+#   build    built here from this checkout, whatever it is (slow on a small
+#            server)
 #   local    the one already loaded (from `push`)
 set -euo pipefail
 
@@ -342,20 +347,59 @@ get_image() {
 }
 
 # The image CI built from this checkout's commit, so it is exactly this code.
-download_image() {
-  local sha
-  sha=$(git -C "$repo" rev-parse HEAD 2>/dev/null) ||
-    die "git cannot read $repo (if another user owns it: git config --global --add safe.directory $repo)"
-  if [[ -n $(git -C "$repo" status --porcelain --untracked-files=no -- Cargo.toml Cargo.lock crates deploy/Containerfile) ]]; then
-    warn "this clone has changes to the server's code; the downloaded image is the commit without them (--image build uses them)"
+# The server release this checkout is, such as server-v0.3.0, or nothing.
+release_at_head() {
+  git -C "$repo" describe --exact-match --tags --match 'server-v[0-9]*' HEAD 2>/dev/null | grep -E '^server-v[0-9]+\.[0-9]+\.[0-9]+$' || true
+}
+
+# The newest server release, from the tags fetched.
+newest_release() {
+  git -C "$repo" tag -l 'server-v[0-9]*' --sort=-v:refname | grep -E '^server-v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true
+}
+
+fetch_releases() {
+  git -C "$repo" fetch -q --tags --force origin ||
+    die "could not fetch releases (if another user owns $repo: git config --global --add safe.directory $repo)"
+}
+
+# Check out a server release. This file changes with it, so the caller runs
+# itself again from the new checkout straight after, before anything else.
+check_out_release() {
+  local tag=$1
+  if [[ -n $(git -C "$repo" status --porcelain --untracked-files=no) ]]; then
+    die "this clone has local changes, which checking out $tag would lose: commit or stash them first (git -C $repo status)"
   fi
-  say "Downloading the server image for commit ${sha:0:12}"
-  if podman pull -q "$registry:sha-$sha" >/dev/null 2>&1; then
-    podman tag "$registry:sha-$sha" "$image"
+  say "Switching to Post server ${tag#server-v}"
+  git -C "$repo" -c advice.detachedHead=false checkout -q --detach "$tag"
+}
+
+# Servers run releases, the only commits with a downloaded image: with
+# --image ci, a checkout that is not one switches to the newest release and
+# runs this command again from it.
+run_from_release() {
+  local source=$1
+  shift
+  [[ $source == ci && -z $(release_at_head) ]] || return 0
+  fetch_releases
+  local tag
+  tag=$(newest_release)
+  [[ -n $tag ]] || die "there is no server release yet; build from this checkout with --image build"
+  check_out_release "$tag"
+  exec "$repo/deploy/server.sh" "$@"
+}
+
+download_image() {
+  local tag
+  tag=$(release_at_head)
+  [[ -n $tag ]] || die "this checkout is not a server release, and images are made for releases only: use --image build"
+  local version=${tag#server-v}
+  say "Downloading the server image for Post server $version"
+  if podman pull -q "$registry:$version" >/dev/null 2>&1; then
+    podman tag "$registry:$version" "$image"
     return
   fi
-  warn "GitHub has no server image for commit ${sha:0:12}"
-  note "CI builds one a few minutes after each push: if this commit is new, try again shortly."
+  warn "GitHub has no server image for $version"
+  note "CI builds one a few minutes after a release is tagged: if it is new, try again shortly."
   note "If it never appears, the post-server package may be private: make it public on GitHub."
   note "Or build it on your own computer and send it: deploy/server.sh push THIS_HOST, then --image local."
   ask "Build it here instead? (Slow on a small server.)" || exit 1
@@ -430,7 +474,7 @@ check_https() {
 # --------------------------------------------------------------- commands
 
 cmd_install() {
-  local domain='' calls=yes source=ci
+  local domain='' calls=yes source=ci args=("$@")
   while (($#)); do
     case $1 in
       --no-calls) calls=no ;;
@@ -445,6 +489,7 @@ cmd_install() {
   need_root
   [[ -n $domain ]] || domain=$(installed_domain)
   [[ -n $domain ]] || die "give the server's domain: deploy/server.sh install chat.example.org"
+  run_from_release "$source" install "${args[@]}"
   check_system
   check_domain "$domain"
   # An existing install keeps its choice about calls.
@@ -487,10 +532,11 @@ cmd_install() {
 }
 
 cmd_update() {
-  local pull=true pass=()
+  local pull=true version='' pass=()
   while (($#)); do
     case $1 in
       --no-pull) pull=false ;;
+      --version) version=${2:?--version needs X.Y.Z}; shift ;;
       --image) pass+=(--image "${2:?--image needs a value}"); shift ;;
       --yes) pass+=(--yes) ;;
       -h | --help) usage ;;
@@ -501,9 +547,21 @@ cmd_update() {
   need_root
   [[ -n $(installed_domain) ]] || die "no Post server is set up here yet: deploy/server.sh install DOMAIN"
   if $pull; then
-    say "Pulling the newest code"
-    git -C "$repo" pull --ff-only
-    # The pull may have changed this script: carry on with the new one.
+    fetch_releases
+    local tag
+    if [[ -n $version ]]; then
+      tag=server-v$version
+      git -C "$repo" rev-parse -q --verify "refs/tags/$tag" >/dev/null || die "there is no server release $version"
+    else
+      tag=$(newest_release)
+      [[ -n $tag ]] || die "there is no server release yet"
+    fi
+    if [[ $(release_at_head) == "$tag" ]]; then
+      note "Already on Post server ${tag#server-v}; setting it up again."
+    else
+      check_out_release "$tag"
+    fi
+    # This script may have changed with the release: carry on with its own.
     exec "$repo/deploy/server.sh" update --no-pull "${pass[@]}"
   fi
   cmd_install "${pass[@]}"
@@ -758,11 +816,11 @@ cmd_backup() {
 }
 
 cmd_restore() {
-  local file='' identity='' pass=()
+  local file='' identity='' pass=() source=ci args=("$@")
   while (($#)); do
     case $1 in
       --identity) identity=${2:?--identity needs an age key file}; shift ;;
-      --image) pass+=(--image "${2:?--image needs a value}"); shift ;;
+      --image) source=${2:?--image needs a value}; pass+=(--image "$source"); shift ;;
       --yes) yes=true; pass+=(--yes) ;;
       -h | --help) usage ;;
       -*) die "unknown option $1" ;;
@@ -773,6 +831,8 @@ cmd_restore() {
   need_root
   [[ -n $file ]] || die "give the backup file: deploy/server.sh restore FILE"
   [[ -f $file ]] || die "no such file: $file"
+  # Before anything is unpacked: running again leaves no cleanup behind.
+  run_from_release "$source" restore "${args[@]}"
   check_system
   install_packages
   # Never over a server: its key and data would be replaced.

@@ -1342,9 +1342,18 @@ accept. Built in phase 5b for Linux (`crates/post-release`, `post-server/src/rel
   `{ version, platform, files: [{ name, size, sha256 }], min_version, notes,
   released_at_ms }`. The release key signs its exact bytes under the label
   `post/release/v1`; both signatures must verify.
-- **Building and signing** (`scripts/release.sh`). `release.sh new X.Y.Z` tags the
-  pushed commit and pushes the tag. CI then builds each platform's files and an
-  unsigned manifest, and leaves them in a draft GitHub release. The tag message is
+- **Versions.** The app and the server are released apart, each only when it
+  changed: tags `app-vX.Y.Z` and `server-vX.Y.Z` (the first releases were plain
+  `vX.Y.Z`, both at once). They agree through the protocol version and additive
+  changes, not their numbers; `min_version` marks apps too old for current
+  servers. A server release is a server image (`ghcr.io/…/post-server:X.Y.Z`),
+  which `deploy/server.sh` checks out and runs; it has no GitHub release, so the
+  latest GitHub release is always the app's.
+- **Building and signing** (`scripts/release.sh`). `release.sh new app X.Y.Z` tags
+  the pushed commit and pushes the tag (`new server X.Y.Z` the same for the
+  server). CI then builds each platform's files and an unsigned manifest, and
+  leaves them in a draft GitHub release. Both are tried first with
+  `scripts/ci-local.sh`, the same builds run locally. The tag message is
   the notes; a `Min-Version:` line sets `min_version`. CI never holds the key.
   `release.sh sign` takes the newest draft. It checks every file against its
   manifest, signs each manifest with the key file (`~/post-release.key` by
