@@ -10,6 +10,23 @@
 #       Newer code: pulls this clone, then a new server image, and restarts.
 #   deploy/server.sh invite [--bot] [--days N]
 #       A code for someone to create an account with.
+#   deploy/server.sh host add USER | host remove USER | host list
+#       Hosts post announcements to everyone, and plan maintenance, from
+#       the app.
+#   deploy/server.sh announce TEXT
+#       Post an announcement to everyone on the server; - reads it from
+#       standard input. It is shown as from the server and never deleted.
+#   deploy/server.sh maintenance plan [--at TIME | --in LENGTH] --minutes N
+#                                     [--reason TEXT] [--quiet] [--yes]
+#       Tell everyone, in their own time zone, that the server will be down,
+#       and remind them a day, an hour, 30 and 5 minutes before. TIME is
+#       anything `date -d` reads, in this machine's time zone ("2026-11-14
+#       02:00", "tomorrow 02:00"); LENGTH like "2 hours". Neither starts it
+#       now. --quiet skips telling everyone now; the reminders still go.
+#   deploy/server.sh maintenance end
+#       Cancel the planned maintenance, or say the one underway is over.
+#   deploy/server.sh maintenance [status]
+#       What is planned.
 #   deploy/server.sh status
 #       What is running, the certificate, and the release apps are offered.
 #   deploy/server.sh push SSH_HOST
@@ -461,7 +478,9 @@ cmd_install() {
   note "More invites:   deploy/server.sh invite"
   note "Newer code:     deploy/server.sh update"
   note "How it is:      deploy/server.sh status"
+  note "Announcements:  deploy/server.sh host add YOUR_USERNAME, then post from the app"
   note "Settings:       $conf/post.env (then: systemctl restart post-pod)"
+  maintenance_hint
 }
 
 cmd_update() {
@@ -490,6 +509,91 @@ cmd_update() {
 cmd_invite() {
   need_root
   podman exec post-server postd invite "$@"
+}
+
+# postd's admin commands run inside its container, against its database.
+postd_admin() {
+  need_root
+  [[ $(systemctl is-active post-server || true) == active ]] || die "postd is not running: systemctl start post-server"
+  podman exec -i post-server postd "$@"
+}
+
+cmd_host() {
+  case ${1:-} in
+    add | remove) [[ -n ${2:-} ]] || die "which account? deploy/server.sh host $1 USERNAME" ;;
+    list) ;;
+    *) die "deploy/server.sh host add USER | host remove USER | host list" ;;
+  esac
+  postd_admin host "$@"
+}
+
+cmd_announce() {
+  (($#)) || die "what to announce? deploy/server.sh announce TEXT (or - to read it from standard input)"
+  if [[ $1 == - ]]; then
+    postd_admin announce -
+  else
+    postd_admin announce "$*" </dev/null
+  fi
+}
+
+cmd_maintenance() {
+  local action=${1:-status}
+  (($#)) && shift
+  case $action in
+    status) postd_admin maintenance status </dev/null ;;
+    end) postd_admin maintenance end </dev/null ;;
+    plan) maintenance_plan "$@" ;;
+    -h | --help) usage ;;
+    *) die "deploy/server.sh maintenance plan|end|status" ;;
+  esac
+}
+
+maintenance_plan() {
+  local at='' in='' minutes='' reason='' quiet=()
+  while (($#)); do
+    case $1 in
+      --at) at=${2:?--at needs a time}; shift ;;
+      --in) in=${2:?--in needs a length, like "2 hours"}; shift ;;
+      --minutes) minutes=${2:?--minutes needs a number}; shift ;;
+      --reason) reason=${2?--reason needs text}; shift ;;
+      --quiet) quiet=(--quiet) ;;
+      --yes) yes=true ;;
+      -h | --help) usage ;;
+      *) die "unknown option $1" ;;
+    esac
+    shift
+  done
+  [[ $minutes =~ ^[0-9]+$ ]] || die "how long will it take? --minutes N"
+  [[ -z $at || -z $in ]] || die "give --at or --in, not both"
+  local when=()
+  if [[ -n $at || -n $in ]]; then
+    local secs
+    if [[ -n $at ]]; then
+      secs=$(date -d "$at" +%s 2>/dev/null) || die "date cannot read the time \"$at\""
+    else
+      secs=$(date -d "now + $in" +%s 2>/dev/null) || die "date cannot read the length \"$in\""
+    fi
+    # On the minute: no one plans for 02:00:29.
+    secs=$(((secs + 59) / 60 * 60))
+    ((secs > $(date +%s))) || die "$(date -d "@$secs" '+%A %-d %B %Y %H:%M %Z') has passed"
+    # Said back in words, in this machine's time zone: everyone else sees it
+    # in theirs.
+    ask "Maintenance $(date -d "@$secs" '+%A %-d %B %Y at %H:%M %Z (UTC%:z)'), for about $minutes minutes?" || exit 1
+    when=(--at "@$secs")
+  else
+    ask "Maintenance starting now, for about $minutes minutes?" || exit 1
+  fi
+  postd_admin maintenance plan "${when[@]}" --minutes "$minutes" --reason "$reason" "${quiet[@]}" </dev/null
+  note "Everyone sees it in their own time zone. To call it off, or say it is over:"
+  note "  deploy/server.sh maintenance end"
+}
+
+# After an update or a backup during maintenance: a reminder that ending it
+# is the operator's call, since it may not be over.
+maintenance_hint() {
+  if podman exec post-server postd maintenance status 2>/dev/null </dev/null | grep -q '^maintenance underway'; then
+    note "Maintenance is underway. When it is over: deploy/server.sh maintenance end"
+  fi
 }
 
 cmd_status() {
@@ -627,6 +731,7 @@ cmd_backup() {
   note "It holds the database key, encrypted. Copy it off this server, for example:"
   note "  scp root@$domain:$out ."
   note "To bring it up on a new server: deploy/server.sh restore FILE"
+  $stop || maintenance_hint
 }
 
 cmd_restore() {
@@ -694,6 +799,9 @@ main() {
     install) cmd_install "$@" ;;
     update) cmd_update "$@" ;;
     invite) cmd_invite "$@" ;;
+    host) cmd_host "$@" ;;
+    announce) cmd_announce "$@" ;;
+    maintenance) cmd_maintenance "$@" ;;
     status) cmd_status "$@" ;;
     push) cmd_push "$@" ;;
     backup) cmd_backup "$@" ;;
