@@ -1130,10 +1130,24 @@ same entry point is what an iOS notification extension will need later.
 - OpenMLS storage is implemented over the same database, so these rules can hold:
   - **Receive:** new MLS state, the decrypted message and the log position commit in
     one transaction. The acknowledgement to the server goes out after it.
-  - **Send:** the ciphertext is written to the outbox, with the advanced MLS state,
-    before anything is transmitted. Retries resend identical bytes.
+  - **Send:** a message is queued in the outbox as plaintext and encrypted when it
+    reaches the front: the ciphertext is written with the advanced MLS state before
+    anything is transmitted, and retries resend identical bytes. Encrypting at the
+    front keeps each sender's generations in the order the server receives them.
+    (Encrypting when queued did not: after an epoch change, messages written
+    meanwhile took lower generations than older ones re-encrypted ahead of them,
+    and members refused them as too old.)
   - **Commit:** the pending commit is persisted before sending. On restart, seeing
     its own commit in the log means merge; seeing a different one means discard.
+- Both databases, the app's and the server's, run with `synchronous=FULL`: a commit
+  is on disk before it returns, so before anything that depends on it is said. A
+  power cut can then neither lose a message the server acknowledged nor roll MLS
+  state back behind what the server has seen.
+- `crates/post-core/tests/durability.rs` checks all of this the hard way: the
+  server killed and restarted again and again mid-traffic, connections cut at
+  random and in outages, and apps killed mid-send and mid-receive. Every message
+  must arrive exactly once and in order, group changes made meanwhile must leave
+  every member in one group, and every database must pass SQLite's integrity check.
 - The database key is 32 random bytes wrapped by the platform keystore: Android
   Keystore, Windows DPAPI, or the Secret Service on Linux. Where no keyring exists,
   fall back to a passphrase stretched with Argon2id.

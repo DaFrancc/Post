@@ -1494,6 +1494,7 @@ impl Engine {
             let req = {
                 let provider = Provider::on(&tx);
                 let mut group = load_group(&provider, &gid)?;
+                tracing::info!(epoch = group.epoch().as_u64(), replacing = group.pending_commit().is_some(), "making a commit");
                 let access_key = access_key_of(&group, &provider)?;
                 let welcome_to = adds
                     .iter()
@@ -1554,6 +1555,7 @@ impl Engine {
 
     /// Forget a pending commit that can no longer land.
     fn abandon_commit(&mut self, gid: [u8; 16]) -> Result<()> {
+        tracing::info!("abandoning our pending commit");
         let tx = self.conn.transaction()?;
         {
             let provider = Provider::on(&tx);
@@ -1574,6 +1576,7 @@ impl Engine {
 
     /// Our own commit reached the log: merge it.
     fn merge_own_commit(&mut self, gid: [u8; 16], seq: u64) -> Result<()> {
+        tracing::info!(seq, "merging our own commit, seen in the log");
         let tx = self.conn.transaction()?;
         {
             let provider = Provider::on(&tx);
@@ -1840,12 +1843,9 @@ impl Engine {
         };
         let bytes = c.encode_to_vec();
         let tx = self.conn.transaction()?;
-        let ciphertext = {
-            let provider = Provider::on(&tx);
-            let mut group = load_group(&provider, &gid)?;
-            group.create_message(&provider, &me.signer, &bytes).map_err(mls)?.tls_serialize_detached().map_err(mls)?
-        };
-        store::outbox_push(&tx, &store::OutboxRow { client_msg_id: id.to_vec(), group_id: gid.to_vec(), content: bytes, ciphertext })?;
+        // Queued unencrypted: it is encrypted when it reaches the front of
+        // the outbox (`flush_outbox`), so generations follow send order.
+        store::outbox_push(&tx, &store::OutboxRow { client_msg_id: id.to_vec(), group_id: gid.to_vec(), content: bytes, ciphertext: Vec::new() })?;
         store::record_own_send(&tx, &gid, &id)?;
         let outcome = match &body {
             Body::Text(t) => {
@@ -1896,6 +1896,13 @@ impl Engine {
             if self.anon().is_err() {
                 return Ok(());
             }
+            // Encrypted only at the front of the queue, just before it is
+            // sent: each sender's generations must reach the server, and so
+            // every member, in order. Encrypting when queued let messages
+            // written after an epoch change take lower generations than the
+            // older ones re-encrypted ahead of them, and members refused them
+            // as too old. Retries resend these exact bytes.
+            let row = if row.ciphertext.is_empty() { self.encrypt_queued(&row, false)? } else { row };
             let access = {
                 let provider = Provider::on(&self.conn);
                 access_key_of(&load_group(&provider, &row.group_id)?, &provider)?
@@ -1923,9 +1930,10 @@ impl Engine {
                 // Our epoch is behind: catch up, re-encrypt in the new epoch,
                 // and resend with the same id (design section 6, Ordering).
                 Err(Error::Server(e)) if matches!(e.code(), ErrorCode::WrongEpoch | ErrorCode::BadAccessKey) && retries < 3 => {
+                    tracing::info!(code = ?e.code(), message = %e.message, "the server refused a queued message; catching up");
                     retries += 1;
                     self.sync_groups().await?;
-                    self.reencrypt(&row)?;
+                    self.encrypt_queued(&row, true)?;
                 }
                 Err(Error::Server(e)) => {
                     let tx = self.conn.transaction()?;
@@ -1940,17 +1948,23 @@ impl Engine {
         Ok(())
     }
 
-    fn reencrypt(&mut self, row: &store::OutboxRow) -> Result<()> {
+    /// Encrypt the message at the front of the outbox in the group's current
+    /// epoch (`again`: its earlier ciphertext missed the epoch), saving the
+    /// ciphertext with the advanced MLS state before anything is sent.
+    fn encrypt_queued(&mut self, row: &store::OutboxRow, again: bool) -> Result<store::OutboxRow> {
         let me = self.me.as_ref().ok_or(Error::NotRegistered)?;
         let tx = self.conn.transaction()?;
         let ciphertext = {
             let provider = Provider::on(&tx);
             let mut group = load_group(&provider, &row.group_id)?;
+            if again {
+                tracing::info!(epoch = group.epoch().as_u64(), "re-encrypting a queued message for a later epoch");
+            }
             group.create_message(&provider, &me.signer, &row.content).map_err(mls)?.tls_serialize_detached().map_err(mls)?
         };
         store::outbox_replace_ciphertext(&tx, &row.client_msg_id, &ciphertext)?;
         tx.commit()?;
-        Ok(())
+        Ok(store::OutboxRow { client_msg_id: row.client_msg_id.clone(), group_id: row.group_id.clone(), content: row.content.clone(), ciphertext })
     }
 
     // ------------------------------------------------------------ receiving
@@ -2157,6 +2171,7 @@ impl Engine {
                 Step::Retry => self.sync_directory().await?,
                 Step::Refused(msg) => {
                     // Fail closed but visibly: skip the entry, tell the user.
+                    tracing::warn!(seq = e.seq, epoch = e.epoch, kind = e.kind, "skipping a log entry that could not be processed");
                     store::set_cursor(&self.conn, &gid, e.seq)?;
                     self.notice(Some(&gid), &msg)?;
                     return Ok(());
