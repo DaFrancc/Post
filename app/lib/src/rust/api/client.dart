@@ -108,7 +108,8 @@ abstract class Client implements RustOpaqueInterface {
 
   /// Install the downloaded update in place of this app's version. Gives
   /// the program to start instead of this one; the running app keeps
-  /// running until it is restarted.
+  /// running until it is restarted. Only a release's install can: a copy
+  /// built from source never installs itself.
   Future<String> installUpdate({required String currentVersion});
 
   /// Whether the app is connected to the server now.
@@ -1236,8 +1237,13 @@ class PersonInfo {
 
 /// How far one person has got with the user's message.
 class PersonReceiptInfo {
+  /// Their username.
   final String username;
+
+  /// The name the user sees for them in this conversation.
   final String shownName;
+
+  /// How far they have got.
   final ReceiptState state;
 
   const PersonReceiptInfo({
@@ -1463,8 +1469,9 @@ class UpdateInfo {
   /// show it prominently. (Not `required`, a word Dart keeps for itself.)
   final bool mandatory;
 
-  /// The app can install it itself: it runs from an install that updates
-  /// can replace. Otherwise it can only say an update exists.
+  /// The app can install it itself: it runs from a release's install,
+  /// which updates replace. A copy built from source never installs or
+  /// registers itself; it can only say an update exists.
   final bool canInstall;
 
   const UpdateInfo({

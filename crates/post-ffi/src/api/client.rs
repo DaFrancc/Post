@@ -44,8 +44,9 @@ pub struct UpdateInfo {
     /// This app is too old to keep talking to the server once it updates:
     /// show it prominently. (Not `required`, a word Dart keeps for itself.)
     pub mandatory: bool,
-    /// The app can install it itself: it runs from an install that updates
-    /// can replace. Otherwise it can only say an update exists.
+    /// The app can install it itself: it runs from a release's install,
+    /// which updates replace. A copy built from source never installs or
+    /// registers itself; it can only say an update exists.
     pub can_install: bool,
 }
 
@@ -573,11 +574,12 @@ impl Client {
 
     /// Install the downloaded update in place of this app's version. Gives
     /// the program to start instead of this one; the running app keeps
-    /// running until it is restarted.
+    /// running until it is restarted. Only a release's install can: a copy
+    /// built from source never installs itself.
     pub async fn install_update(&self, current_version: String) -> Result<String, PostError> {
         let found = self.found_update()?;
         let root = core::update::install_root()
-            .ok_or_else(|| PostError::new(ErrorKind::Other, "This copy of Post was not installed in a way it can update itself."))?;
+            .ok_or_else(|| PostError::new(ErrorKind::Other, "This copy of Post was built from source, so it does not install updates."))?;
         let updater = self.updater(&current_version).await?;
         let program = tokio::task::spawn_blocking(move || updater.install(&found, &root))
             .await

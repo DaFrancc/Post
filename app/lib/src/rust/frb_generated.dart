@@ -6139,7 +6139,8 @@ class ClientImpl extends RustOpaque implements Client {
 
   /// Install the downloaded update in place of this app's version. Gives
   /// the program to start instead of this one; the running app keeps
-  /// running until it is restarted.
+  /// running until it is restarted. Only a release's install can: a copy
+  /// built from source never installs itself.
   Future<String> installUpdate({required String currentVersion}) =>
       RustLib.instance.api.crateApiClientClientInstallUpdate(
         that: this,

@@ -75,6 +75,10 @@ abstract final class PColors {
   static const dnd = Color(0xFFF25F7A);
   static const offline = Color(0xFF6B7088);
 
+  /// The Update button: green, so it reads as "go" at a glance.
+  static const update = Color(0xFF3DD68C);
+  static const onUpdate = Color(0xFF06140D);
+
   /// Unread counts.
   static const unread = Color(0xFFEB1A40);
   static const onUnread = Color(0xFFFFFFFF);

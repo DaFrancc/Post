@@ -23,6 +23,13 @@ if [[ ${1:-} == --uninstall ]]; then
   exit 0
 fi
 
+# A release installed with install.sh owns this desktop entry (same app ID);
+# replacing it would send the launcher to this build instead.
+if [[ -L $data/post/current ]]; then
+  echo "Post is installed from a release ($data/post); its launcher entry stays. Run this build directly instead." >&2
+  exit 1
+fi
+
 mode=${1:-debug}
 binary="$here/../../build/linux/x64/$mode/bundle/post"
 binary=$(realpath -m "$binary")

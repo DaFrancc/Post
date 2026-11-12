@@ -82,15 +82,16 @@ class PField extends StatelessWidget {
 
 /// A small busy indicator, for inside buttons.
 class PSpinner extends StatelessWidget {
-  const PSpinner({super.key, this.size = 18});
+  const PSpinner({super.key, this.size = 18, this.color = PColors.accentText});
 
   final double size;
+  final Color color;
 
   @override
   Widget build(BuildContext context) => SizedBox(
     width: size,
     height: size,
-    child: const CircularProgressIndicator(strokeWidth: 2, color: PColors.accentText),
+    child: CircularProgressIndicator(strokeWidth: 2, color: color),
   );
 }
 
