@@ -7,11 +7,13 @@ A Post server is one pod with two containers (design section 12):
   recorded.
 - **postd**: the Post server, listening on localhost inside the pod. Its
   database is encrypted at rest with a key held as a Podman secret.
-
-Calls (LiveKit) are added in phase 8.
+- **LiveKit** (optional): carries calls' audio and video. The media is
+  encrypted end to end with keys only the people in the call derive, so it
+  relays frames it cannot read. See "Calls" below.
 
 You need a host with a public IP, a DNS name pointing at it (here
-`chat.example.org`), ports 80 and 443 open, and Podman 4.4 or later.
+`chat.example.org`), ports 80 and 443 open, and Podman 4.4 or later. For
+calls, also ports 7881 (TCP) and 7882 (UDP).
 
 ## 1. Build the server image
 
@@ -37,11 +39,21 @@ data either way.
 ```sh
 mkdir -p ~/.config/containers/systemd ~/.config/post
 cp deploy/quadlet/* ~/.config/containers/systemd/
-cp deploy/Caddyfile ~/.config/post/Caddyfile
+cp deploy/Caddyfile deploy/livekit.yaml ~/.config/post/
 ```
 
-Edit `POST_DOMAIN` in `post-server.container` and `post-caddy.container`.
+Edit `POST_DOMAIN` in `post-server.container` and `post-caddy.container`, and
+the domain in `POST_LIVEKIT_URL`.
 **The domain is bound into every account and cannot change later.**
+
+For calls, create the secret postd and LiveKit share:
+
+```sh
+printf 'post: %s\n' "$(head -c 36 /dev/urandom | base64 | tr -d '/+=')" | podman secret create post-livekit-keys -
+```
+
+To offer no calls instead, delete `post-livekit.container`, the three call
+lines in `post-server.container`, and the two call ports in `post.pod`.
 
 To bind ports 80 and 443 as an unprivileged user, allow it once:
 
@@ -86,6 +98,25 @@ openssl s_client -connect chat.example.org:443 -groups X25519MLKEM768 </dev/null
 
 It should name `X25519MLKEM768`. The Post client prefers this group, so it
 is what clients use whenever the server offers it.
+
+## Calls
+
+Calls run through LiveKit in the same pod. postd hands out a short-lived
+token to anyone who proves they are in a conversation, and LiveKit relays the
+call's media, which is encrypted end to end. LiveKit only ever sees a random
+name per call for each participant, never who they are.
+
+You set the limits, so calls cannot outgrow your bandwidth:
+
+| Setting (in `post-server.container`) | Default | What it does |
+|---|---|---|
+| `POST_CALL_MAX_PARTICIPANTS` | `25` | The most people in one call |
+| `POST_CALL_MAX_BITRATE_KBPS` | `2500` | The most each person may send. Apps step their quality down to fit |
+
+A rough guide to bandwidth: a voice call uses about 50 kbit/s per person
+each way, and video up to the bitrate limit. Each person also receives
+everyone else's streams, so a call with N people uses about N × (N − 1)
+streams through the server.
 
 ## App updates
 

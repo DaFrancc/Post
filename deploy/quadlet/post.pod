@@ -5,3 +5,6 @@ PodName=post
 PublishPort=80:80
 PublishPort=443:443
 PublishPort=443:443/udp
+# Calls' media (LiveKit): remove these two if you do not offer calls.
+PublishPort=7881:7881
+PublishPort=7882:7882/udp

@@ -69,8 +69,13 @@ impl CallArgs {
                 None => bail!("calls need LiveKit's API secret: pass --livekit-secret-file, or provide the credential post-livekit-secret"),
             },
         };
-        let secret = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let secret = secret.trim();
+        let file = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        // The secret alone, or LiveKit's own key file (`<key>: <secret>`
+        // lines), so one file serves both.
+        let secret = file
+            .lines()
+            .find_map(|l| l.trim().strip_prefix(&format!("{}:", self.livekit_key)).map(str::trim))
+            .unwrap_or_else(|| file.trim());
         if secret.len() < 32 {
             bail!("LiveKit's API secret in {} is too short: use at least 32 random characters", path.display());
         }

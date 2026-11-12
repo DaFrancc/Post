@@ -1,0 +1,21 @@
+[Unit]
+Description=Post calls media server (LiveKit)
+
+[Container]
+ContainerName=post-livekit
+Image=docker.io/livekit/livekit-server:v1.13.11
+Pod=post.pod
+Volume=%h/.config/post/livekit.yaml:/etc/livekit.yaml:ro,Z
+# `post: <secret>`, shared with postd. LiveKit refuses a key file others can
+# read, and secrets mount readable by all unless told otherwise.
+Secret=post-livekit-keys,type=mount,target=/run/secrets/post-livekit-keys,mode=0400
+Exec=--config /etc/livekit.yaml
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=ALL
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

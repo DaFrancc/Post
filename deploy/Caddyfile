@@ -6,6 +6,13 @@
 # Caddy writes no access log unless a `log` directive asks for one; keep it
 # that way, so client IP addresses are not recorded (design section 3).
 {$POST_DOMAIN} {
-	# postd shares the pod's network namespace and listens on localhost only.
-	reverse_proxy 127.0.0.1:8080
+	# Calls' signalling, to LiveKit (post-livekit.container).
+	handle_path /livekit/* {
+		reverse_proxy 127.0.0.1:7880
+	}
+	# Everything else is postd. Both share the pod's network namespace and
+	# listen on localhost only.
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
 }

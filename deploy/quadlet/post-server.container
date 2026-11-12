@@ -11,6 +11,11 @@ Secret=post-db-key,type=mount,target=/run/secrets/post-db-key,uid=65532,gid=6553
 # Change to your domain. It is bound into every account and cannot change later.
 Environment=POST_DOMAIN=chat.example.org
 Environment=POST_LISTEN=127.0.0.1:8080
+# Calls, through post-livekit.container. Remove these three lines (and that
+# container) to offer no calls.
+Environment=POST_LIVEKIT_URL=wss://chat.example.org/livekit
+Environment=POST_LIVEKIT_SECRET_FILE=/run/secrets/post-livekit-secret
+Secret=post-livekit-keys,type=mount,target=/run/secrets/post-livekit-secret,uid=65532,gid=65532,mode=0400
 ReadOnly=true
 NoNewPrivileges=true
 DropCapability=ALL
