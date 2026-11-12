@@ -17,10 +17,10 @@
 #       small server, which then runs `update --image local`.
 #
 # SOURCE is where the server image comes from:
-#   release  the image CI built for this checkout's release tag (vX.Y.Z)
+#   ci       downloaded: the image CI built for this checkout's commit (the
+#            default). CI builds one for every push, in a few minutes.
 #   build    built here from this checkout (slow on a small server)
 #   local    the one already loaded (from `push`)
-# By default: release when the checkout is a release, otherwise build.
 set -euo pipefail
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -271,35 +271,37 @@ install_units() {
   systemctl daemon-reload
 }
 
-release_tag() {
-  git -C "$repo" describe --exact-match --tags --match 'v[0-9]*.[0-9]*.[0-9]*' HEAD 2>/dev/null || true
-}
-
 get_image() {
-  local source=$1 tag
-  tag=$(release_tag)
-  if [[ $source == auto ]]; then
-    source=build
-    [[ -n $tag ]] && source=release
-  fi
+  local source=$1
   case $source in
     local)
       podman image exists "$image" || die "no server image is loaded: run \`deploy/server.sh push THIS_HOST\` on your computer first"
       note "Using the server image already loaded"
       ;;
-    release)
-      [[ -n $tag ]] || die "this checkout is not a release (check out a tag like v1.2.0), so there is no release image for it"
-      say "Downloading the server image for $tag"
-      if podman pull -q "$registry:${tag#v}" >/dev/null; then
-        podman tag "$registry:${tag#v}" "$image"
-      else
-        warn "no image for $tag could be downloaded; building it here instead"
-        build_image
-      fi
-      ;;
+    ci) download_image ;;
     build) build_image ;;
-    *) die "--image is release, build or local, not $source" ;;
+    *) die "--image is ci, build or local, not $source" ;;
   esac
+}
+
+# The image CI built from this checkout's commit, so it is exactly this code.
+download_image() {
+  local sha
+  sha=$(git -C "$repo" rev-parse HEAD)
+  if [[ -n $(git -C "$repo" status --porcelain --untracked-files=no -- Cargo.toml Cargo.lock crates deploy/Containerfile) ]]; then
+    warn "this clone has changes to the server's code; the downloaded image is the commit without them (--image build uses them)"
+  fi
+  say "Downloading the server image for commit ${sha:0:12}"
+  if podman pull -q "$registry:sha-$sha" >/dev/null 2>&1; then
+    podman tag "$registry:sha-$sha" "$image"
+    return
+  fi
+  warn "GitHub has no server image for commit ${sha:0:12}"
+  note "CI builds one a few minutes after each push: if this commit is new, try again shortly."
+  note "If it never appears, the post-server package may be private: make it public on GitHub."
+  note "Or build it on your own computer and send it: deploy/server.sh push THIS_HOST, then --image local."
+  ask "Build it here instead? (Slow on a small server.)" || exit 1
+  build_image
 }
 
 build_image() {
@@ -370,7 +372,7 @@ check_https() {
 # --------------------------------------------------------------- commands
 
 cmd_install() {
-  local domain='' calls=yes source=auto
+  local domain='' calls=yes source=ci
   while (($#)); do
     case $1 in
       --no-calls) calls=no ;;

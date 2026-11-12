@@ -9,8 +9,7 @@
 # machine with `scripts/release.sh sign`, which checks the files, signs each
 # manifest and publishes the release. Only then do servers fetch it.
 #
-# The same tag also publishes the server image, ghcr.io/<owner>/post-server,
-# which deploy/server.sh downloads on a release checkout.
+# The server image for the tag is built by server-image.yml.
 name: Release
 
 on:
@@ -71,28 +70,3 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" --draft --title "Post $VERSION" --notes-file notes.txt dist/*
-
-  server-image:
-    # The server image built from the same tag, for `deploy/server.sh` on a
-    # release checkout, so small servers need not compile it. Podman, so
-    # .containerignore applies as it does on a server.
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build and publish
-        env:
-          TOKEN: ${{ github.token }}
-        run: |
-          version=${GITHUB_REF_NAME#v}
-          image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/post-server
-          echo "$TOKEN" | podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          podman build -f deploy/Containerfile \
-            --label org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY" \
-            --label org.opencontainers.image.version="$version" \
-            -t "$image:$version" -t "$image:latest" .
-          podman push "$image:$version"
-          podman push "$image:latest"

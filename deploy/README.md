@@ -22,7 +22,7 @@ On a Debian 13 server, as root, with the domain already pointing at it:
 ```sh
 apt update && apt install -y git
 git clone https://github.com/DaFrancc/Post.git && cd Post
-git checkout vX.Y.Z            # optional: a release, whose server image is ready-made
+git checkout vX.Y.Z            # optional: a release rather than the newest code
 deploy/server.sh install chat.example.org
 ```
 
@@ -41,14 +41,16 @@ deploy/server.sh status        # what is running, HTTPS, the app release offered
 deploy/server.sh update        # newer code: pull, new server image, restart
 ```
 
-**The server image.** On a release checkout the script downloads the image
-CI built for it. Otherwise it builds one from the checkout, which takes a long
-time on a small server (one CPU, 2 GB). Build it on your own computer instead,
-where Podman is installed, and send it over:
+**The server image.** The script downloads the image CI built from the
+checkout's commit (`ghcr.io/dafrancc/post-server:sha-<commit>`), so the
+server never compiles anything. CI builds one for every push, a few minutes
+after it. If there is none yet, the script says so and asks before building
+here instead, which takes a long time on a small server. Two other ways:
 
 ```sh
-deploy/server.sh push root@chat.example.org      # on your computer
-deploy/server.sh install chat.example.org --image local   # then on the server
+deploy/server.sh install chat.example.org --image build   # build it on the server
+deploy/server.sh push root@chat.example.org               # build on your computer and send it,
+deploy/server.sh install chat.example.org --image local   # then use it on the server
 ```
 
 The steps below are what the script does, for doing it by hand or on another
