@@ -200,10 +200,13 @@ impl Releases {
     }
 
     /// Ask GitHub for the latest published release and, if it is newer than
-    /// any on disk, download it (if `download`, or `asked`) and put it live
-    /// (if `live_while_running`, or `asked`). `asked`: the operator asked
-    /// for this, now.
-    pub async fn fetch(&self, http: &reqwest::Client, asked: bool) -> anyhow::Result<()> {
+    /// any on disk, download it (if `download`, or asked) and put it live:
+    /// if asked, if `live_while_running`, or, for the look the server takes
+    /// as it starts, if `live_on_start`. That look is part of starting, so a
+    /// release it finds is the newest at start.
+    async fn fetch(&self, http: &reqwest::Client, why: Look) -> anyhow::Result<()> {
+        let asked = why == Look::Asked;
+        let go_live = asked || self.config.live_while_running || (why == Look::Starting && self.config.live_on_start);
         let (Some(repo), Some(key)) = (&self.config.github_repo, &self.config.key) else { return Ok(()) };
         let url = format!("{}/repos/{repo}/releases/latest", self.config.github_api);
         let latest: GithubRelease = serde_json::from_slice(&get_capped(http, &url, 1 << 20).await?)?;
@@ -239,7 +242,7 @@ impl Releases {
             let p = Published { version, manifest, manifest_bytes, signature };
             self.on_disk.write().unwrap_or_else(|p| p.into_inner()).entry(platform.to_owned()).or_default().insert(version, p.clone());
             downloaded = true;
-            if self.config.live_while_running || asked {
+            if go_live {
                 self.go_live(p);
             } else {
                 tracing::info!(%version, platform, "release downloaded; it goes live at the next start, or now with a reload (SIGHUP)");
@@ -287,12 +290,15 @@ impl Releases {
             Ok(h) => h,
             Err(e) => return tracing::error!(error = %e, "no HTTP client for fetching releases"),
         };
+        // The first tick is at once: the look the server takes as it starts.
         let mut every = tokio::time::interval(self.config.every);
+        let mut starting = true;
         loop {
-            let asked = tokio::select! {
-                _ = every.tick() => false,
-                () = self.now.notified() => true,
+            let why = tokio::select! {
+                _ = every.tick() => if std::mem::take(&mut starting) { Look::Starting } else { Look::Timer },
+                () = self.now.notified() => Look::Asked,
             };
+            let asked = why == Look::Asked;
             if asked {
                 tracing::info!("looking for releases now, as asked");
                 // Releases copied in by hand; hashing them is file work.
@@ -302,7 +308,7 @@ impl Releases {
                 }
             }
             if (asked || self.config.check)
-                && let Err(e) = self.fetch(&http, asked).await
+                && let Err(e) = self.fetch(&http, why).await
             {
                 tracing::warn!(error = %e, "fetching the latest release failed");
             }
@@ -311,6 +317,17 @@ impl Releases {
             }
         }
     }
+}
+
+/// Why the server looks for a new release.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Look {
+    /// As it starts: part of starting, for `live_on_start`.
+    Starting,
+    /// The hourly look while running.
+    Timer,
+    /// The operator asked (a reload), so it does everything.
+    Asked,
 }
 
 /// Check one platform's release in a version's folder: its signature, that

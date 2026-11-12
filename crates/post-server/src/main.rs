@@ -124,8 +124,9 @@ enum Command {
         /// it goes live at the next start, or with a reload (SIGHUP).
         #[arg(long, env = "POST_RELEASES_LIVE_WHILE_RUNNING", default_value_t = false, action = clap::ArgAction::Set)]
         releases_live_while_running: bool,
-        /// On starting, offer apps the newest downloaded release. Off, the
-        /// release offered before the restart stays.
+        /// On starting, offer apps the newest downloaded release, and one
+        /// the look for releases at start finds. Off, the release offered
+        /// before the restart stays.
         #[arg(long, env = "POST_RELEASES_LIVE_ON_START", default_value_t = true, action = clap::ArgAction::Set)]
         releases_live_on_start: bool,
         #[command(flatten)]

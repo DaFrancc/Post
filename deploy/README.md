@@ -130,9 +130,11 @@ You decide how much the server does by itself:
 | `POST_RELEASES_CHECK` | `true` | Ask GitHub for a new release every hour |
 | `POST_RELEASES_DOWNLOAD` | `true` | Download it into `/var/lib/post/releases` and check its signature and files |
 | `POST_RELEASES_LIVE_WHILE_RUNNING` | `false` | Offer it to apps as soon as it has downloaded |
-| `POST_RELEASES_LIVE_ON_START` | `true` | When the server starts, offer apps the newest downloaded release |
+| `POST_RELEASES_LIVE_ON_START` | `true` | When the server starts, offer apps the newest release: downloaded before, or found as it starts |
 
-With the defaults, a new release waits on the server until it next restarts.
+With the defaults, a release that comes out while the server runs waits on the
+server until it next restarts. A new server offers the latest release from the
+start.
 
 - To put it live now instead, run `systemctl --user reload post-server`.
   Without systemd, send `postd` the HUP signal

@@ -3,7 +3,7 @@
 //! allow (design section 12, "App updates").
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::Router;
@@ -47,31 +47,57 @@ fn copy_in(releases: &Path, key: &HybridSigningKey, version: &str) {
     std::fs::write(dir.join("manifest-linux-x86_64.json"), manifest).expect("manifest");
 }
 
+/// A stand-in for GitHub, serving one latest release at a time.
+struct FakeGithub {
+    url: String,
+    /// The latest release's listing and its files.
+    latest: Arc<Mutex<(serde_json::Value, Vec<(String, Vec<u8>)>)>>,
+}
+
+impl FakeGithub {
+    async fn start() -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let url = format!("http://{}", listener.local_addr().expect("addr"));
+        let nothing: Vec<(String, Vec<u8>)> = Vec::new();
+        let latest = Arc::new(Mutex::new((serde_json::json!({ "tag_name": "", "assets": [] }), nothing)));
+        let (listing, files) = (latest.clone(), latest.clone());
+        let app = Router::new()
+            .route(
+                "/repos/dafrancc/post/releases/latest",
+                get(move || async move { axum::Json(listing.lock().expect("lock").0.clone()) }),
+            )
+            .route(
+                "/download/{name}",
+                get(move |axum::extract::Path(name): axum::extract::Path<String>| async move {
+                    let latest = files.lock().expect("lock");
+                    latest.1.iter().find(|(n, _)| *n == name).map(|(_, b)| b.clone()).ok_or(axum::http::StatusCode::NOT_FOUND)
+                }),
+            );
+        tokio::spawn(async move { axum::serve(listener, app).await });
+        Self { url, latest }
+    }
+
+    /// Make `version`, signed by `key`, the latest release.
+    fn publish(&self, key: &HybridSigningKey, version: &str) {
+        let (manifest, sig) = release(key, version);
+        let files: Vec<(String, Vec<u8>)> = vec![
+            ("manifest-linux-x86_64.json".into(), manifest),
+            ("manifest-linux-x86_64.json.sig".into(), sig),
+            (tarball_name(version), tarball(version)),
+        ];
+        let listing = serde_json::json!({
+            "tag_name": format!("v{version}"),
+            "assets": files.iter().map(|(name, _)| serde_json::json!({ "name": name, "browser_download_url": format!("{}/download/{name}", self.url) })).collect::<Vec<_>>(),
+        });
+        *self.latest.lock().expect("lock") = (listing, files);
+    }
+}
+
 /// A stand-in for GitHub whose latest release is `version`, signed by `key`.
 async fn fake_github(key: &HybridSigningKey, version: &str) -> String {
-    let (manifest, sig) = release(key, version);
-    let assets: Vec<(String, Vec<u8>)> = vec![
-        ("manifest-linux-x86_64.json".into(), manifest),
-        ("manifest-linux-x86_64.json.sig".into(), sig),
-        (tarball_name(version), tarball(version)),
-    ];
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
-    let base = format!("http://{}", listener.local_addr().expect("addr"));
-    let listing = serde_json::json!({
-        "tag_name": format!("v{version}"),
-        "assets": assets.iter().map(|(name, _)| serde_json::json!({ "name": name, "browser_download_url": format!("{base}/download/{name}") })).collect::<Vec<_>>(),
-    });
-    let assets = Arc::new(assets);
-    let app = Router::new()
-        .route("/repos/dafrancc/post/releases/latest", get(move || async move { axum::Json(listing) }))
-        .route(
-            "/download/{name}",
-            get(move |axum::extract::Path(name): axum::extract::Path<String>| async move {
-                assets.iter().find(|(n, _)| *n == name).map(|(_, b)| b.clone()).ok_or(axum::http::StatusCode::NOT_FOUND)
-            }),
-        );
-    tokio::spawn(async move { axum::serve(listener, app).await });
-    base
+    let github = FakeGithub::start().await;
+    github.publish(key, version);
+    github.url
 }
 
 fn config(dir: &Path, key: &HybridSigningKey, github: Option<String>) -> ReleaseConfig {
@@ -114,16 +140,25 @@ async fn eventually(mut cond: impl AsyncFnMut() -> bool) -> bool {
 async fn by_default_a_new_release_downloads_but_goes_live_at_the_next_start() {
     let key = HybridSigningKey::generate().expect("key");
     let dir = tempfile::tempdir().expect("tempdir");
-    let github = fake_github(&key, "1.2.0").await;
-    let server = postd(dir.path(), config(dir.path(), &key, Some(github.clone()))).await;
+    let github = FakeGithub::start().await;
+    github.publish(&key, "1.2.0");
+    // Looking often, so a release published while running is found soon.
+    let settings = || ReleaseConfig { every: Duration::from_millis(100), ..config(dir.path(), &key, Some(github.url.clone())) };
 
-    let manifest = dir.path().join("releases/1.2.0/manifest-linux-x86_64.json");
+    // The look the server takes as it starts is part of starting: what it
+    // finds goes live once downloaded, as a new server's first release does.
+    let server = postd(dir.path(), settings()).await;
+    assert!(eventually(async || live(&server).await.as_deref() == Some("1.2.0")).await, "found while starting, so live");
+
+    // One published while running downloads by itself, but waits.
+    github.publish(&key, "1.3.0");
+    let manifest = dir.path().join("releases/1.3.0/manifest-linux-x86_64.json");
     assert!(eventually(async || manifest.exists()).await, "checked and downloaded by itself");
-    assert_eq!(live(&server).await, None, "but not offered to apps while running");
+    assert_eq!(live(&server).await.as_deref(), Some("1.2.0"), "but not offered to apps while running");
     drop(server);
 
-    let server = postd(dir.path(), config(dir.path(), &key, Some(github))).await;
-    assert_eq!(live(&server).await.as_deref(), Some("1.2.0"), "live from the next start");
+    let server = postd(dir.path(), settings()).await;
+    assert_eq!(live(&server).await.as_deref(), Some("1.3.0"), "live from the next start");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
