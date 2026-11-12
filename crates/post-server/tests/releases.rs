@@ -47,30 +47,34 @@ fn copy_in(releases: &Path, key: &HybridSigningKey, version: &str) {
     std::fs::write(dir.join("manifest-linux-x86_64.json"), manifest).expect("manifest");
 }
 
+/// The latest release a [`FakeGithub`] serves: its listing and its files.
+struct Latest {
+    listing: serde_json::Value,
+    files: Vec<(String, Vec<u8>)>,
+}
+
 /// A stand-in for GitHub, serving one latest release at a time.
 struct FakeGithub {
     url: String,
-    /// The latest release's listing and its files.
-    latest: Arc<Mutex<(serde_json::Value, Vec<(String, Vec<u8>)>)>>,
+    latest: Arc<Mutex<Latest>>,
 }
 
 impl FakeGithub {
     async fn start() -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let url = format!("http://{}", listener.local_addr().expect("addr"));
-        let nothing: Vec<(String, Vec<u8>)> = Vec::new();
-        let latest = Arc::new(Mutex::new((serde_json::json!({ "tag_name": "", "assets": [] }), nothing)));
+        let latest = Arc::new(Mutex::new(Latest { listing: serde_json::json!({ "tag_name": "", "assets": [] }), files: Vec::new() }));
         let (listing, files) = (latest.clone(), latest.clone());
         let app = Router::new()
             .route(
                 "/repos/dafrancc/post/releases/latest",
-                get(move || async move { axum::Json(listing.lock().expect("lock").0.clone()) }),
+                get(move || async move { axum::Json(listing.lock().expect("lock").listing.clone()) }),
             )
             .route(
                 "/download/{name}",
                 get(move |axum::extract::Path(name): axum::extract::Path<String>| async move {
                     let latest = files.lock().expect("lock");
-                    latest.1.iter().find(|(n, _)| *n == name).map(|(_, b)| b.clone()).ok_or(axum::http::StatusCode::NOT_FOUND)
+                    latest.files.iter().find(|(n, _)| *n == name).map(|(_, b)| b.clone()).ok_or(axum::http::StatusCode::NOT_FOUND)
                 }),
             );
         tokio::spawn(async move { axum::serve(listener, app).await });
@@ -89,7 +93,7 @@ impl FakeGithub {
             "tag_name": format!("v{version}"),
             "assets": files.iter().map(|(name, _)| serde_json::json!({ "name": name, "browser_download_url": format!("{}/download/{name}", self.url) })).collect::<Vec<_>>(),
         });
-        *self.latest.lock().expect("lock") = (listing, files);
+        *self.latest.lock().expect("lock") = Latest { listing, files };
     }
 }
 
