@@ -10,6 +10,8 @@
 #       Newer code: pulls this clone, then a new server image, and restarts.
 #   deploy/server.sh invite [--bot] [--days N]
 #       A code for someone to create an account with.
+#   deploy/server.sh url
+#       The address apps sign in with (wss://DOMAIN/v1/ws), and nothing else.
 #   deploy/server.sh host add USER | host remove USER | host list
 #       Hosts post announcements to everyone, and plan maintenance, from
 #       the app.
@@ -476,6 +478,7 @@ cmd_install() {
   fi
   echo
   note "More invites:   deploy/server.sh invite"
+  note "The address:    deploy/server.sh url"
   note "Newer code:     deploy/server.sh update"
   note "How it is:      deploy/server.sh status"
   note "Announcements:  deploy/server.sh host add YOUR_USERNAME, then post from the app"
@@ -506,9 +509,28 @@ cmd_update() {
   cmd_install "${pass[@]}"
 }
 
+# The address apps sign in with.
+server_url() {
+  local domain
+  domain=$(installed_domain)
+  [[ -n $domain ]] || die "no Post server is set up here yet: deploy/server.sh install DOMAIN"
+  printf 'wss://%s/v1/ws' "$domain"
+}
+
+cmd_url() {
+  server_url
+  echo
+}
+
 cmd_invite() {
   need_root
+  local url
+  url=$(server_url)
   podman exec post-server postd invite "$@"
+  # The code alone on standard output, for scripts; what to do with it for
+  # whoever reads it.
+  [[ -t 1 ]] && printf '    Sign up in the app with this code, at server %s\n' "$url" >&2
+  return 0
 }
 
 # postd's admin commands run inside its container, against its database.
@@ -602,6 +624,7 @@ cmd_status() {
   domain=$(installed_domain)
   [[ -n $domain ]] || die "no Post server is set up here yet: deploy/server.sh install DOMAIN"
   say "Post at $domain"
+  note "Apps connect to: $(server_url)"
   local u
   for u in post-server post-caddy post-livekit; do
     [[ -f $units/${u}.container ]] || continue
@@ -799,6 +822,7 @@ main() {
     install) cmd_install "$@" ;;
     update) cmd_update "$@" ;;
     invite) cmd_invite "$@" ;;
+    url) cmd_url "$@" ;;
     host) cmd_host "$@" ;;
     announce) cmd_announce "$@" ;;
     maintenance) cmd_maintenance "$@" ;;

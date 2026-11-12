@@ -37,6 +37,7 @@ Afterwards:
 
 ```sh
 deploy/server.sh invite        # an invite code (--bot, --days N)
+deploy/server.sh url           # the address apps sign in with: wss://DOMAIN/v1/ws
 deploy/server.sh status        # what is running, HTTPS, the app release offered
 deploy/server.sh update        # newer code: pull, new server image, restart
 ```
