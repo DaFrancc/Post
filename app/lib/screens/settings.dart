@@ -115,7 +115,7 @@ class _SettingsState extends State<_Settings> {
     SettingsSection.devices => 'Devices',
     SettingsSection.appearance => 'Appearance',
     SettingsSection.spelling => 'Spelling',
-    SettingsSection.security => 'Security',
+    SettingsSection.security => 'Privacy & security',
     SettingsSection.sounds => 'Sounds',
     SettingsSection.updates => 'Updates',
     SettingsSection.about => 'Account',
@@ -143,7 +143,7 @@ class _NavItemState extends State<_NavItem> {
       SettingsSection.devices => (Icons.devices_outlined, 'Devices'),
       SettingsSection.appearance => (Icons.palette_outlined, 'Appearance'),
       SettingsSection.spelling => (Icons.spellcheck_rounded, 'Spelling'),
-      SettingsSection.security => (Icons.shield_outlined, 'Security'),
+      SettingsSection.security => (Icons.shield_outlined, 'Privacy'),
       SettingsSection.sounds => (Icons.volume_up_outlined, 'Sounds'),
       SettingsSection.updates => (Icons.system_update_alt_rounded, 'Updates'),
       SettingsSection.about => (Icons.info_outline_rounded, 'Account'),
@@ -924,6 +924,7 @@ class _SecuritySettings extends StatefulWidget {
 class _SecuritySettingsState extends State<_SecuritySettings> {
   List<NoticeInfo>? _notices;
   bool _refreshing = false;
+  bool? _readReceipts;
 
   @override
   void initState() {
@@ -933,10 +934,29 @@ class _SecuritySettingsState extends State<_SecuritySettings> {
 
   Future<void> _load() async {
     try {
+      final on = await widget.state.client.readReceipts();
+      if (mounted) setState(() => _readReceipts = on);
+    } catch (_) {
+      // The setting stays hidden.
+    }
+    try {
       final n = await widget.state.client.notices(limit: 100);
       if (mounted) setState(() => _notices = n.reversed.toList());
     } catch (_) {
       if (mounted) setState(() => _notices = const []);
+    }
+  }
+
+  Future<void> _setReadReceipts(bool on) async {
+    final before = _readReceipts;
+    setState(() => _readReceipts = on);
+    try {
+      await widget.state.client.setReadReceipts(enabled: on);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _readReceipts = before);
+        showToast(context, errorText(e), error: true);
+      }
     }
   }
 
@@ -955,8 +975,25 @@ class _SecuritySettingsState extends State<_SecuritySettings> {
   @override
   Widget build(BuildContext context) {
     final notices = _notices;
+    final readReceipts = _readReceipts;
     return _Page(
       children: [
+        if (readReceipts != null) ...[
+          const Text('RECEIPTS', style: PType.label),
+          const SizedBox(height: 10),
+          _CheckRow(
+            value: readReceipts,
+            label: 'Send read receipts',
+            help: 'Off, people don’t see when you’ve read their messages, and you don’t see when they’ve read yours. On all your devices.',
+            onChanged: _setReadReceipts,
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'One tick: the server has your message. Two: everyone in the conversation has it. Two blue: everyone has read it. Delivery always shows. Groups of more than 32 people have no receipts.',
+            style: TextStyle(fontSize: 12.5, height: 1.5, color: PColors.textFaint),
+          ),
+          const SizedBox(height: 28),
+        ],
         const Text('FRESH KEYS', style: PType.label),
         const SizedBox(height: 8),
         const Text(

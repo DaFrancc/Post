@@ -1962,6 +1962,12 @@ class _MessageTileState extends State<_MessageTile> with TickerProviderStateMixi
                           ),
                           const SizedBox(width: 14),
                           Expanded(child: body),
+                          // Your messages' ticks, level with their first line.
+                          if (m.outgoing && !m.deleted && !m.failed)
+                            Padding(
+                              padding: EdgeInsets.only(left: 10, top: widget.startsGroup ? 25 : 4),
+                              child: _Ticks(m),
+                            ),
                         ],
                       ),
                     ),
@@ -2034,6 +2040,38 @@ class _MessageTileState extends State<_MessageTile> with TickerProviderStateMixi
       arrival: widget.arrival,
       play: widget.arrived && widget.arrival.inPlace,
       delay: const Duration(milliseconds: 140),
+    );
+  }
+}
+
+/// Read receipts' blue, a little brighter than the accent so it reads at a
+/// glance against the grey of the other ticks.
+const _readBlue = Color(0xFF5FB8FF);
+
+/// Where one of your messages has got to: a clock while it waits to send,
+/// one tick when the server has it, two when everyone else has it, two blue
+/// when everyone has read it.
+class _Ticks extends StatelessWidget {
+  const _Ticks(this.m);
+
+  final MessageInfo m;
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, color, label) = m.pending
+        ? (Icons.schedule_rounded, PColors.textFaint, 'Sending')
+        : m.read
+        ? (Icons.done_all_rounded, _readBlue, 'Read')
+        : m.delivered
+        ? (Icons.done_all_rounded, PColors.textFaint, 'Delivered')
+        : (Icons.done_rounded, PColors.textFaint, 'Sent');
+    return Tooltip(
+      message: label,
+      child: AnimatedSwitcher(
+        duration: PMotion.normal,
+        transitionBuilder: (child, a) => FadeTransition(opacity: a, child: ScaleTransition(scale: Tween(begin: 0.7, end: 1.0).animate(a), child: child)),
+        child: Icon(icon, key: ValueKey(label), size: 15, color: color, semanticLabel: label),
+      ),
     );
   }
 }
