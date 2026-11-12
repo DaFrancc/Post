@@ -508,6 +508,157 @@ async fn live_delivery_through_wakes() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn announcements_reach_everyone() {
+    use post_core::AnnouncementKind as K;
+    use post_server::announce::{self, By};
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let mut alice_events = alice.subscribe();
+    let mut bob_events = bob.subscribe();
+    let listeners = [alice.clone(), bob.clone()].map(|c| tokio::spawn(async move { c.listen().await }));
+    let added = |kind: K| move |e: &Event| matches!(e, Event::AnnouncementAdded(a) if a.kind == kind);
+
+    // The operator, at the server's command line (another process in real
+    // life): the running server notices within seconds and wakes everyone.
+    {
+        let mut conn = post_server::db::open(&server.db, &server.key).expect("open server db");
+        announce::announce(&mut conn, By::Operator, None, "Welcome to Post!").expect("announce");
+    }
+    let e = next_event(&mut bob_events, added(K::Text)).await;
+    let Event::AnnouncementAdded(a) = e else { unreachable!() };
+    assert_eq!(a.text, "Welcome to Post!");
+
+    // Only hosts may post.
+    let refused = bob.announce("me too").await.expect_err("bob is no host");
+    assert!(matches!(&refused, post_core::Error::Server(e) if e.code() == post_proto::ErrorCode::Forbidden), "{refused}");
+    assert!(!bob.announcement_summary().expect("summary").host);
+
+    // Alice is made a host; her app learns it without logging in again.
+    {
+        let mut conn = post_server::db::open(&server.db, &server.key).expect("open server db");
+        assert!(announce::add_host(&mut conn, "alice").expect("add host"));
+    }
+    next_event(&mut alice_events, |e| matches!(e, Event::AnnouncementsChanged(s) if s.host)).await;
+
+    alice.announce("Calls work in groups now.\n– Alice").await.expect("host announces");
+    next_event(&mut bob_events, added(K::Text)).await;
+
+    // Maintenance in two days: announced now, with the time as data.
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_millis() as u64;
+    let starts = now + 2 * 24 * 3600 * 1000;
+    alice.plan_maintenance(starts, 15, "moving to a new machine", false).await.expect("plan");
+    let e = next_event(&mut bob_events, added(K::MaintenancePlanned)).await;
+    let Event::AnnouncementAdded(a) = e else { unreachable!() };
+    assert_eq!((a.starts_at_ms, a.minutes, a.text.as_str()), (starts, 15, "moving to a new machine"));
+    next_event(&mut bob_events, |e| matches!(e, Event::AnnouncementsChanged(s) if s.maintenance.is_some())).await;
+    let again = alice.plan_maintenance(starts, 15, "", true).await.expect_err("one at a time");
+    assert!(matches!(&again, post_core::Error::Server(e) if e.code() == post_proto::ErrorCode::Conflict), "{again}");
+    alice.end_maintenance().await.expect("cancel");
+    next_event(&mut bob_events, added(K::MaintenanceCancelled)).await;
+    next_event(&mut bob_events, |e| matches!(e, Event::AnnouncementsChanged(s) if s.maintenance.is_none())).await;
+
+    // Kept in order, on every account; reading them follows the account.
+    let kinds: Vec<K> = bob.announcements(50).expect("announcements").iter().map(|a| a.kind).collect();
+    assert_eq!(kinds, [K::Text, K::Text, K::MaintenancePlanned, K::MaintenanceCancelled]);
+    assert_eq!(alice.announcements(50).expect("announcements").len(), 4);
+    assert_eq!(bob.announcement_summary().expect("summary").unread, 4);
+    for l in listeners {
+        l.abort();
+    }
+    let phone = link(&server, dir.path(), &bob, "phone").await;
+    phone.sync().await.expect("phone sync");
+    assert_eq!(phone.announcement_summary().expect("summary").unread, 4);
+    bob.mark_announcements_read().await.expect("read");
+    assert_eq!(bob.announcement_summary().expect("summary").unread, 0);
+    phone.sync().await.expect("phone sync");
+    assert_eq!(phone.announcement_summary().expect("summary").unread, 0, "read on the laptop");
+}
+
+fn state_of(c: &Core, conv: post_core::ConversationId, id: post_core::MessageId) -> MessageState {
+    c.message(conv, id).expect("message").state
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn receipts_tick_sent_delivered_read() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let carol = server.client(dir.path(), "carol").await;
+
+    // A DM: one tick, two once Bob's device has it, blue once he reads it.
+    let dm = alice.start_dm("bob").await.expect("dm");
+    let hi = alice.send_text(dm.id, "hi bob").await.expect("send");
+    assert_eq!(hi.state, MessageState::Sent);
+    alice.sync().await.expect("sync");
+    assert_eq!(state_of(&alice, dm.id, hi.id), MessageState::Sent, "Bob has not fetched it");
+    bob.sync().await.expect("bob sync");
+    let mut alice_events = alice.subscribe();
+    alice.sync().await.expect("sync");
+    assert_eq!(state_of(&alice, dm.id, hi.id), MessageState::Delivered);
+    next_event(&mut alice_events, |e| matches!(e, Event::MessageChanged(m) if m.id == hi.id && m.state == MessageState::Delivered)).await;
+    bob.mark_read(dm.id).await.expect("read");
+    alice.sync().await.expect("sync");
+    assert_eq!(state_of(&alice, dm.id, hi.id), MessageState::Read);
+    // Receipts are not messages: nothing new shows on either side.
+    assert_eq!(bob.messages(dm.id, 50).expect("messages").len(), 1);
+    assert_eq!(alice.messages(dm.id, 50).expect("messages").len(), 1);
+    assert!(alice.messages(dm.id, 50).expect("messages").iter().all(|m| !m.unsupported));
+
+    // Bob turns read receipts off: Alice sees two ticks, never blue; and
+    // Bob no longer sees when Alice reads his.
+    assert!(bob.read_receipts().expect("setting"));
+    bob.set_read_receipts(false).await.expect("off");
+    assert!(!bob.read_receipts().expect("setting"));
+    let again = alice.send_text(dm.id, "still there?").await.expect("send");
+    bob.sync().await.expect("bob sync");
+    bob.mark_read(dm.id).await.expect("read");
+    alice.sync().await.expect("sync");
+    assert_eq!(state_of(&alice, dm.id, again.id), MessageState::Delivered, "delivered cannot be turned off; read can");
+    let yes = bob.send_text(dm.id, "yes").await.expect("reply");
+    alice.sync().await.expect("sync");
+    alice.mark_read(dm.id).await.expect("alice reads");
+    bob.sync().await.expect("bob sync");
+    assert_eq!(state_of(&bob, dm.id, yes.id), MessageState::Delivered, "with his own off, Bob sees no blue ticks");
+    // The setting follows Bob's account to a new device.
+    let phone = link(&server, dir.path(), &bob, "phone").await;
+    phone.sync().await.expect("phone sync");
+    assert!(!phone.read_receipts().expect("setting"), "from the snapshot");
+    bob.set_read_receipts(true).await.expect("on again");
+    phone.sync().await.expect("phone sync");
+    assert!(phone.read_receipts().expect("setting"));
+    alice.sync().await.expect("sync");
+    assert_eq!(state_of(&alice, dm.id, again.id), MessageState::Read, "turning it on says how far he has read");
+
+    // A group: two ticks only once everyone has it, blue once everyone read.
+    let group = alice.create_group("climbing", &["bob".into(), "carol".into()]).await.expect("group");
+    let plan = alice.send_text(group.id, "saturday?").await.expect("send");
+    bob.sync().await.expect("bob sync");
+    phone.sync().await.expect("phone sync");
+    alice.sync().await.expect("sync");
+    assert_eq!(state_of(&alice, group.id, plan.id), MessageState::Sent, "Carol has not fetched it");
+    let who = |r: &post_core::MessageReceipts| r.people.iter().map(|p| (p.username.clone(), p.state)).collect::<Vec<_>>();
+    use post_core::ReceiptState as R;
+    let r = alice.message_receipts(group.id, plan.id).await.expect("receipts");
+    assert_eq!(who(&r), [("bob".to_string(), R::Delivered), ("carol".to_string(), R::Waiting)]);
+    assert!(!r.too_large && !r.read_receipts_off);
+    assert!(bob.message_receipts(group.id, plan.id).await.is_err(), "only for your own messages");
+    carol.sync().await.expect("carol sync");
+    alice.sync().await.expect("sync");
+    assert_eq!(state_of(&alice, group.id, plan.id), MessageState::Delivered);
+    bob.mark_read(group.id).await.expect("bob reads");
+    alice.sync().await.expect("sync");
+    assert_eq!(state_of(&alice, group.id, plan.id), MessageState::Delivered, "Carol has not read it");
+    let r = alice.message_receipts(group.id, plan.id).await.expect("receipts");
+    assert_eq!(who(&r), [("bob".to_string(), R::Read), ("carol".to_string(), R::Delivered)]);
+    carol.mark_read(group.id).await.expect("carol reads");
+    alice.sync().await.expect("sync");
+    assert_eq!(state_of(&alice, group.id, plan.id), MessageState::Read);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn state_survives_restart() {
     let server = Server::start().await;
     let dir = tempfile::tempdir().expect("tempdir");

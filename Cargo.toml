@@ -65,6 +65,9 @@ clap = { version = "4.6", features = ["derive", "env"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
+# Reading and writing RFC 3339 times at command lines (planned maintenance).
+# Already in the tree through openmls_sqlite_storage.
+time = { version = "0.3", features = ["parsing", "formatting"] }
 url = "2.5"
 tempfile = "3"
 # The Flutter app's bridge (crates/post-ffi). Pinned exactly: it must equal

@@ -55,7 +55,7 @@ pub fn auth_message(server_domain: &str, nonce: &[u8]) -> Vec<u8> {
 pub struct ClientFrame {
     #[prost(uint64, tag = "1")]
     pub id: u64,
-    #[prost(oneof = "Request", tags = "10, 11, 20, 21, 22, 23, 24, 25, 26, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49")]
+    #[prost(oneof = "Request", tags = "10, 11, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49")]
     pub request: Option<Request>,
 }
 
@@ -82,6 +82,14 @@ pub enum Request {
     GetTokenKey(GetTokenKey),
     #[prost(message, tag = "26")]
     IssueTokens(IssueTokens),
+    #[prost(message, tag = "27")]
+    FetchAnnouncements(FetchAnnouncements),
+    #[prost(message, tag = "28")]
+    Announce(Announce),
+    #[prost(message, tag = "29")]
+    PlanMaintenance(PlanMaintenance),
+    #[prost(message, tag = "30")]
+    EndMaintenance(EndMaintenance),
 
     // Anonymous only.
     #[prost(message, tag = "40")]
@@ -121,6 +129,10 @@ impl Request {
                 | Request::AckMailbox(_)
                 | Request::GetTokenKey(_)
                 | Request::IssueTokens(_)
+                | Request::FetchAnnouncements(_)
+                | Request::Announce(_)
+                | Request::PlanMaintenance(_)
+                | Request::EndMaintenance(_)
         )
     }
 }
@@ -165,21 +177,26 @@ pub struct Hello {
     pub nonce: Vec<u8>,
 }
 
-/// Something new is waiting. On a session: the mailbox. On an anonymous
-/// connection: the listed subscribed groups. Carries no content.
+/// Something new is waiting. On a session: the mailbox, or announcements.
+/// On an anonymous connection: the listed subscribed groups. Carries no
+/// content.
 #[derive(Clone, PartialEq, Message)]
 pub struct Wake {
     #[prost(bool, tag = "1")]
     pub mailbox: bool,
     #[prost(bytes = "vec", repeated, tag = "2")]
     pub groups: Vec<Vec<u8>>,
+    /// Announcements changed: a new one, a maintenance plan, or who hosts.
+    /// Sent to every session.
+    #[prost(bool, tag = "3")]
+    pub announcements: bool,
 }
 
 #[derive(Clone, PartialEq, Message)]
 pub struct Response {
     #[prost(uint64, tag = "1")]
     pub id: u64,
-    #[prost(oneof = "Reply", tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23")]
+    #[prost(oneof = "Reply", tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24")]
     pub reply: Option<Reply>,
 }
 
@@ -213,6 +230,8 @@ pub enum Reply {
     LinkSlot(LinkSlot),
     #[prost(message, tag = "23")]
     CallAccess(CallAccess),
+    #[prost(message, tag = "24")]
+    Announcements(Announcements),
 }
 
 // ---------------------------------------------------------------- errors
@@ -256,6 +275,8 @@ pub enum ErrorCode {
     Conflict = 16,
     /// The server does not offer this (calls not set up, say).
     Unavailable = 17,
+    /// This account may not do this (only hosts may announce, say).
+    Forbidden = 18,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -434,6 +455,133 @@ pub struct IssuedTokens {
     #[prost(bytes = "vec", repeated, tag = "1")]
     pub blind_signatures: Vec<Vec<u8>>,
 }
+
+// ---------------------------------------------------------------- announcements
+
+/// Longest announcement text, or maintenance reason, in bytes.
+pub const MAX_ANNOUNCEMENT_BYTES: usize = 8 * 1024;
+/// Default and largest number of announcements one fetch returns.
+pub const ANNOUNCEMENT_FETCH_LIMIT: u32 = 200;
+/// Longest a maintenance may be planned to last, in minutes (a week).
+pub const MAX_MAINTENANCE_MINUTES: u32 = 7 * 24 * 60;
+
+/// Announcements after `after_id`, oldest first (design section 8,
+/// "Announcements"). Every account on the server receives the same ones.
+#[derive(Clone, PartialEq, Message)]
+pub struct FetchAnnouncements {
+    #[prost(uint64, tag = "1")]
+    pub after_id: u64,
+    /// 0 means the server default.
+    #[prost(uint32, tag = "2")]
+    pub limit: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, prost::Enumeration)]
+#[repr(i32)]
+pub enum AnnouncementKind {
+    Unspecified = 0,
+    /// Written by a host. `text` is theirs.
+    Text = 1,
+    /// Maintenance was planned for `starts_at_ms`. The rest are posted by
+    /// the server itself. For all of them `text` is the reason, if given.
+    MaintenancePlanned = 2,
+    /// A reminder that the planned maintenance starts soon.
+    MaintenanceReminder = 3,
+    /// Maintenance has started; it should last `minutes`.
+    MaintenanceStarted = 4,
+    /// Maintenance is over.
+    MaintenanceOver = 5,
+    /// The maintenance planned for `starts_at_ms` will not happen.
+    MaintenanceCancelled = 6,
+}
+
+/// One announcement. Times are UTC; apps show them in the reader's own time
+/// zone, which is why maintenance announcements are data, not prose.
+#[derive(Clone, PartialEq, Message)]
+pub struct Announcement {
+    /// Increasing; never reused.
+    #[prost(uint64, tag = "1")]
+    pub id: u64,
+    #[prost(uint64, tag = "2")]
+    pub created_at_ms: u64,
+    #[prost(enumeration = "AnnouncementKind", tag = "3")]
+    pub kind: i32,
+    #[prost(string, tag = "4")]
+    pub text: String,
+    /// Maintenance kinds: when it starts (or started).
+    #[prost(uint64, tag = "5")]
+    pub starts_at_ms: u64,
+    /// Maintenance kinds: how long it should last.
+    #[prost(uint32, tag = "6")]
+    pub minutes: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, prost::Enumeration)]
+#[repr(i32)]
+pub enum MaintenanceState {
+    Unspecified = 0,
+    Planned = 1,
+    Underway = 2,
+}
+
+/// The maintenance planned or underway. There is at most one.
+#[derive(Clone, PartialEq, Message)]
+pub struct Maintenance {
+    #[prost(uint64, tag = "1")]
+    pub starts_at_ms: u64,
+    #[prost(uint32, tag = "2")]
+    pub minutes: u32,
+    #[prost(string, tag = "3")]
+    pub reason: String,
+    #[prost(enumeration = "MaintenanceState", tag = "4")]
+    pub state: i32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct Announcements {
+    #[prost(message, repeated, tag = "1")]
+    pub entries: Vec<Announcement>,
+    #[prost(bool, tag = "2")]
+    pub more: bool,
+    /// Whether this account is a host, who may announce and plan maintenance.
+    #[prost(bool, tag = "3")]
+    pub host: bool,
+    #[prost(message, optional, tag = "4")]
+    pub maintenance: Option<Maintenance>,
+}
+
+/// Post an announcement to everyone. Hosts only.
+#[derive(Clone, PartialEq, Message)]
+pub struct Announce {
+    /// 16 random bytes. Retries with the same id are idempotent.
+    #[prost(bytes = "vec", tag = "1")]
+    pub client_msg_id: Vec<u8>,
+    #[prost(string, tag = "2")]
+    pub text: String,
+}
+
+/// Plan maintenance. Hosts only. The server announces it now (unless
+/// `quiet`), reminds everyone a day, an hour, 30 minutes and 5 minutes
+/// before (skipping reminders already past), and announces the start.
+/// Refused with `Conflict` while another is planned or underway.
+#[derive(Clone, PartialEq, Message)]
+pub struct PlanMaintenance {
+    /// 0, or a time already past, starts it now.
+    #[prost(uint64, tag = "1")]
+    pub starts_at_ms: u64,
+    #[prost(uint32, tag = "2")]
+    pub minutes: u32,
+    #[prost(string, tag = "3")]
+    pub reason: String,
+    /// Do not announce the plan now; reminders and the start still are.
+    #[prost(bool, tag = "4")]
+    pub quiet: bool,
+}
+
+/// Cancel the planned maintenance, or announce that the one underway is
+/// over. Hosts only. `NotFound` if there is none.
+#[derive(Clone, PartialEq, Message)]
+pub struct EndMaintenance {}
 
 // ---------------------------------------------------------------- anonymous requests
 
@@ -793,6 +941,11 @@ mod tests {
             Request::SendEphemeral(SendEphemeral::default()),
             Request::LinkPut(LinkPut::default()),
             Request::LinkGet(LinkGet::default()),
+            Request::CallToken(CallToken::default()),
+            Request::FetchAnnouncements(FetchAnnouncements::default()),
+            Request::Announce(Announce::default()),
+            Request::PlanMaintenance(PlanMaintenance::default()),
+            Request::EndMaintenance(EndMaintenance::default()),
         ];
         for r in requests {
             let f = ClientFrame { id: 1, request: Some(r) };
@@ -812,6 +965,8 @@ mod tests {
             Reply::GroupBatch(GroupBatch::default()),
             Reply::GroupCreated(GroupCreated::default()),
             Reply::LinkSlot(LinkSlot::default()),
+            Reply::CallAccess(CallAccess::default()),
+            Reply::Announcements(Announcements::default()),
         ];
         for r in replies {
             let f = ServerFrame { kind: Some(ServerKind::Response(Response { id: 1, reply: Some(r) })) };
@@ -844,5 +999,10 @@ mod tests {
         assert!(!Request::LinkPut(LinkPut::default()).is_session());
         assert!(!Request::LinkGet(LinkGet::default()).is_session());
         assert!(!Request::CallToken(CallToken::default()).is_session());
+        // Announcements go to accounts, so they need a login.
+        assert!(Request::FetchAnnouncements(FetchAnnouncements::default()).is_session());
+        assert!(Request::Announce(Announce::default()).is_session());
+        assert!(Request::PlanMaintenance(PlanMaintenance::default()).is_session());
+        assert!(Request::EndMaintenance(EndMaintenance::default()).is_session());
     }
 }

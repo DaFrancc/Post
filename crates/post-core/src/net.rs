@@ -3,7 +3,7 @@
 //! frames are surfaced through [`ServerConn::wake`].
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -57,6 +57,8 @@ pub struct ServerConn {
     next_id: AtomicU64,
     /// Notified when the server says new entries are waiting.
     pub wake: Arc<Notify>,
+    /// Set (with `wake`) when the server says announcements changed.
+    pub announcements: Arc<AtomicBool>,
     /// Typing and presence signals relayed by the server.
     pub signals: Arc<Signals>,
     closed: watch::Receiver<bool>,
@@ -111,7 +113,8 @@ impl ServerConn {
             let _ = sink.close().await;
         });
         let signals = Arc::new(Signals::default());
-        let (r_pending, r_wake, r_signals) = (pending.clone(), wake.clone(), signals.clone());
+        let announcements = Arc::new(AtomicBool::new(false));
+        let (r_pending, r_wake, r_signals, r_announcements) = (pending.clone(), wake.clone(), signals.clone(), announcements.clone());
         let reader = tokio::spawn(async move {
             while let Some(Ok(msg)) = stream.next().await {
                 let Message::Binary(b) = msg else { continue };
@@ -122,7 +125,12 @@ impl ServerConn {
                             let _ = tx.send(reply);
                         }
                     }
-                    Ok(Some(ServerKind::Wake(_))) => r_wake.notify_one(),
+                    Ok(Some(ServerKind::Wake(w))) => {
+                        if w.announcements {
+                            r_announcements.store(true, Ordering::Release);
+                        }
+                        r_wake.notify_one();
+                    }
                     Ok(Some(ServerKind::Ephemeral(e))) => r_signals.push(e.group_id, e.payload),
                     _ => break,
                 }
@@ -133,7 +141,7 @@ impl ServerConn {
             r_wake.notify_one();
         });
 
-        Ok((Self { out, pending, next_id: AtomicU64::new(1), wake, signals, closed, tasks: vec![writer, reader] }, hello))
+        Ok((Self { out, pending, next_id: AtomicU64::new(1), wake, announcements, signals, closed, tasks: vec![writer, reader] }, hello))
     }
 
     /// Send a request and wait for its reply. A protocol `Error` reply comes

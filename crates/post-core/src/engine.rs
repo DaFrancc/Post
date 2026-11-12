@@ -226,7 +226,14 @@ enum Outcome {
     NewMembers,
     /// A call event, sent or received.
     Call(calls::Seen),
+    /// Another member's receipt moved: the ticks on our messages may change.
+    Receipts,
 }
+
+/// Receipts are sent only in conversations of at most this many accounts:
+/// each one is a message every member receives, and in a large group they
+/// would outnumber the messages themselves.
+pub const MAX_RECEIPT_ACCOUNTS: usize = 32;
 
 fn random16() -> Result<[u8; 16]> {
     let mut b = [0u8; 16];
@@ -324,6 +331,9 @@ pub(crate) struct Engine {
     link: Option<PendingLink>,
     /// Live calls. Memory only, by design.
     calls: std::sync::Mutex<calls::Calls>,
+    /// Announcements are to be fetched at the next sync: set at login, and
+    /// again when fetching them failed.
+    announcements_due: bool,
     pub events: broadcast::Sender<Event>,
 }
 
@@ -348,6 +358,7 @@ impl Engine {
             presence: HashMap::new(),
             link: None,
             calls: std::sync::Mutex::default(),
+            announcements_due: false,
             events,
         };
         e.load_identity()?;
@@ -501,6 +512,7 @@ impl Engine {
             "DELETE FROM meta WHERE k IN ('chain_seeds', 'mls_seed', 'account_id', 'username', 'domain', 'url', 'bot', 'registered', 'kp_target')",
             [],
         )?;
+        store::forget_announcements(&self.conn)?;
         self.registered = false;
         Ok(())
     }
@@ -552,6 +564,7 @@ impl Engine {
         self.check_hello(&hello, &self.me()?.domain)?;
         self.anon = Some(anon);
         self.subscribed.clear();
+        self.announcements_due = true;
         self.retry_pending_groups().await?;
         self.retry_pending_commits().await?;
         self.ensure_self_group().await?;
@@ -1494,6 +1507,7 @@ impl Engine {
             let req = {
                 let provider = Provider::on(&tx);
                 let mut group = load_group(&provider, &gid)?;
+                tracing::info!(epoch = group.epoch().as_u64(), replacing = group.pending_commit().is_some(), "making a commit");
                 let access_key = access_key_of(&group, &provider)?;
                 let welcome_to = adds
                     .iter()
@@ -1554,6 +1568,7 @@ impl Engine {
 
     /// Forget a pending commit that can no longer land.
     fn abandon_commit(&mut self, gid: [u8; 16]) -> Result<()> {
+        tracing::info!("abandoning our pending commit");
         let tx = self.conn.transaction()?;
         {
             let provider = Provider::on(&tx);
@@ -1574,6 +1589,7 @@ impl Engine {
 
     /// Our own commit reached the log: merge it.
     fn merge_own_commit(&mut self, gid: [u8; 16], seq: u64) -> Result<()> {
+        tracing::info!(seq, "merging our own commit, seen in the log");
         let tx = self.conn.transaction()?;
         {
             let provider = Provider::on(&tx);
@@ -1836,16 +1852,14 @@ impl Engine {
             id: id.to_vec(),
             sent_at_ms: now,
             sender_chain: Some(content::ChainHead { seq: chain.next_seq() - 1, head: chain.head().0.to_vec() }),
+            silent: matches!(body, Body::Receipt(_)),
             body: Some(body.clone()),
         };
         let bytes = c.encode_to_vec();
         let tx = self.conn.transaction()?;
-        let ciphertext = {
-            let provider = Provider::on(&tx);
-            let mut group = load_group(&provider, &gid)?;
-            group.create_message(&provider, &me.signer, &bytes).map_err(mls)?.tls_serialize_detached().map_err(mls)?
-        };
-        store::outbox_push(&tx, &store::OutboxRow { client_msg_id: id.to_vec(), group_id: gid.to_vec(), content: bytes, ciphertext })?;
+        // Queued unencrypted: it is encrypted when it reaches the front of
+        // the outbox (`flush_outbox`), so generations follow send order.
+        store::outbox_push(&tx, &store::OutboxRow { client_msg_id: id.to_vec(), group_id: gid.to_vec(), content: bytes, ciphertext: Vec::new() })?;
         store::record_own_send(&tx, &gid, &id)?;
         let outcome = match &body {
             Body::Text(t) => {
@@ -1883,6 +1897,11 @@ impl Engine {
             Body::SelfSync(s) if s.snapshot => Outcome::Nothing,
             Body::SelfSync(s) => Outcome::SelfSync(apply_self_sync(&tx, s, SyncSource::Local(Some(&id)))?),
             Body::Call(c) => Outcome::Call(calls::Seen { sender: me.account, device: me.device, sent_at: now, event: c.clone() }),
+            // What this account has said, so it is not said again.
+            Body::Receipt(r) => {
+                store::raise_receipt(&tx, &gid, &me.account.0, r.delivered, r.read)?;
+                Outcome::Nothing
+            }
         };
         tx.commit()?;
         self.emit_outcome(gid, outcome)?;
@@ -1896,6 +1915,13 @@ impl Engine {
             if self.anon().is_err() {
                 return Ok(());
             }
+            // Encrypted only at the front of the queue, just before it is
+            // sent: each sender's generations must reach the server, and so
+            // every member, in order. Encrypting when queued let messages
+            // written after an epoch change take lower generations than the
+            // older ones re-encrypted ahead of them, and members refused them
+            // as too old. Retries resend these exact bytes.
+            let row = if row.ciphertext.is_empty() { self.encrypt_queued(&row, false)? } else { row };
             let access = {
                 let provider = Provider::on(&self.conn);
                 access_key_of(&load_group(&provider, &row.group_id)?, &provider)?
@@ -1923,9 +1949,10 @@ impl Engine {
                 // Our epoch is behind: catch up, re-encrypt in the new epoch,
                 // and resend with the same id (design section 6, Ordering).
                 Err(Error::Server(e)) if matches!(e.code(), ErrorCode::WrongEpoch | ErrorCode::BadAccessKey) && retries < 3 => {
+                    tracing::info!(code = ?e.code(), message = %e.message, "the server refused a queued message; catching up");
                     retries += 1;
                     self.sync_groups().await?;
-                    self.reencrypt(&row)?;
+                    self.encrypt_queued(&row, true)?;
                 }
                 Err(Error::Server(e)) => {
                     let tx = self.conn.transaction()?;
@@ -1940,17 +1967,23 @@ impl Engine {
         Ok(())
     }
 
-    fn reencrypt(&mut self, row: &store::OutboxRow) -> Result<()> {
+    /// Encrypt the message at the front of the outbox in the group's current
+    /// epoch (`again`: its earlier ciphertext missed the epoch), saving the
+    /// ciphertext with the advanced MLS state before anything is sent.
+    fn encrypt_queued(&mut self, row: &store::OutboxRow, again: bool) -> Result<store::OutboxRow> {
         let me = self.me.as_ref().ok_or(Error::NotRegistered)?;
         let tx = self.conn.transaction()?;
         let ciphertext = {
             let provider = Provider::on(&tx);
             let mut group = load_group(&provider, &row.group_id)?;
+            if again {
+                tracing::info!(epoch = group.epoch().as_u64(), "re-encrypting a queued message for a later epoch");
+            }
             group.create_message(&provider, &me.signer, &row.content).map_err(mls)?.tls_serialize_detached().map_err(mls)?
         };
         store::outbox_replace_ciphertext(&tx, &row.client_msg_id, &ciphertext)?;
         tx.commit()?;
-        Ok(())
+        Ok(store::OutboxRow { client_msg_id: row.client_msg_id.clone(), group_id: row.group_id.clone(), content: row.content.clone(), ciphertext })
     }
 
     // ------------------------------------------------------------ receiving
@@ -1961,6 +1994,18 @@ impl Engine {
         // The directory first: device changes and stale devices decide what
         // membership should be. It is one small request when nothing changed.
         self.sync_directory().await?;
+        if std::mem::take(&mut self.announcements_due) | self.session()?.announcements.swap(false, std::sync::atomic::Ordering::AcqRel) {
+            // Never in the way of messages: a server too old to have
+            // announcements refuses the request, and that is all.
+            match self.sync_announcements().await {
+                Ok(()) => {}
+                Err(e @ (Error::NotConnected | Error::Network(_))) => {
+                    self.announcements_due = true;
+                    return Err(e);
+                }
+                Err(e) => tracing::warn!(error = %e, "could not fetch announcements"),
+            }
+        }
         // Group logs before Welcomes: a device removed and added back while
         // it was offline must see its removal before the Welcome, which only
         // replaces a group the device is no longer in. Then the logs of
@@ -1976,6 +2021,9 @@ impl Engine {
             r => r?,
         }
         self.continue_leaving().await?;
+        if let Err(e) = self.queue_receipts() {
+            tracing::warn!(error = %e, "could not queue receipts");
+        }
         self.flush_outbox().await?;
         self.resubscribe().await?;
         if joined > 0 {
@@ -1984,6 +2032,99 @@ impl Engine {
             self.top_up_tokens().await?;
         }
         Ok(())
+    }
+
+    /// Fetch new announcements, whether this account is a host, and the
+    /// maintenance plan.
+    async fn sync_announcements(&mut self) -> Result<()> {
+        let mut added = Vec::new();
+        let mut changed = false;
+        loop {
+            let after = store::meta_u64(&self.conn, store::META_ANNOUNCEMENTS_SEEN)?;
+            let req = Request::FetchAnnouncements(proto::FetchAnnouncements { after_id: after, limit: 0 });
+            let r = expect_reply!(self.session()?.request(req).await?, Reply::Announcements)?;
+            let tx = self.conn.transaction()?;
+            if store::add_announcements(&tx, &r.entries)? > 0 {
+                added.extend(r.entries.iter().filter(|a| a.id > after).cloned());
+            }
+            let host = if r.host { "1" } else { "0" };
+            if store::meta_str(&tx, store::META_HOST)?.as_deref() != Some(host) {
+                store::meta_put(&tx, store::META_HOST, host.as_bytes())?;
+                changed = true;
+            }
+            let maintenance = r.maintenance.as_ref().map(prost::Message::encode_to_vec);
+            if store::meta_get(&tx, store::META_MAINTENANCE)? != maintenance {
+                match &maintenance {
+                    Some(m) => store::meta_put(&tx, store::META_MAINTENANCE, m)?,
+                    None => store::meta_delete(&tx, store::META_MAINTENANCE)?,
+                }
+                changed = true;
+            }
+            tx.commit()?;
+            if !r.more {
+                break;
+            }
+        }
+        for a in &added {
+            self.emit(Event::AnnouncementAdded(crate::Announcement {
+                id: a.id,
+                at_ms: a.created_at_ms,
+                kind: crate::AnnouncementKind::from_wire(a.kind),
+                text: a.text.clone(),
+                starts_at_ms: a.starts_at_ms,
+                minutes: a.minutes,
+            }));
+        }
+        if changed || !added.is_empty() {
+            self.emit(Event::AnnouncementsChanged(crate::announcements_from(&self.conn)?));
+        }
+        Ok(())
+    }
+
+    /// Mark every announcement read, and tell this account's other devices.
+    pub async fn mark_announcements_read(&mut self) -> Result<()> {
+        let Some(latest) = store::latest_announcement(&self.conn)? else { return Ok(()) };
+        if !store::raise_announcements_read(&self.conn, latest.id)? {
+            return Ok(());
+        }
+        self.emit(Event::AnnouncementsChanged(crate::announcements_from(&self.conn)?));
+        if self.devices()?.len() > 1 {
+            self.sync_to_own_devices(content::SelfSync { announcements_read: latest.id, ..Default::default() }).await?;
+        }
+        Ok(())
+    }
+
+    /// Post an announcement (hosts only), then fetch it back.
+    pub async fn post_announcement(&mut self, text: &str) -> Result<()> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Err(Error::InvalidInput("an announcement needs some text".into()));
+        }
+        if text.len() > proto::MAX_ANNOUNCEMENT_BYTES {
+            return Err(Error::InvalidInput("the announcement is too long".into()));
+        }
+        let req = Request::Announce(proto::Announce { client_msg_id: random16()?.to_vec(), text: text.into() });
+        expect_reply!(self.session()?.request(req).await?, Reply::Empty)?;
+        self.sync_announcements().await
+    }
+
+    /// Plan maintenance (hosts only), then fetch what the server announced.
+    pub async fn plan_maintenance(&mut self, starts_at_ms: u64, minutes: u32, reason: &str, quiet: bool) -> Result<()> {
+        if minutes == 0 || minutes > proto::MAX_MAINTENANCE_MINUTES {
+            return Err(Error::InvalidInput("maintenance lasts from a minute to a week".into()));
+        }
+        if reason.len() > proto::MAX_ANNOUNCEMENT_BYTES {
+            return Err(Error::InvalidInput("the reason is too long".into()));
+        }
+        let req = Request::PlanMaintenance(proto::PlanMaintenance { starts_at_ms, minutes, reason: reason.trim().into(), quiet });
+        expect_reply!(self.session()?.request(req).await?, Reply::Empty)?;
+        self.sync_announcements().await
+    }
+
+    /// Cancel or end maintenance (hosts only), then fetch the announcement.
+    pub async fn end_maintenance(&mut self) -> Result<()> {
+        expect_reply!(self.session()?.request(Request::EndMaintenance(proto::EndMaintenance {})).await?, Reply::Empty)?;
+        self.sync_announcements().await
     }
 
     async fn sync_mailbox(&mut self) -> Result<usize> {
@@ -2157,6 +2298,7 @@ impl Engine {
                 Step::Retry => self.sync_directory().await?,
                 Step::Refused(msg) => {
                     // Fail closed but visibly: skip the entry, tell the user.
+                    tracing::warn!(seq = e.seq, epoch = e.epoch, kind = e.kind, "skipping a log entry that could not be processed");
                     store::set_cursor(&self.conn, &gid, e.seq)?;
                     self.notice(Some(&gid), &msg)?;
                     return Ok(());
@@ -2239,15 +2381,103 @@ impl Engine {
                 for g in changes.read {
                     self.emit_conversation_of(&g)?;
                 }
+                if changes.announcements {
+                    self.emit(Event::AnnouncementsChanged(crate::announcements_from(&self.conn)?));
+                }
             }
             Outcome::Conversation | Outcome::NewMembers => {
                 if let Some(c) = store::conversation(&self.conn, &gid)?
                     && c.kind != KIND_SELF
                 {
                     self.emit(Event::ConversationChanged(crate::conversation_from_row(&self.conn, &c)?));
+                    // Who is a member decides whose receipts count; someone
+                    // just added counts as having what came before.
+                    let joined_at = if matches!(outcome, Outcome::NewMembers) { store::group_position(&self.conn, &gid)? } else { 0 };
+                    self.refresh_ticks_or_warn(gid, joined_at);
                 }
             }
             Outcome::Call(seen) => self.apply_call(gid, &seen)?,
+            Outcome::Receipts => self.refresh_ticks_or_warn(gid, 0),
+        }
+        Ok(())
+    }
+
+    /// Ticks are a convenience: failing to work them out never stops a sync.
+    fn refresh_ticks_or_warn(&self, gid: [u8; 16], joined_at: u64) {
+        if let Err(e) = self.refresh_ticks(gid, joined_at) {
+            tracing::warn!(error = %e, "could not update receipts");
+        }
+    }
+
+    /// Work out again how far every other member has received and read a
+    /// group, and tell the app about our messages whose ticks changed.
+    fn refresh_ticks(&self, gid: [u8; 16], joined_at: u64) -> Result<()> {
+        let me = self.me()?.account;
+        let (_, members) = group_members(&self.conn, &gid)?;
+        let others: Vec<AccountId> = members.into_iter().map(|(a, _)| a).filter(|a| *a != me).collect();
+        let ((old_d, old_r), (new_d, new_r)) = store::set_receipt_floors(&self.conn, &gid, &others, joined_at)?;
+        // Floors can fall too, when someone behind joins: both ways change ticks.
+        let ranges = [(old_d.min(new_d), old_d.max(new_d)), (old_r.min(new_r), old_r.max(new_r))];
+        let mut seen = HashSet::new();
+        for (from, to) in ranges {
+            for id in store::own_messages_between(&self.conn, &gid, from, to, 200)? {
+                if seen.insert(id.clone())
+                    && let Some(m) = store::message(&self.conn, &gid, &id)?
+                {
+                    self.emit(Event::MessageChanged(crate::message_from_row(&self.conn, &m)?));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Queue a receipt in each conversation where this account has received
+    /// or read more than it has said: how far, as log positions. One per
+    /// conversation however many messages arrived, and none in large groups
+    /// or in a group this device is leaving.
+    fn queue_receipts(&mut self) -> Result<()> {
+        let me = self.me()?.account;
+        let read_on = store::read_receipts_on(&self.conn)?;
+        for c in store::followed_groups(&self.conn)? {
+            if c.kind == KIND_SELF || c.leaving || !c.active {
+                continue;
+            }
+            let gid = c.group_id;
+            let delivered = store::newest_received(&self.conn, &gid)?;
+            if delivered == 0 {
+                continue;
+            }
+            let read = if read_on { store::read_position(&self.conn, &gid)?.min(delivered) } else { 0 };
+            let (said_delivered, said_read) = store::receipt(&self.conn, &gid, &me.0)?;
+            if delivered <= said_delivered && read <= said_read {
+                continue;
+            }
+            if group_members(&self.conn, &gid)?.1.len() > MAX_RECEIPT_ACCOUNTS {
+                continue;
+            }
+            self.queue_body(gid, Body::Receipt(content::Receipt { delivered, read }))?;
+        }
+        Ok(())
+    }
+
+    /// Queue receipts and send them, when only receipts changed (reading a
+    /// conversation). Offline, they go with the next sync.
+    async fn send_receipts(&mut self) -> Result<()> {
+        self.queue_receipts()?;
+        match self.flush_outbox().await {
+            Ok(()) | Err(Error::NotConnected | Error::Network(_)) => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Send read receipts or stop, on all this account's devices.
+    pub async fn set_read_receipts(&mut self, on: bool) -> Result<()> {
+        let entry = content::SettingEntry { key: content::SETTING_READ_RECEIPTS.into(), value: if on { String::new() } else { "0".into() } };
+        self.sync_to_own_devices(content::SelfSync { settings: vec![entry], ..Default::default() }).await?;
+        // Turned on: say how far we have read now, rather than at the next
+        // message.
+        if on {
+            self.send_receipts().await?;
         }
         Ok(())
     }
@@ -2522,7 +2752,8 @@ impl Engine {
             let read = moved.into_iter().map(|(group, seq)| content::ReadEntry { group, seq }).collect();
             self.sync_to_own_devices(content::SelfSync { read, ..Default::default() }).await?;
         }
-        Ok(())
+        // The read receipt: blue ticks for whoever wrote.
+        self.send_receipts().await
     }
 
     /// Mark (or unmark) someone's safety number as verified, on every one of
@@ -2828,7 +3059,7 @@ fn check_device_name(name: &str) -> Result<()> {
 fn body_allowed(body: &Body, self_group: bool) -> bool {
     match body {
         Body::Profile(_) => true,
-        Body::Text(_) | Body::Edit(_) | Body::Delete(_) | Body::ConversationName(_) | Body::Call(_) => !self_group,
+        Body::Text(_) | Body::Edit(_) | Body::Delete(_) | Body::ConversationName(_) | Body::Call(_) | Body::Receipt(_) => !self_group,
         Body::SelfSync(_) => self_group,
     }
 }
@@ -2853,6 +3084,9 @@ fn check_self_sync(s: &content::SelfSync) -> std::result::Result<(), String> {
     if s.read.iter().any(|r| r.group.len() != 16) {
         return Err("a read position names an invalid group".into());
     }
+    for setting in &s.settings {
+        content::check_setting(setting)?;
+    }
     Ok(())
 }
 
@@ -2871,6 +3105,8 @@ struct SyncChanges {
     people: Vec<AccountId>,
     /// Groups whose read position moved.
     read: Vec<Vec<u8>>,
+    /// The announcements read position moved.
+    announcements: bool,
 }
 
 /// Apply a checked self-group sync (see [`store::Synced`] for the ordering
@@ -2892,6 +3128,9 @@ fn apply_self_sync(tx: &Connection, s: &content::SelfSync, from: SyncSource<'_>)
     for d in &s.device_names {
         set(store::Synced::DeviceName, &d.device, &d.name)?;
     }
+    for setting in &s.settings {
+        set(store::Synced::Setting, setting.key.as_bytes(), &setting.value)?;
+    }
     for v in &s.verified {
         if set(store::Synced::Verified, &v.account, if v.verified { store::VERIFIED } else { "" })? {
             changes.people.extend(store::account_id(&v.account).ok());
@@ -2902,6 +3141,7 @@ fn apply_self_sync(tx: &Connection, s: &content::SelfSync, from: SyncSource<'_>)
             changes.read.push(r.group.clone());
         }
     }
+    changes.announcements = store::raise_announcements_read(tx, s.announcements_read)?;
     Ok(changes)
 }
 
@@ -2921,6 +3161,11 @@ fn self_snapshot(conn: &Connection) -> Result<content::SelfSync> {
             .map(|(account, _)| content::VerifiedEntry { account, verified: true })
             .collect(),
         read: store::read_positions(conn)?.into_iter().map(|(group, seq)| content::ReadEntry { group, seq }).collect(),
+        announcements_read: store::meta_u64(conn, store::META_ANNOUNCEMENTS_READ)?,
+        settings: store::synced_all(conn, store::Synced::Setting)?
+            .into_iter()
+            .map(|(key, value)| content::SettingEntry { key: String::from_utf8_lossy(&key).into_owned(), value })
+            .collect(),
         snapshot: true,
     })
 }
@@ -3323,6 +3568,18 @@ fn handle_content(
             check_self_sync(s).map_err(reject)?;
             Ok(Outcome::SelfSync(apply_self_sync(tx, s, SyncSource::Log { seq: e.seq, snapshot: s.snapshot })?))
         }
+        Some(Body::Receipt(r)) => {
+            // Positions before the receipt itself: nobody has received what
+            // comes after it.
+            if r.delivered >= e.seq || r.read >= e.seq {
+                return Err(reject("a receipt claimed messages not yet sent"));
+            }
+            let moved = store::raise_receipt(tx, gid, &sender.0, r.delivered, r.read)?;
+            // Our own other devices' receipts only stop this one repeating them.
+            Ok(if moved && sender != me { Outcome::Receipts } else { Outcome::Nothing })
+        }
+        // Bookkeeping from a newer client: nothing to show.
+        None if c.silent => Ok(Outcome::Nothing),
         None => {
             let added = store::insert_message(tx, &new_message(None))?;
             Ok(if added { Outcome::Added(id) } else { Outcome::Nothing })

@@ -187,6 +187,10 @@ pub struct MessageInfo {
     pub pending: bool,
     /// The server refused it.
     pub failed: bool,
+    /// Yours, and every other member has it: two ticks.
+    pub delivered: bool,
+    /// Yours, and every other member read it: two blue ticks.
+    pub read: bool,
 }
 
 /// One version of an edited message.
@@ -365,6 +369,102 @@ pub enum EventKind {
     /// A call in `conversation` started, rang, changed or ended: read
     /// `calls()` for how things stand (an ended call is gone from it).
     Call,
+    /// The server posted an announcement; `text` is a preview of it.
+    Announcement,
+    /// The announcements changed (new ones, read, the maintenance plan, or
+    /// whether you are a host): read `announcement_summary()`.
+    Announcements,
+}
+
+/// Who has one of the user's messages.
+pub struct MessageReceiptsInfo {
+    /// Every other member, by the name the user sees, sorted.
+    pub people: Vec<PersonReceiptInfo>,
+    /// Too large a conversation for receipts.
+    pub too_large: bool,
+    /// The user's own read receipts are off: deliveries only.
+    pub read_receipts_off: bool,
+}
+
+/// How far one person has got with the user's message.
+pub struct PersonReceiptInfo {
+    /// Their username.
+    pub username: String,
+    /// The name the user sees for them in this conversation.
+    pub shown_name: String,
+    /// How far they have got.
+    pub state: ReceiptState,
+}
+
+/// How far one person has got.
+pub enum ReceiptState {
+    /// Not on any of their devices yet.
+    Waiting,
+    /// On one of their devices.
+    Delivered,
+    /// Read.
+    Read,
+}
+
+/// One of the server's announcements, shown as from the server.
+pub struct AnnouncementInfo {
+    /// Increasing ID.
+    pub id: i64,
+    /// When it was posted (Unix ms).
+    pub at_ms: i64,
+    /// What it is.
+    pub kind: AnnouncementKind,
+    /// A host's words, or for maintenance the reason given (may be empty).
+    pub text: String,
+    /// Maintenance: when it starts or started (Unix ms), to show in the
+    /// reader's time zone.
+    pub starts_at_ms: i64,
+    /// Maintenance: how long it should take.
+    pub minutes: u32,
+}
+
+/// What an announcement is. All but `Text` are posted by the server itself.
+pub enum AnnouncementKind {
+    /// Written by a host.
+    Text,
+    /// Maintenance was planned.
+    MaintenancePlanned,
+    /// The planned maintenance starts soon.
+    MaintenanceReminder,
+    /// Maintenance has started.
+    MaintenanceStarted,
+    /// Maintenance is over.
+    MaintenanceOver,
+    /// The planned maintenance was cancelled.
+    MaintenanceCancelled,
+    /// A kind from a newer server.
+    Unsupported,
+}
+
+/// Maintenance planned or underway.
+pub struct MaintenanceInfo {
+    /// When it starts or started (Unix ms).
+    pub starts_at_ms: i64,
+    /// How long it should take.
+    pub minutes: u32,
+    /// Why, if given.
+    pub reason: String,
+    /// It has started.
+    pub underway: bool,
+}
+
+/// The announcements channel at a glance.
+pub struct AnnouncementSummary {
+    /// The server's domain: what they are shown as from.
+    pub server: String,
+    /// Posted since the user last read them.
+    pub unread: u32,
+    /// The newest, for the channel's preview line.
+    pub latest: Option<AnnouncementInfo>,
+    /// The user is one of the server's hosts: show the composer.
+    pub host: bool,
+    /// Maintenance planned or underway.
+    pub maintenance: Option<MaintenanceInfo>,
 }
 
 /// A live event.
@@ -616,6 +716,51 @@ impl Client {
         }
     }
 
+    // ------------------------------------------------------------ announcements
+
+    /// The announcements channel at a glance.
+    pub async fn announcement_summary(&self) -> Result<AnnouncementSummary, PostError> {
+        let s = self.core.announcement_summary()?;
+        Ok(AnnouncementSummary {
+            server: s.server,
+            unread: s.unread,
+            latest: s.latest.map(announcement),
+            host: s.host,
+            maintenance: s.maintenance.map(|m| MaintenanceInfo {
+                starts_at_ms: ms(m.starts_at_ms),
+                minutes: m.minutes,
+                reason: m.reason,
+                underway: m.underway,
+            }),
+        })
+    }
+
+    /// The newest `limit` announcements, oldest first.
+    pub async fn announcements(&self, limit: u32) -> Result<Vec<AnnouncementInfo>, PostError> {
+        Ok(self.core.announcements(limit)?.into_iter().map(announcement).collect())
+    }
+
+    /// Mark the announcements read, on all the user's devices.
+    pub async fn mark_announcements_read(&self) -> Result<(), PostError> {
+        Ok(self.core.mark_announcements_read().await?)
+    }
+
+    /// As a host: post an announcement to everyone on the server.
+    pub async fn announce(&self, text: String) -> Result<(), PostError> {
+        Ok(self.core.announce(&text).await?)
+    }
+
+    /// As a host: plan maintenance. `starts_at_ms` 0 starts it now.
+    pub async fn plan_maintenance(&self, starts_at_ms: i64, minutes: u32, reason: String, quiet: bool) -> Result<(), PostError> {
+        let starts = u64::try_from(starts_at_ms).map_err(|_| PostError::new(ErrorKind::InvalidInput, "That time is not valid."))?;
+        Ok(self.core.plan_maintenance(starts, minutes, &reason, quiet).await?)
+    }
+
+    /// As a host: cancel the planned maintenance, or announce it is over.
+    pub async fn end_maintenance(&self) -> Result<(), PostError> {
+        Ok(self.core.end_maintenance().await?)
+    }
+
     // ------------------------------------------------------------ conversations
 
     /// Conversations, most recent first.
@@ -842,6 +987,39 @@ impl Client {
         Ok(self.core.set_verified(&username, verified).await?)
     }
 
+    /// Who has one of the user's messages: each other member, and how far.
+    pub async fn message_receipts(&self, conversation: String, message: String) -> Result<MessageReceiptsInfo, PostError> {
+        let r = self.core.message_receipts(conversation.parse()?, message.parse()?).await?;
+        Ok(MessageReceiptsInfo {
+            people: r
+                .people
+                .into_iter()
+                .map(|p| PersonReceiptInfo {
+                    username: p.username,
+                    shown_name: p.shown_name,
+                    state: match p.state {
+                        core::ReceiptState::Waiting => ReceiptState::Waiting,
+                        core::ReceiptState::Delivered => ReceiptState::Delivered,
+                        core::ReceiptState::Read => ReceiptState::Read,
+                    },
+                })
+                .collect(),
+            too_large: r.too_large,
+            read_receipts_off: r.read_receipts_off,
+        })
+    }
+
+    /// Whether the user sends read receipts (on unless turned off).
+    pub async fn read_receipts(&self) -> Result<bool, PostError> {
+        Ok(self.core.read_receipts()?)
+    }
+
+    /// Send read receipts or stop, on all the user's devices. Off, the user
+    /// also stops seeing when others read theirs.
+    pub async fn set_read_receipts(&self, enabled: bool) -> Result<(), PostError> {
+        Ok(self.core.set_read_receipts(enabled).await?)
+    }
+
     /// Someone's presence, as this device last heard it.
     pub async fn presence(&self, username: String) -> Result<PresenceState, PostError> {
         Ok(match self.core.presence(&username).await? {
@@ -956,6 +1134,8 @@ fn message(m: core::Message) -> MessageInfo {
         versions: m.versions,
         pending: m.state == core::MessageState::Pending,
         failed: m.state == core::MessageState::Failed,
+        delivered: matches!(m.state, core::MessageState::Delivered | core::MessageState::Read),
+        read: m.state == core::MessageState::Read,
     }
 }
 
@@ -984,6 +1164,28 @@ fn app_event(e: core::Event) -> AppEvent {
         }
         core::Event::Notice { conversation, text } => ev(EventKind::Notice, conversation, None, Some(sentence(&text))),
         core::Event::CallChanged(c) => ev(EventKind::Call, Some(c.conversation), None, None),
+        core::Event::AnnouncementAdded(a) => ev(EventKind::Announcement, None, None, Some(a.text)),
+        core::Event::AnnouncementsChanged(_) => ev(EventKind::Announcements, None, None, None),
+    }
+}
+
+fn announcement(a: core::Announcement) -> AnnouncementInfo {
+    use core::AnnouncementKind as K;
+    AnnouncementInfo {
+        id: ms(a.id),
+        at_ms: ms(a.at_ms),
+        kind: match a.kind {
+            K::Text => AnnouncementKind::Text,
+            K::MaintenancePlanned => AnnouncementKind::MaintenancePlanned,
+            K::MaintenanceReminder => AnnouncementKind::MaintenanceReminder,
+            K::MaintenanceStarted => AnnouncementKind::MaintenanceStarted,
+            K::MaintenanceOver => AnnouncementKind::MaintenanceOver,
+            K::MaintenanceCancelled => AnnouncementKind::MaintenanceCancelled,
+            K::Unsupported => AnnouncementKind::Unsupported,
+        },
+        text: a.text,
+        starts_at_ms: ms(a.starts_at_ms),
+        minutes: a.minutes,
     }
 }
 

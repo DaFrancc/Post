@@ -196,10 +196,66 @@ start.
 
 ## Backups
 
-Back up the `post-data` volume (a SQLite database in WAL mode; stop the pod
-or use `sqlite3 .backup` for a consistent copy) and, separately, the
-`post-db-key` secret. Losing the server data loses only messages not yet
-delivered and the account registry: people keep their own history.
+Losing the server's data loses only messages not yet delivered and the
+account registry: people keep their own history. But without the registry
+nobody can log in, so keep backups.
+
+```sh
+deploy/server.sh backup                      # asks for a passphrase
+deploy/server.sh backup --to age1...         # to an age public key, for cron
+```
+
+A backup is one file in `/root/post-backups/` holding the database, both
+secrets and `post.env`, encrypted with [age](https://age-encryption.org). It
+holds the database key, so it is always encrypted: with a passphrase you type,
+or to a public key (`age-keygen -o key.txt` on your own computer prints it),
+which lets it run unattended without this server being able to open its own
+backups. Copy it off the server. postd stops for a few seconds while the
+database is copied: messages wait in apps' outboxes meanwhile, and calls in
+progress carry on.
+
+Bring it up on a new machine, where it never overwrites an existing server:
+
+```sh
+deploy/server.sh restore FILE                         # passphrase
+deploy/server.sh restore FILE --identity key.txt      # age key
+```
+
+**Moving to another machine.** Back up with `--stop`, which leaves the old
+server off for good, so nothing reaches it after the copy: apps keep their
+messages until they reach the new one. Then restore on the new machine and
+point the domain at it. Apps carry on by themselves once the name resolves to
+the new address.
+
+By hand: stop `post-server`, `podman volume export post-data`, and keep the
+`post-db-key` secret separately.
+
+## Announcements and maintenance
+
+Everyone on the server sees one channel of announcements, pinned at the top of
+their conversation list. They show as from the server's domain and are never
+deleted. Choose who may post from the app:
+
+```sh
+deploy/server.sh host add YOUR_USERNAME     # host remove USER, host list
+deploy/server.sh announce "New: calls work in groups."   # or post from here
+```
+
+Before taking the server down, plan it: everyone is told in their own time
+zone, and reminded a day, an hour, 30 minutes and 5 minutes before. Hosts can
+do the same from the app, by typing `/maintenance` in the channel.
+
+```sh
+deploy/server.sh maintenance plan --at "2026-11-14 02:00" --minutes 15 --reason "moving to a new machine"
+deploy/server.sh maintenance plan --in "2 hours" --minutes 10
+deploy/server.sh maintenance plan --minutes 10   # starting now
+deploy/server.sh maintenance end                 # cancel it, or say it is over
+```
+
+`--at` is in this machine's time zone, and is said back in words before
+anything is sent. The server announces the start itself, and that it is over
+when the time is up; end it sooner with `maintenance end`. A routine backup
+needs none of this: postd is down for seconds, and messages wait in apps.
 
 ## Alternative: compose
 

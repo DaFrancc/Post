@@ -902,6 +902,7 @@ class _ChatViewState extends State<ChatView> {
       onCancelEdit: _cancelEdit,
       onMenu: (at) => _messageMenu(m, at),
       onPerson: (anchor) => unawaited(showProfileCard(anchor, _state, m.senderUsername)),
+      receipts: () => _state.client.messageReceipts(conversation: widget.conversation.id, message: m.id),
     ),
   };
 }
@@ -1636,8 +1637,12 @@ class _MessageTile extends StatefulWidget {
     required this.onMenu,
     required this.onPerson,
     required this.arrival,
+    required this.receipts,
     this.flight,
   });
+
+  /// Who has this message (yours), for the ticks' hover card.
+  final Future<MessageReceiptsInfo> Function() receipts;
 
   /// The sender's avatar or name was clicked: given what was clicked, to
   /// show their card beside it.
@@ -1962,6 +1967,12 @@ class _MessageTileState extends State<_MessageTile> with TickerProviderStateMixi
                           ),
                           const SizedBox(width: 14),
                           Expanded(child: body),
+                          // Your messages' ticks, level with their first line.
+                          if (m.outgoing && !m.deleted && !m.failed)
+                            Padding(
+                              padding: EdgeInsets.only(left: 10, top: widget.startsGroup ? 25 : 4),
+                              child: _Ticks(m, load: widget.receipts),
+                            ),
                         ],
                       ),
                     ),
@@ -2034,6 +2045,314 @@ class _MessageTileState extends State<_MessageTile> with TickerProviderStateMixi
       arrival: widget.arrival,
       play: widget.arrived && widget.arrival.inPlace,
       delay: const Duration(milliseconds: 140),
+    );
+  }
+}
+
+/// Read receipts' blue, a little brighter than the accent so it reads at a
+/// glance against the grey of the other ticks.
+const _readBlue = Color(0xFF5FB8FF);
+
+/// Where one of your messages has got to: a clock while it waits to send,
+/// one tick when the server has it, two when everyone else has it, two blue
+/// when everyone has read it. Hovering says who, person by person.
+class _Ticks extends StatefulWidget {
+  const _Ticks(this.m, {required this.load});
+
+  final MessageInfo m;
+  final Future<MessageReceiptsInfo> Function() load;
+
+  @override
+  State<_Ticks> createState() => _TicksState();
+}
+
+class _TicksState extends State<_Ticks> {
+  MessageReceiptsInfo? _who;
+  bool _hover = false;
+
+  String get _label {
+    final m = widget.m;
+    return m.pending ? 'Sending' : (m.read ? 'Read' : (m.delivered ? 'Delivered' : 'Sent'));
+  }
+
+  Future<void> _load() async {
+    if (widget.m.pending) return;
+    try {
+      final who = await widget.load();
+      if (mounted) setState(() => _who = who);
+    } catch (_) {
+      // The card says only the summary.
+    }
+  }
+
+  @override
+  void didUpdateWidget(_Ticks old) {
+    super.didUpdateWidget(old);
+    // A tick moved on while the card is open: say who now.
+    if (_hover && (old.m.read != widget.m.read || old.m.delivered != widget.m.delivered || old.m.pending != widget.m.pending)) {
+      unawaited(_load());
+    }
+  }
+
+  /// A sentence for when there is no one to list, or null when there is.
+  String? _why(MessageReceiptsInfo? who) {
+    if (widget.m.pending) return 'Waiting to reach the server.';
+    if (who == null) return null;
+    if (who.tooLarge) return 'The server has it. Groups this large have no receipts.';
+    if (who.people.isEmpty) return 'The server has it. No one else is here.';
+    return null;
+  }
+
+  /// The brief overview, on hover: for each stage, up to three faces and how
+  /// many more.
+  InlineSpan _card() {
+    const strong = TextStyle(fontWeight: FontWeight.w600, color: PColors.textStrong);
+    final who = _who;
+    final why = _why(who);
+    if (who == null || why != null) {
+      return TextSpan(
+        children: [
+          TextSpan(text: _label, style: strong),
+          if (why != null) TextSpan(text: '\n$why'),
+        ],
+      );
+    }
+    return WidgetSpan(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final stage in _ReceiptStage.values)
+            if (stage.of(who.people) case final people when people.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Tooltip(
+                      message: stage.title,
+                      child: Icon(stage.icon, size: 15, color: stage.color),
+                    ),
+                    const SizedBox(width: 10),
+                    _Faces(people),
+                    const SizedBox(width: 8),
+                    Text('${people.length} ${stage.counted}', style: const TextStyle(fontSize: 12, color: PColors.textMuted)),
+                  ],
+                ),
+              ),
+          const SizedBox(height: 4),
+          const Text('Click for details', style: TextStyle(fontSize: 11.5, color: PColors.textFaint)),
+        ],
+      ),
+    );
+  }
+
+  /// The detailed overview, on click: everyone, stage by stage.
+  Future<void> _details() async {
+    Tooltip.dismissAllToolTips();
+    await _load();
+    if (!mounted) return;
+    final who = _who;
+    final why = _why(who);
+    final m = widget.m;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => PDialog(
+        title: 'Message info',
+        width: 420,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.6),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Which message: its text, and when it was sent.
+                Container(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                  decoration: BoxDecoration(
+                    color: PColors.sunken,
+                    border: Border.all(color: PColors.border),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        plainText(m.body ?? ''),
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13.5, height: 1.45, color: PColors.textBody),
+                      ),
+                      const SizedBox(height: 4),
+                      Text('Sent ${messageTime(m.sentAtMs)}', style: PType.small),
+                    ],
+                  ),
+                ),
+                if (why != null || who == null) ...[
+                  const SizedBox(height: 14),
+                  Text(why ?? _label, style: const TextStyle(fontSize: 13.5, height: 1.45, color: PColors.textMuted)),
+                ],
+                if (who != null && why == null)
+                  for (final stage in _ReceiptStage.values)
+                    if (stage.of(who.people) case final people when people.isNotEmpty) ...[
+                      const SizedBox(height: 18),
+                      Row(
+                        children: [
+                          Icon(stage.icon, size: 15, color: stage.color),
+                          const SizedBox(width: 8),
+                          Text('${stage.title.toUpperCase()} · ${people.length}', style: PType.label),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      for (final p in people)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 5),
+                          child: Row(
+                            children: [
+                              PAvatar(name: p.shownName, colorKey: p.username, size: 32),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      p.shownName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 13.5, color: PColors.textStrong),
+                                    ),
+                                    Text('@${p.username}', maxLines: 1, overflow: TextOverflow.ellipsis, style: PType.small),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                if (who != null && who.readReceiptsOff && why == null) ...[
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Your read receipts are off, so you don’t see who has read it.',
+                    style: TextStyle(fontSize: 12.5, height: 1.45, color: PColors.textFaint),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final m = widget.m;
+    final (icon, color) = m.pending
+        ? (Icons.schedule_rounded, PColors.textFaint)
+        : m.read
+        ? (Icons.done_all_rounded, _readBlue)
+        : m.delivered
+        ? (Icons.done_all_rounded, PColors.textFaint)
+        : (Icons.done_rounded, PColors.textFaint);
+    final label = _label;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) {
+        _hover = true;
+        unawaited(_load());
+      },
+      onExit: (_) => _hover = false,
+      child: GestureDetector(
+        onTap: () => unawaited(_details()),
+        child: Tooltip(
+          richMessage: _card(),
+          // Long enough to fetch who, short enough not to feel slow.
+          waitDuration: const Duration(milliseconds: 250),
+          preferBelow: false,
+          textStyle: const TextStyle(fontSize: 12.5, height: 1.5, color: PColors.textBody),
+          decoration: BoxDecoration(
+            color: PColors.panelRaised,
+            border: Border.all(color: PColors.borderStrong),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: AnimatedSwitcher(
+            duration: PMotion.normal,
+            transitionBuilder: (child, a) => FadeTransition(
+              opacity: a,
+              child: ScaleTransition(scale: Tween(begin: 0.7, end: 1.0).animate(a), child: child),
+            ),
+            child: Icon(icon, key: ValueKey(label), size: 15, color: color, semanticLabel: label),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// How far people have got with a message, furthest first, as the ticks
+/// show it.
+enum _ReceiptStage {
+  read(ReceiptState.read, Icons.done_all_rounded, _readBlue, 'Read', 'read'),
+  delivered(ReceiptState.delivered, Icons.done_all_rounded, PColors.textFaint, 'Delivered', 'delivered'),
+  waiting(ReceiptState.waiting, Icons.done_rounded, PColors.textFaint, 'Not delivered yet', 'waiting');
+
+  const _ReceiptStage(this.state, this.icon, this.color, this.title, this.counted);
+
+  final ReceiptState state;
+  final IconData icon;
+  final Color color;
+
+  /// The stage's name, and the word after a count of people at it.
+  final String title;
+  final String counted;
+
+  List<PersonReceiptInfo> of(List<PersonReceiptInfo> people) => people.where((p) => p.state == state).toList();
+}
+
+/// Up to three faces, overlapping, and how many more.
+class _Faces extends StatelessWidget {
+  const _Faces(this.people);
+
+  final List<PersonReceiptInfo> people;
+
+  static const _size = 22.0;
+  static const _step = 15.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = people.take(3).toList();
+    final more = people.length - shown.length;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: _size + _step * (shown.length - 1),
+          height: _size,
+          child: Stack(
+            children: [
+              for (final (i, p) in shown.indexed)
+                Positioned(
+                  left: _step * i,
+                  child: Container(
+                    // A ring of the card's colour, so each face reads as cut
+                    // out of the one behind.
+                    padding: const EdgeInsets.all(1.5),
+                    decoration: const BoxDecoration(color: PColors.panelRaised, shape: BoxShape.circle),
+                    child: PAvatar(name: p.shownName, colorKey: p.username, size: _size - 3),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        if (more > 0) ...[
+          const SizedBox(width: 6),
+          Text(
+            '+$more',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: PColors.textMuted),
+          ),
+        ],
+      ],
     );
   }
 }

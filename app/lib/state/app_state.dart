@@ -29,11 +29,15 @@ const typingShownFor = Duration(seconds: 6);
 /// Where an app update has got to.
 enum UpdateStage { idle, checking, downloading, ready, installing }
 
+/// [AppState.selected] while the server's announcements are on screen.
+const announcementsId = 'announcements';
+
 class AppState extends ChangeNotifier {
   AppState(this.client, this.me, {required String dictionaries, this.onSignedOut}) : spelling = Spelling(client, dictionaries) {
     unawaited(client.run());
     _events = client.events().listen(_onEvent);
     unawaited(refreshConversations());
+    unawaited(refreshAnnouncements());
     unawaited(_loadOwnPresence());
     unawaited(person(me.username));
     unawaited(_loadSettings());
@@ -167,6 +171,10 @@ class AppState extends ChangeNotifier {
         break;
       case EventKind.call:
         unawaited(calls.onCallEvent());
+      case EventKind.announcement:
+        break;
+      case EventKind.announcements:
+        unawaited(refreshAnnouncements());
     }
     _relay.add(e);
   }
@@ -211,6 +219,37 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     } catch (_) {
       // The list stays as it was; the next event tries again.
+    }
+  }
+
+  // ---------------------------------------------------------------- announcements
+
+  /// The server's announcements at a glance: unread, the newest, whether
+  /// this account is a host, any maintenance planned.
+  AnnouncementSummary? announcements;
+
+  Future<void> refreshAnnouncements() async {
+    try {
+      final before = announcements;
+      final now = await client.announcementSummary();
+      announcements = now;
+      // The channel open reads them as they come.
+      if (selected == announcementsId && now.unread > 0) {
+        unawaited(markAnnouncementsRead());
+      } else if (before != null && now.unread > before.unread) {
+        unawaited(sounds.play(SoundEvent.message));
+      }
+      notifyListeners();
+    } catch (_) {
+      // Stays as it was; the next event tries again.
+    }
+  }
+
+  Future<void> markAnnouncementsRead() async {
+    try {
+      await client.markAnnouncementsRead();
+    } catch (_) {
+      // A convenience, like unread counts; tried again on opening.
     }
   }
 
@@ -425,7 +464,11 @@ class AppState extends ChangeNotifier {
     if (selected == id) return;
     selected = id;
     notifyListeners();
-    if (id != null) unawaited(markRead(id));
+    if (id == announcementsId) {
+      unawaited(markAnnouncementsRead());
+    } else if (id != null) {
+      unawaited(markRead(id));
+    }
   }
 
   /// Mark a conversation read. Cheap when nothing is unread: the core sends

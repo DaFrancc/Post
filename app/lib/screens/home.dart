@@ -11,6 +11,7 @@ import '../theme.dart';
 import '../ui/controls.dart';
 import '../ui/format.dart';
 import '../ui/markup.dart' show plainText;
+import 'announcements.dart';
 import 'calls.dart';
 import 'chat.dart';
 import 'dialogs.dart';
@@ -82,7 +83,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     switchOutCurve: Curves.easeIn,
                     transitionBuilder: _fadeRise,
                     child: c == null
-                        ? _Start(key: const ValueKey('start'), state: state)
+                        ? (state.selected == announcementsId
+                              ? AnnouncementsView(key: const ValueKey(announcementsId), state: state)
+                              : _Start(key: const ValueKey('start'), state: state))
                         : ChatView(
                             key: ValueKey(c.id),
                             state: state,
@@ -487,6 +490,8 @@ class _ConversationListState extends State<_ConversationList> {
     bool matches(ConversationInfo c) => q.isEmpty || c.title.toLowerCase().contains(q) || (c.peer?.contains(q) ?? false);
     final dms = state.conversations.where((c) => !c.isGroup && matches(c)).toList();
     final groups = state.conversations.where((c) => c.isGroup && matches(c)).toList();
+    final announcements = state.announcements;
+    final showAnnouncements = announcements != null && (q.isEmpty || 'announcements'.contains(q));
     return Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -552,14 +557,16 @@ class _ConversationListState extends State<_ConversationList> {
             ),
           ),
           Expanded(
-            child: state.conversations.isEmpty
+            child: state.conversations.isEmpty && announcements == null
                 ? const _EmptyList()
                 : ListView(
                     padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
                     children: [
+                      if (showAnnouncements) ...[const SizedBox(height: 6), _AnnouncementsRow(state: state, s: announcements)],
+                      if (state.conversations.isEmpty && q.isEmpty) const _EmptyList(),
                       if (dms.isNotEmpty) ...[const _SectionLabel('Direct messages'), for (final c in dms) _ConversationRow(state: state, c: c)],
                       if (groups.isNotEmpty) ...[const _SectionLabel('Groups'), for (final c in groups) _ConversationRow(state: state, c: c)],
-                      if (dms.isEmpty && groups.isEmpty)
+                      if (dms.isEmpty && groups.isEmpty && !showAnnouncements && q.isNotEmpty)
                         const Padding(
                           padding: EdgeInsets.all(20),
                           child: Text('Nothing matches.', style: PType.small, textAlign: TextAlign.center),
@@ -742,6 +749,84 @@ class _ConversationRowState extends State<_ConversationRow> {
                 ],
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The server's announcements, pinned above the conversations.
+class _AnnouncementsRow extends StatefulWidget {
+  const _AnnouncementsRow({required this.state, required this.s});
+
+  final AppState state;
+  final AnnouncementSummary s;
+
+  @override
+  State<_AnnouncementsRow> createState() => _AnnouncementsRowState();
+}
+
+class _AnnouncementsRowState extends State<_AnnouncementsRow> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.s;
+    final state = widget.state;
+    final selected = state.selected == announcementsId;
+    final unread = s.unread > 0 && !selected;
+    final bg = selected ? PColors.active : (_hover ? PColors.hover : PColors.panel);
+    final preview = announcementPreview(s);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        onTap: () => state.select(announcementsId),
+        child: AnimatedContainer(
+          duration: PMotion.fast,
+          constraints: const BoxConstraints(minHeight: 52),
+          margin: const EdgeInsets.only(bottom: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: bg,
+            border: Border.all(color: selected ? PColors.activeEdge : bg),
+            borderRadius: BorderRadius.circular(PShape.rowRadius),
+          ),
+          child: Row(
+            children: [
+              const ServerMark(size: 36),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Announcements',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: unread ? FontWeight.w600 : FontWeight.w500,
+                        color: selected || unread ? PColors.textStrong : const Color(0xFFC9CDDC),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      s.latest == null ? preview : '${s.server} · $preview',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12.5, color: PColors.textFaint),
+                    ),
+                  ],
+                ),
+              ),
+              AnimatedScale(
+                scale: unread ? 1 : 0,
+                duration: PMotion.normal,
+                curve: unread ? Curves.easeOutBack : Curves.easeIn,
+                child: unread ? Padding(padding: const EdgeInsets.only(left: 8), child: _Badge(s.unread)) : const SizedBox(),
+              ),
+            ],
           ),
         ),
       ),

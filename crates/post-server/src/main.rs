@@ -4,6 +4,10 @@
 //! postd keygen /etc/post/db.key
 //! postd serve  --domain chat.example.org --db /var/lib/post/post.db --db-key-file /etc/post/db.key
 //! postd invite --db /var/lib/post/post.db --db-key-file /etc/post/db.key [--bot] [--days 7]
+//! postd host add|remove USER, postd host list
+//! postd announce TEXT
+//! postd maintenance plan [--at TIME] --minutes N [--reason TEXT] [--quiet]
+//! postd maintenance end|status
 //! ```
 //!
 //! The database key is read from a file, never from the command line or an
@@ -18,6 +22,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, bail};
 use clap::{Parser, Subcommand};
+use post_server::announce::{self, By};
 use zeroize::Zeroizing;
 
 #[derive(Parser)]
@@ -143,6 +148,86 @@ enum Command {
         #[arg(long, default_value_t = 7)]
         days: u64,
     },
+    /// Choose the hosts: accounts that may post announcements and plan
+    /// maintenance from the app.
+    Host {
+        #[command(flatten)]
+        db: DbArgs,
+        #[command(subcommand)]
+        action: HostAction,
+    },
+    /// Post an announcement to everyone on the server. The running server
+    /// sends it out within a few seconds.
+    Announce {
+        #[command(flatten)]
+        db: DbArgs,
+        /// The text; `-` reads it from standard input.
+        text: String,
+    },
+    /// Plan maintenance, so everyone is told and reminded beforehand; end
+    /// it; or show the plan.
+    Maintenance {
+        #[command(flatten)]
+        db: DbArgs,
+        #[command(subcommand)]
+        action: MaintenanceAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum HostAction {
+    /// Make an account a host.
+    Add { username: String },
+    /// Stop an account being a host.
+    Remove { username: String },
+    /// List the hosts.
+    List,
+}
+
+#[derive(Subcommand)]
+enum MaintenanceAction {
+    /// Plan maintenance. Everyone is told now (unless --quiet), reminded a
+    /// day, an hour, 30 minutes and 5 minutes before, and told when it
+    /// starts and when it is over.
+    Plan {
+        /// When it starts: RFC 3339 (2026-11-14T02:00:00+01:00), or
+        /// @UNIX-SECONDS. Leave it out to start now.
+        #[arg(long, value_parser = parse_time)]
+        at: Option<u64>,
+        /// How long it should take.
+        #[arg(long)]
+        minutes: u32,
+        /// Why, shown to everyone.
+        #[arg(long, default_value = "")]
+        reason: String,
+        /// Do not announce the plan now; only the reminders.
+        #[arg(long)]
+        quiet: bool,
+    },
+    /// Cancel the planned maintenance, or announce the one underway is over.
+    End,
+    /// Show the maintenance planned or underway.
+    Status,
+}
+
+/// A time as Unix milliseconds, from RFC 3339 or `@` and Unix seconds.
+fn parse_time(s: &str) -> Result<u64, String> {
+    if let Some(secs) = s.strip_prefix('@') {
+        return secs.parse::<u64>().map(|n| n * 1000).map_err(|_| format!("{s} is not @ and a number of seconds"));
+    }
+    let t = time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339)
+        .map_err(|e| format!("{s} is not an RFC 3339 time such as 2026-11-14T02:00:00+01:00: {e}"))?;
+    u64::try_from(t.unix_timestamp_nanos() / 1_000_000).map_err(|_| format!("{s} is before 1970"))
+}
+
+fn format_time(ms: u64) -> String {
+    let t = i64::try_from(ms / 1000).ok().and_then(|s| time::OffsetDateTime::from_unix_timestamp(s).ok());
+    t.and_then(|t| t.format(&time::format_description::well_known::Rfc3339).ok()).unwrap_or_else(|| format!("@{}", ms / 1000))
+}
+
+fn open_db(db: &DbArgs) -> anyhow::Result<rusqlite::Connection> {
+    let key = read_key(db)?;
+    post_server::db::open(&db.db, &key).with_context(|| format!("opening {}", db.db.display()))
 }
 
 fn read_key(args: &DbArgs) -> anyhow::Result<Zeroizing<[u8; 32]>> {
@@ -275,10 +360,63 @@ async fn main() -> anyhow::Result<()> {
             drop(running);
         }
         Command::Invite { db, bot, days } => {
-            let key = read_key(&db)?;
-            let mut conn = post_server::db::open(&db.db, &key).with_context(|| format!("opening {}", db.db.display()))?;
+            let mut conn = open_db(&db)?;
             let code = post_server::db::create_invite(&mut conn, bot, days * 24 * 3600 * 1000)?;
             println!("{code}");
+        }
+        Command::Host { db, action } => {
+            let mut conn = open_db(&db)?;
+            match action {
+                HostAction::Add { username } => match announce::add_host(&mut conn, &username)? {
+                    true => println!("{username} is now a host"),
+                    false => println!("{username} was already a host"),
+                },
+                HostAction::Remove { username } => match announce::remove_host(&mut conn, &username)? {
+                    true => println!("{username} is no longer a host"),
+                    false => println!("{username} was not a host"),
+                },
+                HostAction::List => {
+                    for h in announce::hosts(&conn)? {
+                        println!("{h}");
+                    }
+                }
+            }
+        }
+        Command::Announce { db, text } => {
+            let text = if text == "-" { std::io::read_to_string(std::io::stdin()).context("reading the announcement")? } else { text };
+            let mut conn = open_db(&db)?;
+            announce::announce(&mut conn, By::Operator, None, &text)?;
+            println!("announced");
+        }
+        Command::Maintenance { db, action } => {
+            let mut conn = open_db(&db)?;
+            match action {
+                MaintenanceAction::Plan { at, minutes, reason, quiet } => {
+                    let req = post_proto::PlanMaintenance { starts_at_ms: at.unwrap_or(0), minutes, reason, quiet };
+                    announce::plan(&mut conn, By::Operator, &req)?;
+                    print_maintenance(&conn)?;
+                }
+                MaintenanceAction::End => match announce::end(&mut conn, By::Operator)?.0 {
+                    announce::Ended::Cancelled => println!("the planned maintenance is cancelled; everyone has been told"),
+                    announce::Ended::Over => println!("maintenance is over; everyone has been told"),
+                },
+                MaintenanceAction::Status => print_maintenance(&conn)?,
+            }
+        }
+    }
+    Ok(())
+}
+
+fn print_maintenance(conn: &rusqlite::Connection) -> anyhow::Result<()> {
+    match announce::maintenance(conn)? {
+        None => println!("no maintenance is planned"),
+        Some(m) => {
+            let state = match m.state() {
+                post_proto::MaintenanceState::Underway => "underway since",
+                _ => "planned for",
+            };
+            let reason = if m.reason.is_empty() { String::new() } else { format!(": {}", m.reason) };
+            println!("maintenance {state} {}, for about {} minutes{reason}", format_time(m.starts_at_ms), m.minutes);
         }
     }
     Ok(())

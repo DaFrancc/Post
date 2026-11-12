@@ -93,7 +93,11 @@ class Harness {
   }
 
   /// A new invite code.
-  Future<String> invite() => run('$bin/postd', ['invite'], env: _serverEnv);
+  Future<String> invite() => postd(['invite']);
+
+  /// Run a `postd` admin command against the test server's database, as
+  /// its operator would.
+  Future<String> postd(List<String> args) => run('$bin/postd', args, env: _serverEnv);
 
   /// A key file for a new profile `user`, and its path.
   Future<String> keyFor(String user) async {

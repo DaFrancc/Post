@@ -125,6 +125,8 @@ enum Command {
     Delete { conversation: String, message: String },
     /// Show every version of a message.
     Versions { conversation: String, message: String },
+    /// Who has one of your messages, and who has read it.
+    Receipts { conversation: String, message: String },
     /// Change your profile. Unspecified fields stay as they are.
     Profile {
         /// Global display name ("" clears it).
@@ -168,6 +170,27 @@ enum Command {
     },
     /// Mark a conversation read on all your devices.
     Read { conversation: String },
+    /// Whether you send read receipts; `on` or `off` to change it, on all
+    /// your devices. Off, you also do not see when others read yours.
+    ReadReceipts {
+        #[arg(value_parser = ["on", "off"])]
+        set: Option<String>,
+    },
+    /// Show the server's announcements, or mark them read.
+    Announcements {
+        #[command(subcommand)]
+        cmd: Option<AnnouncementsCommand>,
+        /// How many of the newest to show.
+        #[arg(long, default_value_t = 20)]
+        limit: u32,
+    },
+    /// As one of the server's hosts: post an announcement to everyone.
+    Announce { text: String },
+    /// Planned maintenance: see it, or as a host plan or end it.
+    Maintenance {
+        #[command(subcommand)]
+        cmd: MaintenanceCommand,
+    },
     /// Serve the local API as JSON-RPC for bots and scripts.
     Daemon {
         /// Talk over stdin and stdout.
@@ -179,6 +202,39 @@ enum Command {
     },
     /// Print the OpenRPC description of the local API.
     Schema,
+}
+
+#[derive(Subcommand)]
+enum AnnouncementsCommand {
+    /// Mark them read, on all your devices.
+    Read,
+}
+
+#[derive(Subcommand)]
+enum MaintenanceCommand {
+    /// Show unread announcements, whether you are a host, and any
+    /// maintenance planned.
+    Status,
+    /// Plan maintenance. Everyone is told now (unless --quiet), reminded a
+    /// day, an hour, 30 minutes and 5 minutes before, and told when it
+    /// starts and ends.
+    Plan {
+        /// When it starts, as YYYY-MM-DD HH:MM in UTC. Leave it out to
+        /// start now.
+        #[arg(long, value_parser = parse_utc)]
+        at: Option<u64>,
+        /// How long it should take.
+        #[arg(long)]
+        minutes: u32,
+        /// Why, shown to everyone.
+        #[arg(long, default_value = "")]
+        reason: String,
+        /// Do not announce the plan now; only the reminders.
+        #[arg(long)]
+        quiet: bool,
+    },
+    /// Cancel the planned maintenance, or announce the one underway is over.
+    End,
 }
 
 #[derive(Subcommand)]
@@ -410,6 +466,7 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         }
         Command::Delete { conversation, message } => ("delete", json!({ "conversation": conversation, "message": message })),
         Command::Versions { conversation, message } => ("versions", json!({ "conversation": conversation, "message": message })),
+        Command::Receipts { conversation, message } => ("message_receipts", json!({ "conversation": conversation, "message": message })),
         Command::Profile { display_name, typing_template, note, keep_note, arrival } => (
             "set_profile",
             json!({
@@ -426,6 +483,16 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         Command::SafetyNumber { username } => ("safety_number", json!({ "username": username })),
         Command::Verify { username, undo } => ("set_verified", json!({ "username": username, "verified": !undo })),
         Command::Read { conversation } => ("mark_read", json!({ "conversation": conversation })),
+        Command::ReadReceipts { set: None } => ("read_receipts", json!({})),
+        Command::ReadReceipts { set: Some(s) } => ("set_read_receipts", json!({ "on": s == "on" })),
+        Command::Announcements { cmd: None, limit } => ("announcements", json!({ "limit": limit })),
+        Command::Announcements { cmd: Some(AnnouncementsCommand::Read), .. } => ("mark_announcements_read", json!({})),
+        Command::Announce { text } => ("announce", json!({ "text": text })),
+        Command::Maintenance { cmd: MaintenanceCommand::Status } => ("announcement_summary", json!({})),
+        Command::Maintenance { cmd: MaintenanceCommand::Plan { at, minutes, reason, quiet } } => {
+            ("plan_maintenance", json!({ "starts_at_ms": at, "minutes": minutes, "reason": reason, "quiet": quiet }))
+        }
+        Command::Maintenance { cmd: MaintenanceCommand::End } => ("end_maintenance", json!({})),
         Command::Presence { presence } => ("set_presence", json!({ "presence": presence })),
         Command::Typing { conversation } => ("send_typing", json!({ "conversation": conversation })),
         Command::Keygen { .. } | Command::Daemon { .. } | Command::Schema | Command::Link { .. } => return None,
@@ -447,6 +514,48 @@ fn time(ms: u64) -> String {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
     format!("{y:04}-{m:02}-{d:02} {:02}:{:02}", rem / 3600, rem % 3600 / 60)
+}
+
+/// `YYYY-MM-DD HH:MM` in UTC as Unix milliseconds; the inverse of [`time`].
+fn parse_utc(s: &str) -> Result<u64, String> {
+    let bad = || format!("{s} is not a time like 2026-11-14 02:00 (UTC)");
+    let (date, clock) = s.trim().split_once([' ', 'T']).ok_or_else(bad)?;
+    let mut d = date.splitn(3, '-').map(str::parse::<i64>);
+    let (Some(Ok(y)), Some(Ok(m)), Some(Ok(day))) = (d.next(), d.next(), d.next()) else { return Err(bad()) };
+    let (h, min) = clock.split_once(':').ok_or_else(bad)?;
+    let (Ok(h), Ok(min)) = (h.parse::<i64>(), min.parse::<i64>()) else { return Err(bad()) };
+    if !(1..=12).contains(&m) || !(1..=31).contains(&day) || !(0..24).contains(&h) || !(0..60).contains(&min) {
+        return Err(bad());
+    }
+    // Days since 1970-01-01 from a civil date (Howard Hinnant's algorithm).
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400);
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    u64::try_from((days * 86_400 + h * 3600 + min * 60) * 1000).map_err(|_| bad())
+}
+
+/// An announcement as a line of text, times in UTC.
+fn announcement_text(a: &Value) -> String {
+    let starts = time(a["starts_at_ms"].as_u64().unwrap_or(0));
+    let minutes = a["minutes"].as_u64().unwrap_or(0);
+    let reason = if s(a, "text").is_empty() { String::new() } else { format!(" Reason: {}.", s(a, "text")) };
+    let auto = " (Sent automatically by the server.)";
+    match s(a, "kind") {
+        "text" => s(a, "text").to_string(),
+        "maintenance_planned" => format!("Maintenance is planned for {starts} UTC, for about {minutes} minutes.{reason}{auto}"),
+        "maintenance_reminder" => {
+            let left = a["starts_at_ms"].as_u64().unwrap_or(0).saturating_sub(a["at_ms"].as_u64().unwrap_or(0)) / 60_000;
+            let left = if left >= 120 { format!("{} hours", (left + 30) / 60) } else { format!("{left} minutes") };
+            format!("Reminder: maintenance starts in about {left}, at {starts} UTC, for about {minutes} minutes.{reason}{auto}")
+        }
+        "maintenance_started" => format!("Maintenance has started. The server should be back in about {minutes} minutes.{reason}{auto}"),
+        "maintenance_over" => format!("Maintenance is over, and the server is back.{auto}"),
+        "maintenance_cancelled" => format!("The maintenance planned for {starts} UTC is cancelled.{auto}"),
+        _ => "[an announcement this version cannot show; update post]".into(),
+    }
 }
 
 fn s<'a>(v: &'a Value, k: &str) -> &'a str {
@@ -515,7 +624,7 @@ fn print_human(method: &str, v: &Value) {
                 if m["edited"] == true {
                     tags.push(format!("edited, {} versions", m["versions"]));
                 }
-                if matches!(s(m, "state"), "pending" | "failed") {
+                if matches!(s(m, "state"), "pending" | "failed" | "sent" | "delivered" | "read") {
                     tags.push(s(m, "state").to_string());
                 }
                 let tags = if tags.is_empty() { String::new() } else { format!("  ({})", tags.join("; ")) };
@@ -542,6 +651,37 @@ fn print_human(method: &str, v: &Value) {
             println!("safety number: {}", if v["verified"] == true { "verified" } else { "not verified" });
         }
         "safety_number" => println!("{}", s(v, "safety_number")),
+        "read_receipts" => println!("read receipts are {}", if v["on"] == true { "on" } else { "off" }),
+        "message_receipts" => {
+            if v["too_large"] == true {
+                println!("this conversation is too large for receipts");
+            }
+            for p in v["people"].as_array().into_iter().flatten() {
+                println!("{} (@{})  {}", s(p, "shown_name"), s(p, "username"), s(p, "state"));
+            }
+            if v["read_receipts_off"] == true {
+                println!("your read receipts are off, so you see deliveries only");
+            }
+        }
+        "announcements" => {
+            for a in v.as_array().into_iter().flatten() {
+                println!("{}  {}", time(a["at_ms"].as_u64().unwrap_or(0)), announcement_text(a));
+            }
+        }
+        "announcement_summary" => {
+            println!("{} unread announcements from {}", v["unread"], s(v, "server"));
+            if v["host"] == true {
+                println!("you are a host: you can announce and plan maintenance");
+            }
+            match v["maintenance"].as_object() {
+                None => println!("no maintenance planned"),
+                Some(m) => {
+                    let when = time(m["starts_at_ms"].as_u64().unwrap_or(0));
+                    let state = if m["underway"] == true { "underway since" } else { "planned for" };
+                    println!("maintenance {state} {when} UTC, for about {} minutes", m["minutes"]);
+                }
+            }
+        }
         "devices" => {
             for d in v.as_array().into_iter().flatten() {
                 let name = if s(d, "name").is_empty() { "(unnamed)" } else { s(d, "name") };
@@ -737,6 +877,15 @@ mod tests {
             Command::Group { cmd: GroupCommand::History { conversation: "00".into(), shared: true, hidden: false, days: 7 } },
             Command::Devices { cmd: Some(DevicesCommand::Rename { device: "abcd".into(), name: "x".into() }) },
             Command::Devices { cmd: Some(DevicesCommand::Remove { device: "abcd".into(), yes: true }) },
+            Command::Announcements { cmd: None, limit: 5 },
+            Command::Announcements { cmd: Some(AnnouncementsCommand::Read), limit: 5 },
+            Command::Announce { text: "hi".into() },
+            Command::ReadReceipts { set: None },
+            Command::Receipts { conversation: "00".into(), message: "00".into() },
+            Command::ReadReceipts { set: Some("off".into()) },
+            Command::Maintenance { cmd: MaintenanceCommand::Status },
+            Command::Maintenance { cmd: MaintenanceCommand::Plan { at: None, minutes: 5, reason: String::new(), quiet: false } },
+            Command::Maintenance { cmd: MaintenanceCommand::End },
         ];
         for c in &cmds {
             let (m, _) = to_call(c).expect("maps");
@@ -750,5 +899,16 @@ mod tests {
         // Checked with `date -u -d @1794268800`.
         assert_eq!(time(1_794_268_800_000), "2026-11-10 00:00");
         assert_eq!(time(951_782_400_000 + 3_723_000), "2000-02-29 01:02");
+    }
+
+    #[test]
+    fn utc_times_parse_back() {
+        for ms in [0, 1_794_268_800_000, 951_782_400_000 + 3_720_000, 4_102_444_740_000] {
+            assert_eq!(parse_utc(&time(ms)), Ok(ms));
+        }
+        assert_eq!(parse_utc("2026-11-14T02:00"), parse_utc("2026-11-14 02:00"));
+        for bad in ["2026-13-01 00:00", "2026-11-14", "02:00", "2026-11-14 24:00", "tomorrow"] {
+            assert!(parse_utc(bad).is_err(), "{bad}");
+        }
     }
 }

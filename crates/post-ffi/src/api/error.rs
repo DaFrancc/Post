@@ -83,6 +83,7 @@ fn from_server(code: ErrorCode, detail: &str) -> PostError {
         ErrorCode::ChainRejected => (ErrorKind::Server, "The server refused this device's keys. The server may be for a different address."),
         ErrorCode::Disabled => (ErrorKind::Server, "This device or account has been disabled on the server."),
         ErrorCode::Internal => (ErrorKind::Server, "The server had a problem. Try again in a moment."),
+        ErrorCode::Forbidden => (ErrorKind::Server, "Only the server's hosts can do that."),
         _ => return PostError::new(ErrorKind::Server, format!("The server refused: {}.", detail.trim_end_matches('.'))),
     };
     PostError::new(kind, text)

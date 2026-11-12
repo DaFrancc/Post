@@ -5,6 +5,7 @@
 //! anonymous tokens. It never holds a key that could decrypt a message, and
 //! it keeps no record of who is in which conversation.
 
+pub mod announce;
 mod calls;
 pub mod db;
 mod link;
@@ -56,7 +57,22 @@ pub(crate) struct State {
     pub links: link::Links,
     pub releases: Arc<releases::Releases>,
     pub calls: Option<CallConfig>,
+    /// The announcements change counter sessions were last woken for.
+    pub announced: AtomicU64,
 }
+
+impl State {
+    /// Announcements changed, to `version`: wake every session, once.
+    pub fn announced(&self, version: u64) {
+        if self.announced.fetch_max(version, Ordering::AcqRel) < version {
+            self.hub.wake_announcements();
+        }
+    }
+}
+
+/// How often the server checks the maintenance plan, and looks for
+/// announcements made by `postd` commands.
+const ANNOUNCEMENTS_EVERY: Duration = Duration::from_secs(5);
 
 /// The database, used from blocking threads one request at a time.
 #[derive(Clone)]
@@ -86,6 +102,7 @@ pub(crate) struct Inbox {
     groups: Mutex<BTreeSet<Vec<u8>>>,
     ephemeral: Mutex<VecDeque<(Vec<u8>, Vec<u8>)>>,
     mailbox: AtomicBool,
+    announcements: AtomicBool,
     kicked: AtomicBool,
     pub notify: Notify,
 }
@@ -94,6 +111,7 @@ pub(crate) struct Inbox {
 pub(crate) struct Pending {
     pub kicked: bool,
     pub mailbox: bool,
+    pub announcements: bool,
     pub groups: Vec<Vec<u8>>,
     pub ephemeral: Vec<(Vec<u8>, Vec<u8>)>,
 }
@@ -103,6 +121,7 @@ impl Inbox {
         Pending {
             kicked: self.kicked.load(Ordering::Acquire),
             mailbox: self.mailbox.swap(false, Ordering::AcqRel),
+            announcements: self.announcements.swap(false, Ordering::AcqRel),
             groups: std::mem::take(&mut *lock(&self.groups)).into_iter().collect(),
             ephemeral: std::mem::take(&mut *lock(&self.ephemeral)).into_iter().collect(),
         }
@@ -192,6 +211,15 @@ impl Hub {
         let s = lock(&self.sessions);
         for inbox in devices.iter().filter_map(|d| s.get(d)).flat_map(|m| m.values()) {
             inbox.mailbox.store(true, Ordering::Release);
+            inbox.notify.notify_one();
+        }
+    }
+
+    /// Tell every session announcements changed.
+    pub fn wake_announcements(&self) {
+        let s = lock(&self.sessions);
+        for inbox in s.values().flat_map(|m| m.values()) {
+            inbox.announcements.store(true, Ordering::Release);
             inbox.notify.notify_one();
         }
     }
@@ -294,6 +322,7 @@ pub enum StartError {
 pub fn spawn(listener: TcpListener, config: Config) -> Result<Running, StartError> {
     post_identity::chain::validate_domain(&config.server_domain).map_err(|_| StartError::Domain)?;
     let conn = db::open(&config.db_path, &config.db_key)?;
+    let announced = announce::version(&conn)?;
     let releases = Arc::new(releases::Releases::new(config.releases));
     releases.start();
     let state = Arc::new(State {
@@ -303,10 +332,12 @@ pub fn spawn(listener: TcpListener, config: Config) -> Result<Running, StartErro
         links: link::Links::default(),
         releases: releases.clone(),
         calls: config.calls,
+        announced: AtomicU64::new(announced),
     });
     let addr = listener.local_addr()?;
 
     let gc_db = state.db.clone();
+    let announcing = state.clone();
     let app = Router::new()
         .route("/v1/ws", get(ws_handler))
         .route("/v1/releases/{platform}", get(latest_release))
@@ -331,9 +362,30 @@ pub fn spawn(listener: TcpListener, config: Config) -> Result<Running, StartErro
                 }
             }
         });
+        let announcer = tokio::spawn(async move {
+            let mut every = tokio::time::interval(ANNOUNCEMENTS_EVERY);
+            every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                every.tick().await;
+                let r = announcing
+                    .db
+                    .run(|c| {
+                        if announce::tick(c)? {
+                            tracing::info!("maintenance announcement posted");
+                        }
+                        announce::version(c).map_err(|e| db::err(post_proto::ErrorCode::Internal, e.to_string()))
+                    })
+                    .await;
+                match r {
+                    Ok(v) => announcing.announced(v),
+                    Err(e) => tracing::error!(error = %e, "checking announcements failed"),
+                }
+            }
+        });
         if let Err(e) = axum::serve(listener, app).await {
             tracing::error!(error = %e, "server stopped");
         }
+        announcer.abort();
         gc.abort();
         fetcher.abort();
     });

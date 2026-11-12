@@ -821,6 +821,43 @@ message Content {
 - Like every messenger's delete, this binds honest clients only. Someone running a
   modified client, or who took a screenshot, keeps what they saw.
 
+### Receipts
+
+Your own messages carry ticks: a clock while waiting to send, **one tick** once the
+server has the message, **two** once every other member has it on at least one
+device, **two blue** once every other member has read it.
+
+- **What is sent.** `Receipt { delivered, read }`, an application message like any
+  other, so the server sees only another encrypted entry. Both are positions in the
+  group's log, as read positions are: everything from others up to `delivered`
+  reached one of the sender's devices, and up to `read` the sender has read. They
+  only move forward and merge by taking the larger, so receipts may arrive in any
+  order, from any of the account's devices.
+- **How often.** At the end of each sync, one receipt in each conversation where the
+  account has received or read further than it last said, however many messages
+  arrived; and at once when the user reads a conversation. A device that sees its
+  own account's receipt from another device does not repeat it.
+- **Working out the ticks.** For each group the client keeps every member's latest
+  positions, and the least of them over the other current members. A message at or
+  below the least delivered position has two ticks; at or below the least read
+  position, blue. A member with no receipt yet holds the ticks back, so a group
+  shows two ticks only when everyone has the message. A member added later counts
+  as having everything sent before they joined.
+- **Who, person by person.** Hovering a message's ticks lists the other members
+  by the names you see for them: read by whom, delivered to whom, and who does not
+  have it yet. The same positions, compared with that one message's.
+- **Read receipts can be turned off; delivery cannot.** Off, the account sends
+  `read = 0`, and, as in other messengers, its own messages show no blue ticks
+  either. The setting is account-wide, synced through the self group like
+  nicknames (`settings` in `SelfSync`).
+- **Large groups have none.** Each receipt is a message every member receives, so in
+  conversations of more than 32 accounts (`MAX_RECEIPT_ACCOUNTS`) none are sent and
+  messages stay at one tick.
+- **Silent bodies.** Receipts set `Content.silent`. A client that does not know a
+  silent body drops it instead of showing "unsupported, update the app". (Apps from
+  before receipts show their receipts that way, and send none themselves, which
+  holds their conversations' ticks at one until they update.)
+
 ## 8. Server
 
 `postd` is one Rust binary: axum, tokio, and SQLite in WAL mode through `rusqlite`
@@ -900,6 +937,7 @@ like.
 | Session | KeyPackages | `UploadKeyPackages` |
 | Session | Mailbox | `FetchMailbox`, `AckMailbox` (Welcomes addressed to this device) |
 | Session | Tokens | `IssueTokens(blinded messages)` |
+| Session | Announcements | `FetchAnnouncements(after)`; hosts only: `Announce`, `PlanMaintenance`, `EndMaintenance` |
 | Anonymous | Groups | `CreateGroup` (token), `Send` (application messages and proposals), `Commit`, `FetchGroups`, `Subscribe` (access key) |
 | Anonymous | KeyPackages | `ClaimKeyPackages(account)` or `(account, device, count)` (token) |
 | Anonymous | Linking | `LinkPut`, `LinkGet` (sealed rendezvous slots; section 5) |
@@ -933,6 +971,9 @@ spent_tokens(key_id, token_hash, PRIMARY KEY (key_id, token_hash))
 token_issuance(device_id, day, count, PRIMARY KEY (device_id, day))
 invites(code_hash PK, bot, created_at, expires_at, used_by, used_at)
 directory_version(version)  -- bumped whenever an account or chain changes
+hosts(account_id PK)
+announcements(id PK, created_at, kind, text, starts_at, minutes, client_msg_id UNIQUE)
+maintenance(id PK, starts_at, minutes, reason, reminders_done, started, finished)
 ```
 
 No table links a device or account to a group. `group_log` stores no sender.
@@ -967,6 +1008,45 @@ a container secret or systemd credentials, never from the command line.
   keep the group with the lower ID and retire the other; messages from both stay
   visible in the one conversation.
 
+### Announcements
+
+A server has one channel of announcements that every account receives: news from
+the people running it, and planned maintenance. Apps show it pinned above the
+conversations, with an unread count.
+
+- **Who posts.** The operator names *hosts* (`postd host add USER`), accounts that
+  may post from the app. The operator can also post from the server
+  (`postd announce`). Every announcement is shown as from the server's domain,
+  never as from a person: a host who wants to be known signs the text, as in an
+  email.
+- **The server posts too.** A host plans maintenance (`/maintenance` in the app,
+  or `postd maintenance plan`): when it starts and roughly how long it takes. The
+  server announces it at once (unless asked not to), reminds everyone a day, an
+  hour, 30 minutes and 5 minutes before (skipping reminders already past, and one
+  that would come within five minutes of the plan's own announcement), announces
+  the start, and announces it over when its time is up or a host ends it. After
+  downtime it says only what is still true: the latest reminder rather than every
+  one missed, and "over" rather than "started" for a maintenance already past.
+  These end "(Sent automatically by the server.)". One maintenance at a time.
+- **Times are data.** Maintenance announcements carry the time, the length and the
+  reason, not prose, so each app writes them in its reader's own time zone. The
+  planning dialog shows the host's time zone, so they choose the time they mean.
+- **Kept.** Announcements are never deleted, by the server or by apps. How far the
+  user has read them syncs between their devices through the self group, like read
+  positions in conversations.
+- **Delivery.** The server keeps a change counter; whenever it moves (a new
+  announcement, a host added or removed, the plan changed) every session gets a
+  `Wake` with `announcements` set, and fetches what is new along with whether it is
+  a host and the current plan. A task checks every 5 seconds for maintenance steps
+  that are due and for changes made by `postd` commands in another process.
+- **Privacy.** Announcements are fetched only over logged-in sessions and stored
+  encrypted at rest, but they are not end-to-end encrypted: the server writes some
+  of them itself. Every account receives the same ones, so fetching them reveals
+  nothing.
+- A client meets a server without announcements (an older one) as a refused
+  request, logs it and carries on: announcements never stand in the way of
+  messages.
+
 ### Administration
 
 Admin actions run through a local CLI over a Unix socket: create invites, disable or
@@ -998,6 +1078,7 @@ Each is built with the feature it limits.
 - Group log entries and epochs: 30 days. The server cannot tell when everyone has
   read an entry, so retention is by time only.
 - Mailbox entries: deleted when acknowledged, or after 30 days.
+- Announcements: kept for good.
 - Spent tokens: kept until their token key retires (weekly rotation, one week
   overlap).
 - Blobs: 30 days.
@@ -1130,10 +1211,24 @@ same entry point is what an iOS notification extension will need later.
 - OpenMLS storage is implemented over the same database, so these rules can hold:
   - **Receive:** new MLS state, the decrypted message and the log position commit in
     one transaction. The acknowledgement to the server goes out after it.
-  - **Send:** the ciphertext is written to the outbox, with the advanced MLS state,
-    before anything is transmitted. Retries resend identical bytes.
+  - **Send:** a message is queued in the outbox as plaintext and encrypted when it
+    reaches the front: the ciphertext is written with the advanced MLS state before
+    anything is transmitted, and retries resend identical bytes. Encrypting at the
+    front keeps each sender's generations in the order the server receives them.
+    (Encrypting when queued did not: after an epoch change, messages written
+    meanwhile took lower generations than older ones re-encrypted ahead of them,
+    and members refused them as too old.)
   - **Commit:** the pending commit is persisted before sending. On restart, seeing
     its own commit in the log means merge; seeing a different one means discard.
+- Both databases, the app's and the server's, run with `synchronous=FULL`: a commit
+  is on disk before it returns, so before anything that depends on it is said. A
+  power cut can then neither lose a message the server acknowledged nor roll MLS
+  state back behind what the server has seen.
+- `crates/post-core/tests/durability.rs` checks all of this the hard way: the
+  server killed and restarted again and again mid-traffic, connections cut at
+  random and in outages, and apps killed mid-send and mid-receive. Every message
+  must arrive exactly once and in order, group changes made meanwhile must leave
+  every member in one group, and every database must pass SQLite's integrity check.
 - The database key is 32 random bytes wrapped by the platform keystore: Android
   Keystore, Windows DPAPI, or the Secret Service on Linux. Where no keyring exists,
   fall back to a passphrase stretched with Argon2id.

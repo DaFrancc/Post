@@ -8,7 +8,7 @@ import 'error.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `app_event`, `call_info`, `call_join`, `conversation`, `found_update`, `identity`, `message`, `ms`, `sentence`, `updater`
+// These functions are ignored because they are not marked as `pub`: `announcement`, `app_event`, `call_info`, `call_join`, `conversation`, `found_update`, `identity`, `message`, `ms`, `sentence`, `updater`
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>
 abstract class Client implements RustOpaqueInterface {
@@ -17,6 +17,15 @@ abstract class Client implements RustOpaqueInterface {
     required String conversation,
     required List<String> usernames,
   });
+
+  /// As a host: post an announcement to everyone on the server.
+  Future<void> announce({required String text});
+
+  /// The announcements channel at a glance.
+  Future<AnnouncementSummary> announcementSummary();
+
+  /// The newest `limit` announcements, oldest first.
+  Future<List<AnnouncementInfo>> announcements({required int limit});
 
   /// On a new device: offer it for linking to an existing account on
   /// `server`, as `device_name`. Returns the code to show; then call
@@ -84,6 +93,9 @@ abstract class Client implements RustOpaqueInterface {
     required String text,
   });
 
+  /// As a host: cancel the planned maintenance, or announce it is over.
+  Future<void> endMaintenance();
+
   /// Live events, until the Dart stream is closed or the profile is.
   Stream<AppEvent> events();
 
@@ -127,11 +139,20 @@ abstract class Client implements RustOpaqueInterface {
   /// the account. Then call `delete_profile`.
   Future<void> logOut();
 
+  /// Mark the announcements read, on all the user's devices.
+  Future<void> markAnnouncementsRead();
+
   /// Mark a conversation read, on all the user's devices.
   Future<void> markRead({required String conversation});
 
   /// The members, the user first.
   Future<List<MemberInfo>> members({required String conversation});
+
+  /// Who has one of the user's messages: each other member, and how far.
+  Future<MessageReceiptsInfo> messageReceipts({
+    required String conversation,
+    required String message,
+  });
 
   /// Every version of a message, the original first.
   Future<List<MessageVersionInfo>> messageVersions({
@@ -165,8 +186,19 @@ abstract class Client implements RustOpaqueInterface {
   /// What this device knows about someone.
   Future<PersonInfo> person({required String username});
 
+  /// As a host: plan maintenance. `starts_at_ms` 0 starts it now.
+  Future<void> planMaintenance({
+    required PlatformInt64 startsAtMs,
+    required int minutes,
+    required String reason,
+    required bool quiet,
+  });
+
   /// Someone's presence, as this device last heard it.
   Future<PresenceState> presence({required String username});
+
+  /// Whether the user sends read receipts (on unless turned off).
+  Future<bool> readReceipts();
 
   /// Give this device fresh keys in every conversation now.
   Future<void> refreshKeys();
@@ -250,6 +282,10 @@ abstract class Client implements RustOpaqueInterface {
   /// Change the user's profile and share it with every conversation.
   Future<void> setProfile({required ProfileChange change});
 
+  /// Send read receipts or stop, on all the user's devices. Off, the user
+  /// also stops seeing when others read theirs.
+  Future<void> setReadReceipts({required bool enabled});
+
   /// Set (or with `None` clear) an app setting on this device.
   Future<void> setSetting({required String key, String? value});
 
@@ -273,6 +309,127 @@ abstract class Client implements RustOpaqueInterface {
 
   /// Fetch everything new now.
   Future<void> sync_();
+}
+
+/// One of the server's announcements, shown as from the server.
+class AnnouncementInfo {
+  /// Increasing ID.
+  final PlatformInt64 id;
+
+  /// When it was posted (Unix ms).
+  final PlatformInt64 atMs;
+
+  /// What it is.
+  final AnnouncementKind kind;
+
+  /// A host's words, or for maintenance the reason given (may be empty).
+  final String text;
+
+  /// Maintenance: when it starts or started (Unix ms), to show in the
+  /// reader's time zone.
+  final PlatformInt64 startsAtMs;
+
+  /// Maintenance: how long it should take.
+  final int minutes;
+
+  const AnnouncementInfo({
+    required this.id,
+    required this.atMs,
+    required this.kind,
+    required this.text,
+    required this.startsAtMs,
+    required this.minutes,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      atMs.hashCode ^
+      kind.hashCode ^
+      text.hashCode ^
+      startsAtMs.hashCode ^
+      minutes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AnnouncementInfo &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          atMs == other.atMs &&
+          kind == other.kind &&
+          text == other.text &&
+          startsAtMs == other.startsAtMs &&
+          minutes == other.minutes;
+}
+
+/// What an announcement is. All but `Text` are posted by the server itself.
+enum AnnouncementKind {
+  /// Written by a host.
+  text,
+
+  /// Maintenance was planned.
+  maintenancePlanned,
+
+  /// The planned maintenance starts soon.
+  maintenanceReminder,
+
+  /// Maintenance has started.
+  maintenanceStarted,
+
+  /// Maintenance is over.
+  maintenanceOver,
+
+  /// The planned maintenance was cancelled.
+  maintenanceCancelled,
+
+  /// A kind from a newer server.
+  unsupported,
+}
+
+/// The announcements channel at a glance.
+class AnnouncementSummary {
+  /// The server's domain: what they are shown as from.
+  final String server;
+
+  /// Posted since the user last read them.
+  final int unread;
+
+  /// The newest, for the channel's preview line.
+  final AnnouncementInfo? latest;
+
+  /// The user is one of the server's hosts: show the composer.
+  final bool host;
+
+  /// Maintenance planned or underway.
+  final MaintenanceInfo? maintenance;
+
+  const AnnouncementSummary({
+    required this.server,
+    required this.unread,
+    this.latest,
+    required this.host,
+    this.maintenance,
+  });
+
+  @override
+  int get hashCode =>
+      server.hashCode ^
+      unread.hashCode ^
+      latest.hashCode ^
+      host.hashCode ^
+      maintenance.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AnnouncementSummary &&
+          runtimeType == other.runtimeType &&
+          server == other.server &&
+          unread == other.unread &&
+          latest == other.latest &&
+          host == other.host &&
+          maintenance == other.maintenance;
 }
 
 /// A live event.
@@ -639,6 +796,13 @@ enum EventKind {
   /// A call in `conversation` started, rang, changed or ended: read
   /// `calls()` for how things stand (an ended call is gone from it).
   call,
+
+  /// The server posted an announcement; `text` is a preview of it.
+  announcement,
+
+  /// The announcements changed (new ones, read, the maintenance plan, or
+  /// whether you are a host): read `announcement_summary()`.
+  announcements,
 }
 
 /// The account on this device.
@@ -706,6 +870,45 @@ class LinkRequestInfo {
           runtimeType == other.runtimeType &&
           deviceId == other.deviceId &&
           name == other.name;
+}
+
+/// Maintenance planned or underway.
+class MaintenanceInfo {
+  /// When it starts or started (Unix ms).
+  final PlatformInt64 startsAtMs;
+
+  /// How long it should take.
+  final int minutes;
+
+  /// Why, if given.
+  final String reason;
+
+  /// It has started.
+  final bool underway;
+
+  const MaintenanceInfo({
+    required this.startsAtMs,
+    required this.minutes,
+    required this.reason,
+    required this.underway,
+  });
+
+  @override
+  int get hashCode =>
+      startsAtMs.hashCode ^
+      minutes.hashCode ^
+      reason.hashCode ^
+      underway.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MaintenanceInfo &&
+          runtimeType == other.runtimeType &&
+          startsAtMs == other.startsAtMs &&
+          minutes == other.minutes &&
+          reason == other.reason &&
+          underway == other.underway;
 }
 
 /// A member of a conversation.
@@ -794,6 +997,12 @@ class MessageInfo {
   /// The server refused it.
   final bool failed;
 
+  /// Yours, and every other member has it: two ticks.
+  final bool delivered;
+
+  /// Yours, and every other member read it: two blue ticks.
+  final bool read;
+
   const MessageInfo({
     required this.id,
     required this.conversation,
@@ -808,6 +1017,8 @@ class MessageInfo {
     required this.versions,
     required this.pending,
     required this.failed,
+    required this.delivered,
+    required this.read,
   });
 
   @override
@@ -824,7 +1035,9 @@ class MessageInfo {
       edited.hashCode ^
       versions.hashCode ^
       pending.hashCode ^
-      failed.hashCode;
+      failed.hashCode ^
+      delivered.hashCode ^
+      read.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -843,7 +1056,40 @@ class MessageInfo {
           edited == other.edited &&
           versions == other.versions &&
           pending == other.pending &&
-          failed == other.failed;
+          failed == other.failed &&
+          delivered == other.delivered &&
+          read == other.read;
+}
+
+/// Who has one of the user's messages.
+class MessageReceiptsInfo {
+  /// Every other member, by the name the user sees, sorted.
+  final List<PersonReceiptInfo> people;
+
+  /// Too large a conversation for receipts.
+  final bool tooLarge;
+
+  /// The user's own read receipts are off: deliveries only.
+  final bool readReceiptsOff;
+
+  const MessageReceiptsInfo({
+    required this.people,
+    required this.tooLarge,
+    required this.readReceiptsOff,
+  });
+
+  @override
+  int get hashCode =>
+      people.hashCode ^ tooLarge.hashCode ^ readReceiptsOff.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MessageReceiptsInfo &&
+          runtimeType == other.runtimeType &&
+          people == other.people &&
+          tooLarge == other.tooLarge &&
+          readReceiptsOff == other.readReceiptsOff;
 }
 
 /// One version of an edited message.
@@ -988,6 +1234,31 @@ class PersonInfo {
           arrival == other.arrival;
 }
 
+/// How far one person has got with the user's message.
+class PersonReceiptInfo {
+  final String username;
+  final String shownName;
+  final ReceiptState state;
+
+  const PersonReceiptInfo({
+    required this.username,
+    required this.shownName,
+    required this.state,
+  });
+
+  @override
+  int get hashCode => username.hashCode ^ shownName.hashCode ^ state.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PersonReceiptInfo &&
+          runtimeType == other.runtimeType &&
+          username == other.username &&
+          shownName == other.shownName &&
+          state == other.state;
+}
+
 /// The presence the user chooses to show.
 enum PresenceChoice {
   /// Shown online.
@@ -1062,6 +1333,18 @@ class ProfileChange {
           note == other.note &&
           noteKeep == other.noteKeep &&
           arrival == other.arrival;
+}
+
+/// How far one person has got.
+enum ReceiptState {
+  /// Not on any of their devices yet.
+  waiting,
+
+  /// On one of their devices.
+  delivered,
+
+  /// Read.
+  read,
 }
 
 /// What a search found.

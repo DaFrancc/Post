@@ -288,8 +288,14 @@ pub struct Conversation {
 pub enum MessageState {
     /// Written locally, not yet accepted by the server.
     Pending,
-    /// Accepted by the server.
+    /// Accepted by the server: one tick.
     Sent,
+    /// Your message reached every other member (one of each one's devices):
+    /// two ticks. Members whose apps send no receipts are not waited for.
+    Delivered,
+    /// Every other member read your message: two blue ticks. Shown only
+    /// while you send read receipts yourself, as in other messengers.
+    Read,
     /// Received from someone else.
     Received,
     /// The server refused it.
@@ -345,6 +351,157 @@ pub enum NoticeKind {
     Call,
     /// A call rang the user and none of their devices answered.
     MissedCall,
+}
+
+/// One of the server's announcements (design section 8, "Announcements").
+/// Shown as from the server, whoever wrote it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Announcement {
+    /// Increasing; the server's own ID.
+    pub id: u64,
+    /// When it was posted (Unix ms, the server's clock).
+    pub at_ms: u64,
+    /// What it is.
+    pub kind: AnnouncementKind,
+    /// A host's words for [`AnnouncementKind::Text`]; for the maintenance
+    /// kinds, the reason given, if any.
+    pub text: String,
+    /// The maintenance kinds: when it starts or started (Unix ms). Show it
+    /// in the reader's own time zone.
+    pub starts_at_ms: u64,
+    /// The maintenance kinds: how long it should take.
+    pub minutes: u32,
+}
+
+/// What an announcement is. All but [`AnnouncementKind::Text`] are posted
+/// by the server itself, and say so.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnnouncementKind {
+    /// Written by a host.
+    Text,
+    /// Maintenance was planned.
+    MaintenancePlanned,
+    /// The planned maintenance starts soon: at `starts_at_ms`, which is
+    /// how soon relative to `at_ms`.
+    MaintenanceReminder,
+    /// Maintenance has started.
+    MaintenanceStarted,
+    /// Maintenance is over.
+    MaintenanceOver,
+    /// The planned maintenance was cancelled.
+    MaintenanceCancelled,
+    /// A kind this version does not know, from a newer server.
+    Unsupported,
+}
+
+impl AnnouncementKind {
+    fn from_wire(kind: i32) -> Self {
+        use post_proto::AnnouncementKind as K;
+        match K::try_from(kind) {
+            Ok(K::Text) => Self::Text,
+            Ok(K::MaintenancePlanned) => Self::MaintenancePlanned,
+            Ok(K::MaintenanceReminder) => Self::MaintenanceReminder,
+            Ok(K::MaintenanceStarted) => Self::MaintenanceStarted,
+            Ok(K::MaintenanceOver) => Self::MaintenanceOver,
+            Ok(K::MaintenanceCancelled) => Self::MaintenanceCancelled,
+            Ok(K::Unspecified) | Err(_) => Self::Unsupported,
+        }
+    }
+}
+
+/// Maintenance the server's hosts planned.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Maintenance {
+    /// When it starts, or started (Unix ms).
+    pub starts_at_ms: u64,
+    /// How long it should take.
+    pub minutes: u32,
+    /// Why, if a host said.
+    pub reason: String,
+    /// Started and not yet over.
+    pub underway: bool,
+}
+
+/// The announcements channel at a glance.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Announcements {
+    /// The server they come from, as they are signed: its domain.
+    pub server: String,
+    /// Posted since the user last read them.
+    pub unread: u32,
+    /// The newest, for a preview.
+    pub latest: Option<Announcement>,
+    /// Whether this account is one of the server's hosts, who may announce
+    /// and plan maintenance.
+    pub host: bool,
+    /// The maintenance planned or underway.
+    pub maintenance: Option<Maintenance>,
+}
+
+fn announcement_from_row(r: store::AnnouncementRow) -> Announcement {
+    Announcement {
+        id: r.id,
+        at_ms: r.created_at,
+        kind: AnnouncementKind::from_wire(r.kind),
+        text: r.text,
+        starts_at_ms: r.starts_at,
+        minutes: r.minutes,
+    }
+}
+
+pub(crate) fn announcements_from(conn: &rusqlite::Connection) -> Result<Announcements> {
+    let maintenance = match store::meta_get(conn, store::META_MAINTENANCE)? {
+        Some(b) => {
+            let m = <post_proto::Maintenance as prost::Message>::decode(b.as_slice()).map_err(|_| Error::Corrupt("maintenance"))?;
+            Some(Maintenance {
+                starts_at_ms: m.starts_at_ms,
+                minutes: m.minutes,
+                underway: m.state() == post_proto::MaintenanceState::Underway,
+                reason: m.reason,
+            })
+        }
+        None => None,
+    };
+    Ok(Announcements {
+        server: store::meta_str(conn, "domain")?.unwrap_or_default(),
+        unread: store::unread_announcements(conn)?,
+        latest: store::latest_announcement(conn)?.map(announcement_from_row),
+        host: store::meta_str(conn, store::META_HOST)?.as_deref() == Some("1"),
+        maintenance,
+    })
+}
+
+/// Who has one of your messages, person by person: what the ticks sum up.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MessageReceipts {
+    /// Every other member now, by the name you see for them.
+    pub people: Vec<PersonReceipt>,
+    /// The conversation is too large for receipts: nobody sends any.
+    pub too_large: bool,
+    /// You have turned read receipts off, so you see deliveries only.
+    pub read_receipts_off: bool,
+}
+
+/// How far one person has got with one of your messages.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PersonReceipt {
+    /// Their username.
+    pub username: String,
+    /// The name you see for them here.
+    pub shown_name: String,
+    /// How far.
+    pub state: ReceiptState,
+}
+
+/// How far one person has got with a message.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReceiptState {
+    /// Not on any of their devices yet (or their app sends no receipts).
+    Waiting,
+    /// On one of their devices.
+    Delivered,
+    /// Read.
+    Read,
 }
 
 /// One version of a message.
@@ -567,6 +724,11 @@ pub enum Event {
     /// A call started, rang, changed who is in it, or ended. Its timeline
     /// notices ("Alice started a call") may have changed too.
     CallChanged(Call),
+    /// The server posted an announcement.
+    AnnouncementAdded(Announcement),
+    /// The announcements channel changed: new ones, the read position,
+    /// the maintenance plan, or whether this account is a host.
+    AnnouncementsChanged(Announcements),
 }
 
 /// Settings live in the meta table under their own prefix, so they can
@@ -620,10 +782,12 @@ pub(crate) fn message_from_row(conn: &Connection, m: &store::MessageRow) -> Resu
         unsupported: m.unsupported,
         edited: m.versions > 1,
         versions: m.versions,
-        state: match m.state {
-            store::STATE_PENDING => MessageState::Pending,
-            store::STATE_SENT => MessageState::Sent,
-            store::STATE_FAILED => MessageState::Failed,
+        state: match (m.state, m.receipt) {
+            (store::STATE_PENDING, _) => MessageState::Pending,
+            (store::STATE_SENT, store::RECEIPT_READ) if store::read_receipts_on(conn)? => MessageState::Read,
+            (store::STATE_SENT, store::RECEIPT_READ | store::RECEIPT_DELIVERED) => MessageState::Delivered,
+            (store::STATE_SENT, _) => MessageState::Sent,
+            (store::STATE_FAILED, _) => MessageState::Failed,
             _ => MessageState::Received,
         },
     })
@@ -1071,6 +1235,19 @@ impl Core {
         self.engine.lock().await.mark_read(conversation.0).await
     }
 
+    /// Whether you send read receipts: on unless turned off. Delivery
+    /// receipts always go.
+    pub fn read_receipts(&self) -> Result<bool> {
+        self.read(store::read_receipts_on)
+    }
+
+    /// Turn read receipts on or off, on all your devices. Off, others do
+    /// not see when you read their messages, and you do not see when they
+    /// read yours.
+    pub async fn set_read_receipts(&self, on: bool) -> Result<()> {
+        self.engine.lock().await.set_read_receipts(on).await
+    }
+
     /// Record that you compared safety numbers with `username` (or, with
     /// `false`, withdraw it). Shared with your other devices only.
     pub async fn set_verified(&self, username: &str, verified: bool) -> Result<()> {
@@ -1125,6 +1302,42 @@ impl Core {
                 })
                 .collect())
         })
+    }
+
+    /// The announcements channel at a glance: unread count, the newest,
+    /// whether you are a host, and the maintenance plan.
+    pub fn announcement_summary(&self) -> Result<Announcements> {
+        self.read(announcements_from)
+    }
+
+    /// The newest `limit` announcements, oldest first. They are kept for
+    /// good: the server never deletes them, and neither does this device.
+    pub fn announcements(&self, limit: u32) -> Result<Vec<Announcement>> {
+        self.read(|c| Ok(store::announcements(c, limit)?.into_iter().map(announcement_from_row).collect()))
+    }
+
+    /// Mark every announcement read, on all your devices.
+    pub async fn mark_announcements_read(&self) -> Result<()> {
+        self.engine.lock().await.mark_announcements_read().await
+    }
+
+    /// Post an announcement to everyone on the server. Hosts only; needs a
+    /// connection, and fails rather than waiting for one.
+    pub async fn announce(&self, text: &str) -> Result<()> {
+        self.engine.lock().await.post_announcement(text).await
+    }
+
+    /// Plan maintenance (hosts only): everyone is told now unless `quiet`,
+    /// reminded a day, an hour, 30 minutes and 5 minutes before, and told
+    /// when it starts and when it is over. `starts_at_ms` of 0 starts it now.
+    pub async fn plan_maintenance(&self, starts_at_ms: u64, minutes: u32, reason: &str, quiet: bool) -> Result<()> {
+        self.engine.lock().await.plan_maintenance(starts_at_ms, minutes, reason, quiet).await
+    }
+
+    /// Cancel the planned maintenance, or announce the one underway is over
+    /// (hosts only).
+    pub async fn end_maintenance(&self) -> Result<()> {
+        self.engine.lock().await.end_maintenance().await
     }
 
     /// The newest `limit` messages of a conversation, oldest first.
@@ -1189,6 +1402,38 @@ impl Core {
     /// One message.
     pub fn message(&self, conversation: ConversationId, id: MessageId) -> Result<Message> {
         self.read(|c| message_from_row(c, &Self::find_message(c, conversation, id)?))
+    }
+
+    /// Who has one of your messages: each other member, and whether it is on
+    /// one of their devices or read. Read shows only while you send read
+    /// receipts yourself.
+    pub async fn message_receipts(&self, conversation: ConversationId, id: MessageId) -> Result<MessageReceipts> {
+        let me = self.engine.lock().await.me.as_ref().ok_or(Error::NotRegistered)?.account;
+        self.read(|c| {
+            let m = Self::find_message(c, conversation, id)?;
+            if !m.outgoing {
+                return Err(Error::NotAllowed("receipts are for your own messages"));
+            }
+            let seq = store::message_seq(c, &m.group_id, &m.id)?;
+            let read_on = store::read_receipts_on(c)?;
+            let (_, members) = engine::group_members(c, &m.group_id)?;
+            let mut people = Vec::new();
+            for (account, _) in members.iter().filter(|(a, _)| *a != me) {
+                let (delivered, read) = store::receipt(c, &m.group_id, &account.0)?;
+                let state = match seq {
+                    Some(s) if read_on && read >= s => ReceiptState::Read,
+                    Some(s) if delivered >= s => ReceiptState::Delivered,
+                    _ => ReceiptState::Waiting,
+                };
+                people.push(PersonReceipt {
+                    username: store::username_of(c, &account.0)?.unwrap_or_default(),
+                    shown_name: store::shown_name(c, Some(&m.group_id), &account.0)?,
+                    state,
+                });
+            }
+            people.sort_by_key(|p| p.shown_name.to_lowercase());
+            Ok(MessageReceipts { too_large: members.len() > engine::MAX_RECEIPT_ACCOUNTS, read_receipts_off: !read_on, people })
+        })
     }
 
     /// Every version of a message, the original first.

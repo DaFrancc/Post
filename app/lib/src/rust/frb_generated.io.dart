@@ -82,13 +82,28 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String dco_decode_String(dynamic raw);
 
   @protected
+  AnnouncementInfo dco_decode_announcement_info(dynamic raw);
+
+  @protected
+  AnnouncementKind dco_decode_announcement_kind(dynamic raw);
+
+  @protected
+  AnnouncementSummary dco_decode_announcement_summary(dynamic raw);
+
+  @protected
   AppEvent dco_decode_app_event(dynamic raw);
 
   @protected
   bool dco_decode_bool(dynamic raw);
 
   @protected
+  AnnouncementInfo dco_decode_box_autoadd_announcement_info(dynamic raw);
+
+  @protected
   Identity dco_decode_box_autoadd_identity(dynamic raw);
+
+  @protected
+  MaintenanceInfo dco_decode_box_autoadd_maintenance_info(dynamic raw);
 
   @protected
   MessageInfo dco_decode_box_autoadd_message_info(dynamic raw);
@@ -148,6 +163,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<String> dco_decode_list_String(dynamic raw);
 
   @protected
+  List<AnnouncementInfo> dco_decode_list_announcement_info(dynamic raw);
+
+  @protected
   List<CallInfo> dco_decode_list_call_info(dynamic raw);
 
   @protected
@@ -178,6 +196,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<NoticeInfo> dco_decode_list_notice_info(dynamic raw);
 
   @protected
+  List<PersonReceiptInfo> dco_decode_list_person_receipt_info(dynamic raw);
+
+  @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
 
   @protected
@@ -187,10 +208,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<SpellLanguage> dco_decode_list_spell_language(dynamic raw);
 
   @protected
+  MaintenanceInfo dco_decode_maintenance_info(dynamic raw);
+
+  @protected
   MemberInfo dco_decode_member_info(dynamic raw);
 
   @protected
   MessageInfo dco_decode_message_info(dynamic raw);
+
+  @protected
+  MessageReceiptsInfo dco_decode_message_receipts_info(dynamic raw);
 
   @protected
   MessageVersionInfo dco_decode_message_version_info(dynamic raw);
@@ -208,7 +235,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
+  AnnouncementInfo? dco_decode_opt_box_autoadd_announcement_info(dynamic raw);
+
+  @protected
   Identity? dco_decode_opt_box_autoadd_identity(dynamic raw);
+
+  @protected
+  MaintenanceInfo? dco_decode_opt_box_autoadd_maintenance_info(dynamic raw);
 
   @protected
   MessageInfo? dco_decode_opt_box_autoadd_message_info(dynamic raw);
@@ -223,6 +256,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PersonInfo dco_decode_person_info(dynamic raw);
 
   @protected
+  PersonReceiptInfo dco_decode_person_receipt_info(dynamic raw);
+
+  @protected
   PostError dco_decode_post_error(dynamic raw);
 
   @protected
@@ -233,6 +269,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ProfileChange dco_decode_profile_change(dynamic raw);
+
+  @protected
+  ReceiptState dco_decode_receipt_state(dynamic raw);
 
   @protected
   SearchFound dco_decode_search_found(dynamic raw);
@@ -317,13 +356,34 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String sse_decode_String(SseDeserializer deserializer);
 
   @protected
+  AnnouncementInfo sse_decode_announcement_info(SseDeserializer deserializer);
+
+  @protected
+  AnnouncementKind sse_decode_announcement_kind(SseDeserializer deserializer);
+
+  @protected
+  AnnouncementSummary sse_decode_announcement_summary(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   AppEvent sse_decode_app_event(SseDeserializer deserializer);
 
   @protected
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
+  AnnouncementInfo sse_decode_box_autoadd_announcement_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   Identity sse_decode_box_autoadd_identity(SseDeserializer deserializer);
+
+  @protected
+  MaintenanceInfo sse_decode_box_autoadd_maintenance_info(
+    SseDeserializer deserializer,
+  );
 
   @protected
   MessageInfo sse_decode_box_autoadd_message_info(SseDeserializer deserializer);
@@ -389,6 +449,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<String> sse_decode_list_String(SseDeserializer deserializer);
 
   @protected
+  List<AnnouncementInfo> sse_decode_list_announcement_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<CallInfo> sse_decode_list_call_info(SseDeserializer deserializer);
 
   @protected
@@ -425,6 +490,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<NoticeInfo> sse_decode_list_notice_info(SseDeserializer deserializer);
 
   @protected
+  List<PersonReceiptInfo> sse_decode_list_person_receipt_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
 
   @protected
@@ -436,10 +506,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  MaintenanceInfo sse_decode_maintenance_info(SseDeserializer deserializer);
+
+  @protected
   MemberInfo sse_decode_member_info(SseDeserializer deserializer);
 
   @protected
   MessageInfo sse_decode_message_info(SseDeserializer deserializer);
+
+  @protected
+  MessageReceiptsInfo sse_decode_message_receipts_info(
+    SseDeserializer deserializer,
+  );
 
   @protected
   MessageVersionInfo sse_decode_message_version_info(
@@ -459,7 +537,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
+  AnnouncementInfo? sse_decode_opt_box_autoadd_announcement_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   Identity? sse_decode_opt_box_autoadd_identity(SseDeserializer deserializer);
+
+  @protected
+  MaintenanceInfo? sse_decode_opt_box_autoadd_maintenance_info(
+    SseDeserializer deserializer,
+  );
 
   @protected
   MessageInfo? sse_decode_opt_box_autoadd_message_info(
@@ -478,6 +566,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   PersonInfo sse_decode_person_info(SseDeserializer deserializer);
 
   @protected
+  PersonReceiptInfo sse_decode_person_receipt_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   PostError sse_decode_post_error(SseDeserializer deserializer);
 
   @protected
@@ -488,6 +581,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ProfileChange sse_decode_profile_change(SseDeserializer deserializer);
+
+  @protected
+  ReceiptState sse_decode_receipt_state(SseDeserializer deserializer);
 
   @protected
   SearchFound sse_decode_search_found(SseDeserializer deserializer);
@@ -583,13 +679,43 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
+  void sse_encode_announcement_info(
+    AnnouncementInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_announcement_kind(
+    AnnouncementKind self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_announcement_summary(
+    AnnouncementSummary self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_app_event(AppEvent self, SseSerializer serializer);
 
   @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_announcement_info(
+    AnnouncementInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_identity(Identity self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_maintenance_info(
+    MaintenanceInfo self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_box_autoadd_message_info(
@@ -670,6 +796,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_announcement_info(
+    List<AnnouncementInfo> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_call_info(List<CallInfo> self, SseSerializer serializer);
 
   @protected
@@ -724,6 +856,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_person_receipt_info(
+    List<PersonReceiptInfo> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
 
   @protected
@@ -739,10 +877,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_maintenance_info(
+    MaintenanceInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_member_info(MemberInfo self, SseSerializer serializer);
 
   @protected
   void sse_encode_message_info(MessageInfo self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_message_receipts_info(
+    MessageReceiptsInfo self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_message_version_info(
@@ -763,8 +913,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_announcement_info(
+    AnnouncementInfo? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_identity(
     Identity? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_maintenance_info(
+    MaintenanceInfo? self,
     SseSerializer serializer,
   );
 
@@ -787,6 +949,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_person_info(PersonInfo self, SseSerializer serializer);
 
   @protected
+  void sse_encode_person_receipt_info(
+    PersonReceiptInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_post_error(PostError self, SseSerializer serializer);
 
   @protected
@@ -800,6 +968,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_profile_change(ProfileChange self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_receipt_state(ReceiptState self, SseSerializer serializer);
 
   @protected
   void sse_encode_search_found(SearchFound self, SseSerializer serializer);

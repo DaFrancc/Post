@@ -10,11 +10,38 @@
 #       Newer code: pulls this clone, then a new server image, and restarts.
 #   deploy/server.sh invite [--bot] [--days N]
 #       A code for someone to create an account with.
+#   deploy/server.sh host add USER | host remove USER | host list
+#       Hosts post announcements to everyone, and plan maintenance, from
+#       the app.
+#   deploy/server.sh announce TEXT
+#       Post an announcement to everyone on the server; - reads it from
+#       standard input. It is shown as from the server and never deleted.
+#   deploy/server.sh maintenance plan [--at TIME | --in LENGTH] --minutes N
+#                                     [--reason TEXT] [--quiet] [--yes]
+#       Tell everyone, in their own time zone, that the server will be down,
+#       and remind them a day, an hour, 30 and 5 minutes before. TIME is
+#       anything `date -d` reads, in this machine's time zone ("2026-11-14
+#       02:00", "tomorrow 02:00"); LENGTH like "2 hours". Neither starts it
+#       now. --quiet skips telling everyone now; the reminders still go.
+#   deploy/server.sh maintenance end
+#       Cancel the planned maintenance, or say the one underway is over.
+#   deploy/server.sh maintenance [status]
+#       What is planned.
 #   deploy/server.sh status
 #       What is running, the certificate, and the release apps are offered.
 #   deploy/server.sh push SSH_HOST
 #       On your own computer: build the server image here and load it on a
 #       small server, which then runs `update --image local`.
+#   deploy/server.sh backup [FILE] [--to AGE_PUBLIC_KEY] [--stop]
+#       Everything the server needs, in one encrypted file: its database,
+#       secrets and settings. Encrypted with a passphrase you type, or to an
+#       age public key (--to), so it can run unattended and this server
+#       cannot open its own backups. postd stops for a few seconds while its
+#       database is copied. --stop leaves the server off afterwards, for
+#       moving it: messages sent to it after the backup would be lost.
+#   deploy/server.sh restore FILE [--identity AGE_KEY_FILE] [--image SOURCE]
+#       Bring a backup up on a new server, then set it up as install does.
+#       Only where there is no Post server yet: it never overwrites one.
 #
 # SOURCE is where the server image comes from:
 #   ci       downloaded: the image CI built for this checkout's commit (the
@@ -28,6 +55,7 @@ units=/etc/containers/systemd
 # Quadlet's %h for system units: root's home.
 conf=$(getent passwd root | cut -d: -f6)/.config/post
 image=localhost/postd:latest
+backups=$(getent passwd root | cut -d: -f6)/post-backups
 registry=ghcr.io/dafrancc/post-server
 caddy_image=docker.io/library/caddy:2
 livekit_image=docker.io/livekit/livekit-server:v1.13.11
@@ -35,6 +63,32 @@ livekit_image=docker.io/livekit/livekit-server:v1.13.11
 yes=false
 # Whether the domain points here, as far as this machine can tell.
 dns_ok=true
+
+# Undone however the script ends: Ctrl-C, a dropped SSH connection, kill.
+# A folder holding the database key, a backup half written, and postd
+# stopped for a backup.
+cleanup_dir=''
+partial_out=''
+restart_postd=false
+# shellcheck disable=SC2329 # run by the trap below
+on_exit() {
+  if $restart_postd; then
+    systemctl start post-server || printf 'postd did not start again: systemctl start post-server\n' >&2
+  fi
+  if [[ -n $partial_out ]]; then rm -f -- "$partial_out"; fi
+  if [[ -n $cleanup_dir ]]; then rm -rf -- "$cleanup_dir"; fi
+}
+trap on_exit EXIT
+# Signals end the script through exit, so the cleanup above runs.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# A private folder on disk for a backup's or restore's files. Not /tmp,
+# which Debian 13 keeps in memory: a database copy there could fill it.
+work_dir() {
+  cleanup_dir=$(mktemp -d -p /var/tmp post-backup.XXXXXX)
+}
 
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 note() { printf '    %s\n' "$*"; }
@@ -137,7 +191,8 @@ check_dns() {
 #   ca-certificates, curl            HTTPS: pulling images, checking the site
 #   iproute2 (ip, ss), procps        addresses and ports; sysctl
 #   git, gzip                        updating this clone; loading pushed images
-packages=(podman netavark aardvark-dns catatonit ca-certificates curl iproute2 procps git gzip)
+#   age                              encrypting backups
+packages=(podman netavark aardvark-dns catatonit ca-certificates curl iproute2 procps git gzip age)
 
 install_packages() {
   local missing=() p
@@ -287,7 +342,8 @@ get_image() {
 # The image CI built from this checkout's commit, so it is exactly this code.
 download_image() {
   local sha
-  sha=$(git -C "$repo" rev-parse HEAD)
+  sha=$(git -C "$repo" rev-parse HEAD 2>/dev/null) ||
+    die "git cannot read $repo (if another user owns it: git config --global --add safe.directory $repo)"
   if [[ -n $(git -C "$repo" status --porcelain --untracked-files=no -- Cargo.toml Cargo.lock crates deploy/Containerfile) ]]; then
     warn "this clone has changes to the server's code; the downloaded image is the commit without them (--image build uses them)"
   fi
@@ -422,7 +478,9 @@ cmd_install() {
   note "More invites:   deploy/server.sh invite"
   note "Newer code:     deploy/server.sh update"
   note "How it is:      deploy/server.sh status"
+  note "Announcements:  deploy/server.sh host add YOUR_USERNAME, then post from the app"
   note "Settings:       $conf/post.env (then: systemctl restart post-pod)"
+  maintenance_hint
 }
 
 cmd_update() {
@@ -451,6 +509,91 @@ cmd_update() {
 cmd_invite() {
   need_root
   podman exec post-server postd invite "$@"
+}
+
+# postd's admin commands run inside its container, against its database.
+postd_admin() {
+  need_root
+  [[ $(systemctl is-active post-server || true) == active ]] || die "postd is not running: systemctl start post-server"
+  podman exec -i post-server postd "$@"
+}
+
+cmd_host() {
+  case ${1:-} in
+    add | remove) [[ -n ${2:-} ]] || die "which account? deploy/server.sh host $1 USERNAME" ;;
+    list) ;;
+    *) die "deploy/server.sh host add USER | host remove USER | host list" ;;
+  esac
+  postd_admin host "$@"
+}
+
+cmd_announce() {
+  (($#)) || die "what to announce? deploy/server.sh announce TEXT (or - to read it from standard input)"
+  if [[ $1 == - ]]; then
+    postd_admin announce -
+  else
+    postd_admin announce "$*" </dev/null
+  fi
+}
+
+cmd_maintenance() {
+  local action=${1:-status}
+  (($#)) && shift
+  case $action in
+    status) postd_admin maintenance status </dev/null ;;
+    end) postd_admin maintenance end </dev/null ;;
+    plan) maintenance_plan "$@" ;;
+    -h | --help) usage ;;
+    *) die "deploy/server.sh maintenance plan|end|status" ;;
+  esac
+}
+
+maintenance_plan() {
+  local at='' in='' minutes='' reason='' quiet=()
+  while (($#)); do
+    case $1 in
+      --at) at=${2:?--at needs a time}; shift ;;
+      --in) in=${2:?--in needs a length, like "2 hours"}; shift ;;
+      --minutes) minutes=${2:?--minutes needs a number}; shift ;;
+      --reason) reason=${2?--reason needs text}; shift ;;
+      --quiet) quiet=(--quiet) ;;
+      --yes) yes=true ;;
+      -h | --help) usage ;;
+      *) die "unknown option $1" ;;
+    esac
+    shift
+  done
+  [[ $minutes =~ ^[0-9]+$ ]] || die "how long will it take? --minutes N"
+  [[ -z $at || -z $in ]] || die "give --at or --in, not both"
+  local when=()
+  if [[ -n $at || -n $in ]]; then
+    local secs
+    if [[ -n $at ]]; then
+      secs=$(date -d "$at" +%s 2>/dev/null) || die "date cannot read the time \"$at\""
+    else
+      secs=$(date -d "now + $in" +%s 2>/dev/null) || die "date cannot read the length \"$in\""
+    fi
+    # On the minute: no one plans for 02:00:29.
+    secs=$(((secs + 59) / 60 * 60))
+    ((secs > $(date +%s))) || die "$(date -d "@$secs" '+%A %-d %B %Y %H:%M %Z') has passed"
+    # Said back in words, in this machine's time zone: everyone else sees it
+    # in theirs.
+    ask "Maintenance $(date -d "@$secs" '+%A %-d %B %Y at %H:%M %Z (UTC%:z)'), for about $minutes minutes?" || exit 1
+    when=(--at "@$secs")
+  else
+    ask "Maintenance starting now, for about $minutes minutes?" || exit 1
+  fi
+  postd_admin maintenance plan "${when[@]}" --minutes "$minutes" --reason "$reason" "${quiet[@]}" </dev/null
+  note "Everyone sees it in their own time zone. To call it off, or say it is over:"
+  note "  deploy/server.sh maintenance end"
+}
+
+# After an update or a backup during maintenance: a reminder that ending it
+# is the operator's call, since it may not be over.
+maintenance_hint() {
+  if podman exec post-server postd maintenance status 2>/dev/null </dev/null | grep -q '^maintenance underway'; then
+    note "Maintenance is underway. When it is over: deploy/server.sh maintenance end"
+  fi
 }
 
 cmd_status() {
@@ -490,6 +633,165 @@ cmd_push() {
   note "  deploy/server.sh update --image local"
 }
 
+# --------------------------------------------------------------- backups
+#
+# A backup is a gzipped tar, encrypted with age, of one folder:
+#   backup-info          format, domain, when, which commit
+#   post.env             the settings
+#   post-db-key          the database key, exactly as stored
+#   post-livekit-keys    the secret LiveKit and postd share
+#   post-data.tar        the post-data volume: the database and releases
+# Caddy's certificates are left out: a new server gets its own.
+
+# A secret's exact bytes. Podman prints them with one newline added.
+save_secret() {
+  (umask 077 && podman secret inspect --showsecret --format '{{.SecretData}}' "$1" >"$2")
+  if [[ $(tail -c1 "$2" | od -An -c | tr -d ' ') == '\n' ]]; then truncate -s -1 "$2"; fi
+}
+
+cmd_backup() {
+  local out='' to='' stop=false
+  while (($#)); do
+    case $1 in
+      --to) to=${2:?--to needs an age public key}; shift ;;
+      --stop) stop=true ;;
+      -h | --help) usage ;;
+      -*) die "unknown option $1" ;;
+      *) out=$1 ;;
+    esac
+    shift
+  done
+  need_root
+  local domain
+  domain=$(installed_domain)
+  [[ -n $domain ]] || die "no Post server is set up here"
+  [[ -f $conf/post.env ]] || die "this server was set up before post.env: run deploy/server.sh update first"
+  [[ -n $to || -t 0 ]] || die "no terminal to type a passphrase in: give an age public key with --to"
+  install_packages
+  if [[ -z $out ]]; then
+    install -d -m 700 "$backups"
+    out=$backups/$domain-$(date -u +%Y%m%d-%H%M%S).age
+  fi
+  [[ ! -e $out && ! -e $out.part ]] || die "$out (or $out.part) exists already"
+
+  local volume
+  volume=$(podman volume inspect post-data --format '{{.Mountpoint}}')
+  # Room for the copy and for the backup beside it, before anything stops.
+  local need free_tmp free_out
+  need=$(($(du -sb "$volume" | cut -f1) * 2 + 100 * 1024 * 1024))
+  free_tmp=$(df -B1 --output=avail /var/tmp | tail -1)
+  free_out=$(df -B1 --output=avail "$(dirname "$out")" | tail -1)
+  ((free_tmp >= need && free_out >= need)) || die "not enough free disk space for a backup: it needs about $((need / 1024 / 1024)) MB in /var/tmp and beside $out"
+
+  # It holds the database key: removed however this ends (on_exit).
+  work_dir
+  local dir=$cleanup_dir/post-backup
+  mkdir -m 700 "$dir"
+  # The volume's own folder is not in its export, and postd must own it to
+  # write its database's journal there.
+  printf 'format=1\ndomain=%s\ncreated=%s\ncommit=%s\nvolume_owner=%s\n' \
+    "$domain" "$(date -u +%FT%TZ)" "$(git -C "$repo" rev-parse HEAD 2>/dev/null || echo unknown)" "$(stat -c %u:%g "$volume")" >"$dir/backup-info"
+  cp "$conf/post.env" "$dir/"
+  save_secret post-db-key "$dir/post-db-key"
+  save_secret post-livekit-keys "$dir/post-livekit-keys"
+
+  # A consistent copy: the database is written to while postd runs. From
+  # here until the backup is whole, any way out starts postd again (on_exit),
+  # --stop or not: a failed backup must not leave the server off.
+  say "Copying the database (postd stops for a moment)"
+  restart_postd=true
+  systemctl stop post-server
+  podman volume export post-data -o "$dir/post-data.tar" || die "copying the post-data volume failed"
+  if ! $stop; then
+    # Back at once: the copy is taken.
+    systemctl start post-server
+    restart_postd=false
+  fi
+
+  say "Encrypting the backup"
+  local enc=(-r "$to")
+  [[ -n $to ]] || enc=(-p)
+  # umask: the file is never readable by others, even for a moment. If this
+  # fails or is interrupted, the part written is removed with the folder.
+  partial_out=$out.part
+  (umask 077 && tar -C "$cleanup_dir" -cf - post-backup | gzip | age "${enc[@]}" -o "$partial_out") || die "encrypting the backup failed"
+  # Whole: renamed in one step, so FILE is never half written.
+  mv "$partial_out" "$out"
+  partial_out=''
+  if $stop; then
+    restart_postd=false
+    # Masked, so it stays off through reboots too.
+    systemctl mask --now post-server post-caddy post-livekit >/dev/null 2>&1 || true
+    systemctl stop post-pod
+    note "Post is stopped here and stays off. To start it again instead:"
+    note "  systemctl unmask post-server post-caddy post-livekit && systemctl start post-pod"
+  fi
+  echo
+  say "Backed up to $out ($(du -h "$out" | cut -f1))"
+  note "It holds the database key, encrypted. Copy it off this server, for example:"
+  note "  scp root@$domain:$out ."
+  note "To bring it up on a new server: deploy/server.sh restore FILE"
+  $stop || maintenance_hint
+}
+
+cmd_restore() {
+  local file='' identity='' pass=()
+  while (($#)); do
+    case $1 in
+      --identity) identity=${2:?--identity needs an age key file}; shift ;;
+      --image) pass+=(--image "${2:?--image needs a value}"); shift ;;
+      --yes) yes=true; pass+=(--yes) ;;
+      -h | --help) usage ;;
+      -*) die "unknown option $1" ;;
+      *) file=$1 ;;
+    esac
+    shift
+  done
+  need_root
+  [[ -n $file ]] || die "give the backup file: deploy/server.sh restore FILE"
+  [[ -f $file ]] || die "no such file: $file"
+  check_system
+  install_packages
+  # Never over a server: its key and data would be replaced.
+  if [[ -n $(installed_domain) ]] || podman secret exists post-db-key || podman volume exists post-data; then
+    die "this machine already has a Post server (or what is left of one). Restore onto a fresh machine."
+  fi
+
+  # Unpacked, it holds the database key: removed however this ends.
+  work_dir
+  say "Decrypting the backup"
+  local dec=(-d)
+  if [[ -n $identity ]]; then dec+=(-i "$identity"); fi
+  age "${dec[@]}" -o "$cleanup_dir/backup.tar.gz" "$file" || die "could not decrypt $file"
+  tar -C "$cleanup_dir" -xzf "$cleanup_dir/backup.tar.gz" || die "$file is not a Post backup"
+  local dir=$cleanup_dir/post-backup
+  grep -qx 'format=1' "$dir/backup-info" 2>/dev/null || die "$file is not a Post backup this script knows"
+  local domain
+  domain=$(sed -n 's/^POST_DOMAIN=//p' "$dir/post.env" | tail -1)
+  [[ -n $domain ]] || die "the backup has no domain in its post.env"
+  say "Restoring $domain, backed up $(sed -n 's/^created=//p' "$dir/backup-info")"
+
+  podman secret create post-db-key "$dir/post-db-key" >/dev/null
+  podman secret create post-livekit-keys "$dir/post-livekit-keys" >/dev/null
+  mkdir -p "$conf"
+  install -m 600 "$dir/post.env" "$conf/post.env"
+  # Its people have invites already.
+  touch "$conf/first-invite-shown"
+  podman volume create post-data >/dev/null
+  podman volume import post-data "$dir/post-data.tar"
+  # Podman gives a new volume to the container's user when it first mounts
+  # it empty; this one is not empty, so hand it over as it was. (65532 is
+  # postd's user, for a backup that did not record it.)
+  local owner
+  owner=$(sed -n 's/^volume_owner=//p' "$dir/backup-info")
+  chown "${owner:-65532:65532}" "$(podman volume inspect post-data --format '{{.Mountpoint}}')"
+  rm -rf -- "$cleanup_dir"
+  cleanup_dir=''
+
+  note "Point $domain at this machine if you have not yet: until then the certificate waits."
+  cmd_install "$domain" "${pass[@]}"
+}
+
 main() {
   local cmd=${1:-}
   (($#)) && shift
@@ -497,8 +799,13 @@ main() {
     install) cmd_install "$@" ;;
     update) cmd_update "$@" ;;
     invite) cmd_invite "$@" ;;
+    host) cmd_host "$@" ;;
+    announce) cmd_announce "$@" ;;
+    maintenance) cmd_maintenance "$@" ;;
     status) cmd_status "$@" ;;
     push) cmd_push "$@" ;;
+    backup) cmd_backup "$@" ;;
+    restore) cmd_restore "$@" ;;
     -h | --help | help) usage ;;
     *) usage 1 ;;
   esac
