@@ -2313,13 +2313,17 @@ impl Engine {
             let live = self.calls.lock().unwrap_or_else(|p| p.into_inner());
             live.get(&call_id).filter(|c| c.group == gid).and_then(|c| c.mine)
         };
-        let Some(participant) = mine else { return Ok(()) };
         let is_dm = store::conversation(&self.conn, &gid)?.is_some_and(|c| c.kind == KIND_DM);
+        let end = content::CallEvent { kind: content::CallKind::End as i32, call_id: call_id.to_vec(), ..Default::default() };
+        let Some(participant) = mine else {
+            // Not in it here (a device that has restarted, or a one-shot
+            // CLI): in a DM, hanging up from any device ends the call.
+            return if is_dm { self.send_body(gid, Body::Call(end)).await.map(|_| ()) } else { Err(Error::NotFound("call")) };
+        };
         let leave = content::CallEvent { kind: content::CallKind::Leave as i32, call_id: call_id.to_vec(), participant_id: participant.to_vec(), video: false };
         self.send_body(gid, Body::Call(leave)).await?;
         let still_live = self.calls.lock().unwrap_or_else(|p| p.into_inner()).get(&call_id).is_some();
         if is_dm && still_live {
-            let end = content::CallEvent { kind: content::CallKind::End as i32, call_id: call_id.to_vec(), ..Default::default() };
             self.send_body(gid, Body::Call(end)).await?;
         }
         Ok(())

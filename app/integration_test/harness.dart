@@ -45,7 +45,22 @@ class Harness {
     final probe = await ServerSocket.bind('127.0.0.1', 0);
     port = probe.port;
     await probe.close();
-    _track(await Process.start('$bin/postd', ['serve', '--domain', '127.0.0.1:$port', '--listen', '127.0.0.1:$port'], environment: _serverEnv));
+    // No releases fetched in tests; calls when tool/screens.sh started LiveKit.
+    final livekit = Platform.environment['POST_TEST_LIVEKIT_URL'];
+    final keys = Platform.environment['POST_TEST_LIVEKIT_KEYS'];
+    final args = [
+      'serve',
+      '--domain',
+      '127.0.0.1:$port',
+      '--listen',
+      '127.0.0.1:$port',
+      '--releases-dir',
+      '${work.path}/releases',
+      '--releases-from',
+      '',
+      if (livekit != null && keys != null) ...['--livekit-url', livekit, '--livekit-secret-file', keys],
+    ];
+    _track(await Process.start('$bin/postd', args, environment: _serverEnv));
     for (var i = 0; i < 50; i++) {
       try {
         (await Socket.connect('127.0.0.1', port)).destroy();

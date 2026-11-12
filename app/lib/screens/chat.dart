@@ -21,6 +21,7 @@ import '../ui/markup.dart';
 import '../ui/markup_text.dart';
 import 'dialogs.dart';
 import 'home.dart' show Panel;
+import 'calls.dart' show CallButton, CallStrip;
 import 'profile_card.dart';
 import 'search.dart' show SearchBox;
 import 'settings.dart' show SettingsSection, showSettings;
@@ -247,7 +248,9 @@ class _ChatViewState extends State<ChatView> {
     switch (e.kind) {
       case EventKind.messages when e.conversation == _id:
         unawaited(_load());
+      // A call's notices ("Call ended · 3 min") come with call events.
       case EventKind.notice when e.conversation == _id:
+      case EventKind.call when e.conversation == _id:
         unawaited(_load());
       case EventKind.profile:
         unawaited(_load());
@@ -764,6 +767,7 @@ class _ChatViewState extends State<ChatView> {
             onTogglePanel: widget.onTogglePanel,
             search: SearchBox(state: _state, members: _members),
           ),
+          CallStrip(state: _state, conversation: c.id),
           Expanded(
             child: !_loaded
                 ? const Center(child: PSpinner())
@@ -1254,6 +1258,7 @@ class _Header extends StatelessWidget {
           const SizedBox(width: 12),
           search,
           const SizedBox(width: 8),
+          if (c.following) ...[CallButton(state: state, conversation: c), const SizedBox(width: 4)],
           if (onTogglePanel != null)
             PIconButton(
               icon: c.isGroup ? Icons.people_alt_outlined : Icons.person_outline_rounded,

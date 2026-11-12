@@ -11,6 +11,7 @@ import '../theme.dart';
 import '../ui/controls.dart';
 import '../ui/format.dart';
 import '../ui/markup.dart' show plainText;
+import 'calls.dart';
 import 'chat.dart';
 import 'dialogs.dart';
 import 'search.dart';
@@ -131,7 +132,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 state: state,
                 onDetails: () => unawaited(showSettings(context, state, section: SettingsSection.updates)),
               ),
-              Expanded(child: main),
+              Expanded(
+                // A ringing call floats over everything, near the top.
+                child: Stack(
+                  children: [
+                    Positioned.fill(child: main),
+                    Positioned(
+                      top: 24,
+                      left: 0,
+                      right: 0,
+                      child: Center(child: IncomingCall(state: state)),
+                    ),
+                  ],
+                ),
+              ),
             ],
           );
         },
@@ -557,6 +571,7 @@ class _ConversationListState extends State<_ConversationList> {
             state: state,
             onDetails: () => unawaited(showSettings(context, state, section: SettingsSection.updates)),
           ),
+          CallDock(state: state),
           _YouCard(state: state),
         ],
       ),

@@ -10,6 +10,7 @@ import 'package:post/src/rust/api/error.dart';
 
 import '../ui/arrival.dart';
 import '../version.dart';
+import 'calls.dart';
 import 'search_spec.dart';
 import 'spelling.dart';
 
@@ -52,6 +53,13 @@ class AppState extends ChangeNotifier {
 
   /// Spellchecking in the composer.
   final Spelling spelling;
+
+  /// Calls: the live ones, the one ringing, the one this device is in.
+  late final CallController calls = CallController(
+    client,
+    readSetting: (key) => client.setting(key: key),
+    writeSetting: (key, value) => client.setSetting(key: key, value: value),
+  )..refresh();
 
   /// Live conversations, most recent first.
   List<ConversationInfo> conversations = const [];
@@ -106,6 +114,9 @@ class AppState extends ChangeNotifier {
   void _onEvent(AppEvent e) {
     switch (e.kind) {
       case EventKind.conversations:
+        _refreshListSoon();
+        // A membership change moves a call's keys on with the epoch.
+        unawaited(calls.onConversationChanged(e.conversation));
       case EventKind.messages:
         _refreshListSoon();
       case EventKind.profile:
@@ -130,9 +141,9 @@ class AppState extends ChangeNotifier {
         }
       case EventKind.devices:
       case EventKind.notice:
-      // Calls get their own handling with the call screens.
-      case EventKind.call:
         break;
+      case EventKind.call:
+        unawaited(calls.onCallEvent());
     }
     _relay.add(e);
   }
@@ -520,6 +531,7 @@ class AppState extends ChangeNotifier {
     _events.cancel();
     _relay.close();
     spelling.dispose();
+    calls.dispose();
     searchFocus.dispose();
     _typingSweep?.cancel();
     _refreshSoon?.cancel();

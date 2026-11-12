@@ -479,14 +479,42 @@ void main() {
     await _shot(t, '09d-settings-spelling');
     await tap(t, find.text('Devices'));
     await _shot(t, '10-settings-devices');
-    // Updates: this test build has no release key, so a check says so
-    // plainly instead of trusting anything.
+    // Updates: the test server hands out no release, so a check finds this
+    // build up to date.
     await tap(t, find.text('Updates'));
     expect(find.text('Development build'), findsOneWidget);
     await tap(t, find.text('Check for updates'));
-    await waitFor(t, find.textContaining('cannot check for updates'));
+    await waitFor(t, find.textContaining('Up to date'));
     await _shot(t, '10b-settings-updates');
     await t.sendKeyEvent(LogicalKeyboardKey.escape);
     await settle(t);
+    await _noRouteOpen(t);
+
+    // Calls, when tool/screens.sh could start LiveKit: Bob calls from the
+    // CLI (signalling only), Sam's app rings, answers with real encrypted
+    // audio through LiveKit, and leaves when Bob hangs up.
+    if (Platform.environment['POST_TEST_LIVEKIT_URL'] != null) {
+      final dm = (await h.cliJson('bob', ['dm', 'sam']))['id'] as String;
+      final call = (await h.cliJson('bob', ['call', 'start', dm]))['call']['id'] as String;
+      await waitFor(t, find.text('Bob B is calling'));
+      await settle(t, 800);
+      await _shot(t, '12-call-ringing');
+
+      await t.tap(find.text('Answer'));
+      await waitFor(t, find.text('In a call'), timeout: const Duration(seconds: 30));
+      await waitFor(t, find.text('2 in the call'));
+      await settle(t, 800);
+      await _shot(t, '12b-in-call');
+      // Mute shows as muted.
+      await t.tap(find.byTooltip('Mute').first);
+      await settle(t, 300);
+      expect(find.byTooltip('Unmute'), findsWidgets);
+
+      await h.cli('bob', ['call', 'leave', dm, call]);
+      await waitFor(t, find.textContaining('Call ended'), timeout: const Duration(seconds: 20));
+      await settle(t, 800);
+      expect(find.text('In a call'), findsNothing, reason: 'the call closed when Bob hung up');
+      await _shot(t, '12c-call-ended');
+    }
   });
 }

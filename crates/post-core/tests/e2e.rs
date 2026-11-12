@@ -375,6 +375,28 @@ async fn group_call_keys_move_on_with_the_members() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_dm_call_hangs_up_from_a_device_that_lost_its_call() {
+    let server = Server::start_with(Some(call_config())).await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let dm = bob.start_dm("alice").await.expect("dm");
+    let call = bob.start_call(dm.id, false).await.expect("start").call.id;
+    alice.sync().await.expect("sync");
+    assert_eq!(alice.calls().await.expect("calls").len(), 1);
+
+    // Bob's app restarts: calls live in memory, so his is gone. Hanging up
+    // still ends a DM call.
+    drop(bob);
+    let bob = Core::open(&dir.path().join("bob"), &DbKey::from_bytes([7; 32])).expect("reopen");
+    bob.connect().await.expect("connect");
+    assert!(bob.calls().await.expect("calls").is_empty());
+    bob.leave_call(dm.id, call).await.expect("hang up");
+    alice.sync().await.expect("sync");
+    assert!(alice.calls().await.expect("calls").is_empty(), "ended for Alice too");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_server_without_calls_refuses_before_anyone_rings() {
     let server = Server::start().await;
     let dir = tempfile::tempdir().expect("tempdir");
