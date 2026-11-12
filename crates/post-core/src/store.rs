@@ -179,6 +179,12 @@ pub fn open(path: &Path, key: &DbKey) -> Result<Connection> {
         return Err(Error::WrongKey);
     }
     conn.pragma_update(None, "journal_mode", "WAL")?;
+    // FULL (SQLite's default, stated so no build or later edit relaxes it):
+    // a commit is on disk before it returns. Receiving acknowledges to the
+    // server only after its commit, and sending transmits only what the
+    // outbox holds, so a power cut can neither lose a message nor roll MLS
+    // state back behind what the server has seen (design section 11).
+    conn.pragma_update(None, "synchronous", "FULL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
     register_functions(&conn)?;

@@ -191,7 +191,12 @@ pub fn open(path: &Path, key: &[u8; 32]) -> rusqlite::Result<Connection> {
     // Fails here, not later, if the key is wrong.
     conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get::<_, i64>(0))?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
-    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    // FULL: a commit is on disk before it returns, so before the reply. With
+    // NORMAL a power cut can take back the last commits after their replies
+    // went out: a sender drops a message from its outbox that the server
+    // then loses, or members merge a group commit the server forgets, and the
+    // group splits. One flush per write costs little at a chat server's rate.
+    conn.pragma_update(None, "synchronous", "FULL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
     let mut conn = conn;
