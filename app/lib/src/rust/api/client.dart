@@ -184,6 +184,13 @@ abstract class Client implements RustOpaqueInterface {
     required String name,
   });
 
+  /// Ring people (usernames) into a live call.
+  Future<void> ringCall({
+    required String conversation,
+    required String call,
+    required List<String> usernames,
+  });
+
   /// Stay connected until the app closes: run this once, without awaiting
   /// its end. It reconnects by itself.
   Future<void> run();
@@ -241,10 +248,12 @@ abstract class Client implements RustOpaqueInterface {
   /// An app setting on this device, kept in the encrypted profile.
   Future<String?> setting({required String key});
 
-  /// Start a call in a conversation, with this device in it.
+  /// Start a call in a conversation, with this device in it, ringing
+  /// `ring` (usernames), or with none named everyone in a DM or small group.
   Future<CallJoinInfo> startCall({
     required String conversation,
     required bool video,
+    required List<String> ring,
   });
 
   /// Open a DM with `username`, creating it if needed.

@@ -370,6 +370,21 @@ pub struct CallStartParams {
     /// Start as a video call.
     #[serde(default)]
     pub video: bool,
+    /// Ring only these usernames. None: everyone in a DM or small group.
+    #[serde(default)]
+    pub ring: Vec<String>,
+}
+
+/// `call_ring`: ring people into a live call.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CallRingParams {
+    /// Conversation ID, hex.
+    pub conversation: String,
+    /// Call ID, hex.
+    pub call: String,
+    /// Whom to ring.
+    pub usernames: Vec<String>,
 }
 
 /// A call in a conversation.
@@ -792,11 +807,13 @@ methods! {
     "safety_number", Local, UserParams, SafetyNumber, "The safety number between you and a user.";
     "set_verified", Connection, VerifiedParams, Done, "Record that you compared safety numbers with a user, or withdraw it.";
     "mark_read", Connection, ConversationParams, Done, "Mark a conversation read, on all your devices.";
-    "calls", Local, NoParams, Vec<CallInfo>, "The live calls, in every conversation.";
+    // A connection: calls live in memory, so a one-shot CLI must fetch first.
+    "calls", Connection, NoParams, Vec<CallInfo>, "The live calls, in every conversation.";
     "call_start", Connection, CallStartParams, CallJoined, "Start a call (signalling only: bring your own audio with the token).";
     "call_join", Connection, CallParams, CallJoined, "Join or answer a call (signalling only).";
     "call_leave", Connection, CallParams, Done, "Leave a call; in a DM this ends it.";
     "call_decline", Connection, CallParams, Done, "Decline a ringing call.";
+    "call_ring", Connection, CallRingParams, Done, "Ring people into a live call.";
 }
 
 /// Find a method by name.
@@ -1051,7 +1068,12 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
         "calls" => ok(core.calls().await?.into_iter().map(call_info).collect::<Vec<_>>()),
         "call_start" => {
             let p: CallStartParams = params(p)?;
-            ok(call_joined(core.start_call(id(&p.conversation)?, p.video).await?))
+            ok(call_joined(core.start_call(id(&p.conversation)?, p.video, &p.ring).await?))
+        }
+        "call_ring" => {
+            let p: CallRingParams = params(p)?;
+            core.ring_call(id(&p.conversation)?, id(&p.call)?, &p.usernames).await?;
+            ok(Done {})
         }
         "call_join" => {
             let p: CallParams = params(p)?;

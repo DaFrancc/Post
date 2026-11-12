@@ -823,9 +823,16 @@ impl Core {
     }
 
     /// Start a call in a conversation (design section 10), with this device
-    /// in it. Others' devices ring; [`Event::CallChanged`] follows who joins.
-    pub async fn start_call(&self, conversation: ConversationId, video: bool) -> Result<CallJoin> {
-        self.engine.lock().await.start_call(conversation.0, video).await
+    /// in it. It rings `ring` (usernames); with nobody named, everyone in a
+    /// DM or a group of up to eight, and nobody in a larger group, where the
+    /// call shows to join. [`Event::CallChanged`] follows who joins.
+    pub async fn start_call(&self, conversation: ConversationId, video: bool, ring: &[String]) -> Result<CallJoin> {
+        self.engine.lock().await.start_call(conversation.0, video, ring).await
+    }
+
+    /// Ring people (usernames) into a live call: members not in it yet.
+    pub async fn ring_call(&self, conversation: ConversationId, call: CallId, usernames: &[String]) -> Result<()> {
+        self.engine.lock().await.ring_call(conversation.0, call.0, usernames).await
     }
 
     /// Join a live call from this device (answering it, if it is ringing).

@@ -191,6 +191,17 @@ enum CallCommand {
         /// As a video call.
         #[arg(long)]
         video: bool,
+        /// Ring only this person (repeat for more). Default: everyone in a
+        /// DM or a group of up to eight.
+        #[arg(long)]
+        ring: Vec<String>,
+    },
+    /// Ring people into a call under way.
+    Ring {
+        conversation: String,
+        call: String,
+        #[arg(required = true)]
+        usernames: Vec<String>,
     },
     /// Join (or answer) a call.
     Join { conversation: String, call: String },
@@ -353,7 +364,12 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         }
         Command::Group { cmd: GroupCommand::Members { conversation } } => ("members", json!({ "conversation": conversation })),
         Command::Call { cmd: CallCommand::List } => ("calls", json!({})),
-        Command::Call { cmd: CallCommand::Start { conversation, video } } => ("call_start", json!({ "conversation": conversation, "video": video })),
+        Command::Call { cmd: CallCommand::Start { conversation, video, ring } } => {
+            ("call_start", json!({ "conversation": conversation, "video": video, "ring": ring }))
+        }
+        Command::Call { cmd: CallCommand::Ring { conversation, call, usernames } } => {
+            ("call_ring", json!({ "conversation": conversation, "call": call, "usernames": usernames }))
+        }
         Command::Call { cmd: CallCommand::Join { conversation, call } } => ("call_join", json!({ "conversation": conversation, "call": call })),
         Command::Call { cmd: CallCommand::Leave { conversation, call } } => ("call_leave", json!({ "conversation": conversation, "call": call })),
         Command::Call { cmd: CallCommand::Decline { conversation, call } } => ("call_decline", json!({ "conversation": conversation, "call": call })),

@@ -2213,14 +2213,15 @@ impl Engine {
         let notice = match &change {
             calls::Change::Started => Some(format!("{} started {kind}", name(&seen.sender)?)),
             calls::Change::StartedLongAgo if seen.sender != me.account => Some(format!("{} called", name(&seen.sender)?)),
-            calls::Change::Ended { missed: true, .. } => {
+            calls::Change::Ended { missed, lasted_ms } => {
                 let starter = live.get(&id).map(|c| c.started_by).unwrap_or(seen.sender);
-                Some(if starter == me.account { "no one answered".into() } else { format!("missed call from {}", name(&starter)?) })
+                Some(match lasted_ms {
+                    _ if *missed => format!("missed call from {}", name(&starter)?),
+                    None if starter == me.account => "no one answered".into(),
+                    Some(ms) => format!("call ended · {}", calls::lasted(*ms)),
+                    None => "call ended".into(),
+                })
             }
-            calls::Change::Ended { lasted_ms, .. } => Some(match lasted_ms {
-                Some(ms) => format!("call ended · {}", calls::lasted(*ms)),
-                None => "call ended".into(),
-            }),
             _ => None,
         };
         if let Some(text) = notice {
@@ -2263,7 +2264,7 @@ impl Engine {
             started_at_ms: c.started_at,
             video: c.video,
             participants,
-            ringing: c.ringing,
+            ringing: c.ringing(store::now_ms()),
             joined: c.mine.is_some(),
             ended: c.ended,
         })
@@ -2275,16 +2276,64 @@ impl Engine {
         live.all().map(|(id, c)| self.call_view(id, c)).collect()
     }
 
-    /// Start a call in a conversation, with this device in it.
-    pub async fn start_call(&mut self, gid: [u8; 16], video: bool) -> Result<crate::CallJoin> {
+    /// Start a call in a conversation, with this device in it, ringing
+    /// `ring` (usernames) or, with none named, everyone in a DM or a small
+    /// group. A larger group is not rung: the call shows there to join.
+    pub async fn start_call(&mut self, gid: [u8; 16], video: bool, ring: &[String]) -> Result<crate::CallJoin> {
         let gid = self.live_group(gid)?;
+        let (ring, members) = self.ring_targets(&gid, ring)?;
         let (call_id, participant) = (random16()?, random16()?);
         // The token first: a server without calls refuses it, and nobody
         // is rung for a call that cannot happen.
         let access = self.call_access(gid, call_id, participant).await?;
-        let event = content::CallEvent { kind: content::CallKind::Start as i32, call_id: call_id.to_vec(), participant_id: participant.to_vec(), video };
+        let event = content::CallEvent {
+            kind: content::CallKind::Start as i32,
+            call_id: call_id.to_vec(),
+            participant_id: participant.to_vec(),
+            video,
+            quiet: ring.is_empty() && members > calls::RING_ALL_MAX,
+            ring,
+        };
         self.send_body(gid, Body::Call(event)).await?;
         self.call_join(call_id, participant, access)
+    }
+
+    /// Ring people (usernames) into a live call: members not in it.
+    pub async fn ring_call(&mut self, gid: [u8; 16], call_id: [u8; 16], usernames: &[String]) -> Result<()> {
+        let gid = self.live_group(gid)?;
+        if usernames.is_empty() {
+            return Err(Error::InvalidInput("name someone to ring".into()));
+        }
+        let in_call: HashSet<AccountId> = {
+            let live = self.calls.lock().unwrap_or_else(|p| p.into_inner());
+            let call = live.get(&call_id).filter(|c| c.group == gid && !c.ended).ok_or(Error::NotFound("call"))?;
+            call.participants.values().map(|(a, _)| *a).collect()
+        };
+        let (ring, _) = self.ring_targets(&gid, usernames)?;
+        let ring: Vec<Vec<u8>> = ring.into_iter().filter(|a| !in_call.iter().any(|i| i.0.as_slice() == a.as_slice())).collect();
+        if ring.is_empty() {
+            return Err(Error::InvalidInput("they are already in the call".into()));
+        }
+        let event = content::CallEvent { kind: content::CallKind::Ring as i32, call_id: call_id.to_vec(), ring, ..Default::default() };
+        self.send_body(gid, Body::Call(event)).await.map(|_| ())
+    }
+
+    /// The accounts of `usernames`, each a member of the group other than
+    /// the user, and how many members the group has.
+    fn ring_targets(&self, gid: &[u8; 16], usernames: &[String]) -> Result<(Vec<Vec<u8>>, usize)> {
+        let me = self.me.as_ref().ok_or(Error::NotRegistered)?;
+        let (_, members) = group_members(&self.conn, gid)?;
+        let mut ring = Vec::new();
+        for u in usernames {
+            let (account, _) = store::account_by_username(&self.conn, u)?.ok_or_else(|| Error::UnknownUser(u.clone()))?;
+            if account == me.account || !members.iter().any(|(a, _)| *a == account) {
+                return Err(Error::InvalidInput(format!("{u} is not someone else in this conversation")));
+            }
+            if !ring.contains(&account.0.to_vec()) {
+                ring.push(account.0.to_vec());
+            }
+        }
+        Ok((ring, members.len()))
     }
 
     /// Join a live call from this device.
@@ -2301,7 +2350,7 @@ impl Engine {
         }
         let participant = random16()?;
         let access = self.call_access(gid, call_id, participant).await?;
-        let event = content::CallEvent { kind: content::CallKind::Join as i32, call_id: call_id.to_vec(), participant_id: participant.to_vec(), video: false };
+        let event = content::CallEvent { kind: content::CallKind::Join as i32, call_id: call_id.to_vec(), participant_id: participant.to_vec(), ..Default::default() };
         self.send_body(gid, Body::Call(event)).await?;
         self.call_join(call_id, participant, access)
     }
@@ -2320,7 +2369,7 @@ impl Engine {
             // CLI): in a DM, hanging up from any device ends the call.
             return if is_dm { self.send_body(gid, Body::Call(end)).await.map(|_| ()) } else { Err(Error::NotFound("call")) };
         };
-        let leave = content::CallEvent { kind: content::CallKind::Leave as i32, call_id: call_id.to_vec(), participant_id: participant.to_vec(), video: false };
+        let leave = content::CallEvent { kind: content::CallKind::Leave as i32, call_id: call_id.to_vec(), participant_id: participant.to_vec(), ..Default::default() };
         self.send_body(gid, Body::Call(leave)).await?;
         let still_live = self.calls.lock().unwrap_or_else(|p| p.into_inner()).get(&call_id).is_some();
         if is_dm && still_live {

@@ -709,9 +709,15 @@ impl Client {
 
     // ------------------------------------------------------------ calls
 
-    /// Start a call in a conversation, with this device in it.
-    pub async fn start_call(&self, conversation: String, video: bool) -> Result<CallJoinInfo, PostError> {
-        Ok(call_join(self.core.start_call(conversation.parse()?, video).await?))
+    /// Start a call in a conversation, with this device in it, ringing
+    /// `ring` (usernames), or with none named everyone in a DM or small group.
+    pub async fn start_call(&self, conversation: String, video: bool, ring: Vec<String>) -> Result<CallJoinInfo, PostError> {
+        Ok(call_join(self.core.start_call(conversation.parse()?, video, &ring).await?))
+    }
+
+    /// Ring people (usernames) into a live call.
+    pub async fn ring_call(&self, conversation: String, call: String, usernames: Vec<String>) -> Result<(), PostError> {
+        Ok(self.core.ring_call(conversation.parse()?, call.parse()?, &usernames).await?)
     }
 
     /// Join (or answer) a live call from this device.

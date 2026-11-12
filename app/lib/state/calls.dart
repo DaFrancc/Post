@@ -75,6 +75,7 @@ class CallController extends ChangeNotifier {
 
   Timer? _ringTimer;
   Timer? _ringSound;
+  Timer? _ringCheck;
   Timer? _keyRefresh;
   lk.EventsListener<lk.RoomEvent>? _listener;
   bool _leaving = false;
@@ -124,6 +125,9 @@ class CallController extends ChangeNotifier {
       await _close();
     }
     _updateRingSound();
+    // A call rings for a minute; look again then, so it stops on time.
+    _ringCheck?.cancel();
+    if (ringing != null) _ringCheck = Timer(const Duration(seconds: 61), () => unawaited(refresh()));
     notifyListeners();
   }
 
@@ -140,8 +144,10 @@ class CallController extends ChangeNotifier {
 
   // ---------------------------------------------------------------- actions
 
-  Future<void> start(String conversation) => _run(() async {
-    final join = await client.startCall(conversation: conversation, video: false);
+  /// Start a call, ringing `ring` (usernames), or with nobody named everyone
+  /// in a DM or small group.
+  Future<void> start(String conversation, {List<String> ring = const []}) => _run(() async {
+    final join = await client.startCall(conversation: conversation, video: false, ring: ring);
     await _enter(join, conversation);
     // A DM call nobody answers stops after a minute ("no one answered").
     _ringTimer = Timer(ringTimeout, () {
@@ -154,6 +160,13 @@ class CallController extends ChangeNotifier {
     if (active != null) await _leaveActive();
     final join = await client.joinCall(conversation: call.conversation, call: call.id);
     await _enter(join, call.conversation);
+  });
+
+  /// Ring people into the call this device is in.
+  Future<void> ringInto(List<String> usernames) => _run(() async {
+    final a = active;
+    if (a == null) return;
+    await client.ringCall(conversation: a.conversation, call: a.id, usernames: usernames);
   });
 
   Future<void> decline(CallInfo call) => _run(() async {
@@ -330,6 +343,7 @@ class CallController extends ChangeNotifier {
     _disposed = true;
     _ringTimer?.cancel();
     _ringSound?.cancel();
+    _ringCheck?.cancel();
     _keyRefresh?.cancel();
     unawaited(_close());
     super.dispose();

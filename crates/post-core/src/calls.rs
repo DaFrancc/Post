@@ -23,6 +23,9 @@ use crate::content::{CallEvent, CallKind};
 
 /// How long a call rings after it starts.
 pub(crate) const RING_FOR_MS: u64 = 60_000;
+/// A call started without naming whom to ring rings everyone in groups
+/// up to this size; larger ones show it to join instead (design section 10).
+pub(crate) const RING_ALL_MAX: usize = 8;
 /// Events older than this when they arrive are history, not a live call.
 pub(crate) const STALE_MS: u64 = 2 * 3600 * 1000;
 /// MLS exporter label for a call's keys.
@@ -41,7 +44,11 @@ pub(crate) struct CallState {
     pub participants: BTreeMap<[u8; 16], (AccountId, DeviceId)>,
     /// This device's participant ID, while it is in the call.
     pub mine: Option<[u8; 16]>,
-    pub ringing: bool,
+    /// It rings for the user until then (Unix ms; 0 for not ringing).
+    pub ring_until: u64,
+    /// It rang for the user at some point: only then is an unanswered call
+    /// a missed one.
+    pub rang: bool,
     /// One of the user's devices started or joined it at some point.
     pub answered: bool,
     /// When someone first joined the starter: the call's real start.
@@ -57,6 +64,13 @@ pub(crate) struct Seen {
     pub event: CallEvent,
 }
 
+impl CallState {
+    /// Ringing for the user now.
+    pub fn ringing(&self, now: u64) -> bool {
+        !self.ended && self.ring_until > now
+    }
+}
+
 /// What an event did, for the timeline.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Change {
@@ -67,6 +81,8 @@ pub(crate) enum Change {
     Joined,
     Left,
     Declined,
+    /// Someone rang people into the call.
+    Rang,
     /// Over. `missed`: it called the user and none of their devices
     /// answered. `lasted`: from the first join to the end.
     Ended { missed: bool, lasted_ms: Option<u64> },
@@ -107,6 +123,7 @@ impl Calls {
         let from_me = s.sender == v.account;
         let from_this_device = from_me && s.device == v.device;
         let age = v.now.saturating_sub(s.sent_at);
+        let names_me = s.event.ring.iter().any(|a| a.as_slice() == v.account.0.as_slice());
 
         if kind == CallKind::Start {
             if self.live.contains_key(&id) {
@@ -116,6 +133,8 @@ impl Calls {
                 return (id, Change::StartedLongAgo);
             }
             let p = participant.expect("checked");
+            // Everyone, unless it names whom to ring or rings nobody.
+            let rings_me = !from_me && !s.event.quiet && (s.event.ring.is_empty() || names_me);
             self.live.insert(
                 id,
                 CallState {
@@ -125,7 +144,8 @@ impl Calls {
                     video: s.event.video,
                     participants: BTreeMap::from([(p, (s.sender, s.device))]),
                     mine: from_this_device.then_some(p),
-                    ringing: !from_me && age < RING_FOR_MS,
+                    ring_until: if rings_me { s.sent_at + RING_FOR_MS } else { 0 },
+                    rang: rings_me,
                     answered: from_me,
                     connected_at: None,
                     ended: false,
@@ -147,7 +167,7 @@ impl Calls {
                     call.mine = Some(p);
                 }
                 if from_me {
-                    call.ringing = false;
+                    call.ring_until = 0;
                     call.answered = true;
                 }
                 if s.sender != call.started_by || call.participants.len() > 1 {
@@ -168,7 +188,7 @@ impl Calls {
             }
             CallKind::Decline => {
                 if from_me {
-                    call.ringing = false;
+                    call.ring_until = 0;
                 }
                 // In a DM, the other side declining ends the call.
                 if v.is_dm && s.sender != call.started_by { end(call, s.sent_at) } else { Change::Declined }
@@ -178,6 +198,16 @@ impl Calls {
                 // can end it for everyone (it otherwise ends as people leave).
                 if v.is_dm || s.sender == call.started_by { end(call, s.sent_at) } else { Change::Nothing }
             }
+            CallKind::Ring => {
+                // Rung into a call the user's devices are not in: ring again,
+                // for another minute, from when it was sent.
+                let in_it = call.participants.values().any(|(a, _)| *a == v.account);
+                if names_me && !from_me && !in_it && age < RING_FOR_MS {
+                    call.ring_until = s.sent_at + RING_FOR_MS;
+                    call.rang = true;
+                }
+                Change::Rang
+            }
         };
         (id, change)
     }
@@ -185,9 +215,9 @@ impl Calls {
 
 fn end(call: &mut CallState, at: u64) -> Change {
     call.ended = true;
-    call.ringing = false;
+    call.ring_until = 0;
     call.mine = None;
-    Change::Ended { missed: !call.answered, lasted_ms: call.connected_at.map(|c| at.saturating_sub(c)) }
+    Change::Ended { missed: call.rang && !call.answered, lasted_ms: call.connected_at.map(|c| at.saturating_sub(c)) }
 }
 
 /// A participant's media key, from the call's base secret for this epoch.
@@ -227,8 +257,17 @@ mod tests {
             sender,
             device,
             sent_at: at,
-            event: CallEvent { kind: kind as i32, call_id: CALL.to_vec(), participant_id: participant.map(|p| vec![p; 16]).unwrap_or_default(), video: false },
+            event: CallEvent {
+                kind: kind as i32,
+                call_id: CALL.to_vec(),
+                participant_id: participant.map(|p| vec![p; 16]).unwrap_or_default(),
+                ..Default::default()
+            },
         }
+    }
+
+    fn ringing(calls: &Calls, now: u64) -> bool {
+        calls.get(&CALL).expect("call").ringing(now)
     }
 
     fn viewer(account: AccountId, device: DeviceId, is_dm: bool, now: u64) -> Viewer {
@@ -241,12 +280,13 @@ mod tests {
         let alice_phone = viewer(ALICE, PHONE, true, 1_000);
         // Bob calls.
         assert_eq!(calls.apply(G, &alice_phone, &seen(BOB, BOB_DEV, 1_000, CallKind::Start, Some(10))).1, Change::Started);
-        assert!(calls.get(&CALL).expect("call").ringing);
+        assert!(ringing(&calls, 1_000));
+        assert!(!ringing(&calls, 1_000 + RING_FOR_MS), "it stops ringing after a minute");
         // Alice answers on her laptop: her phone stops ringing.
         let later = viewer(ALICE, PHONE, true, 2_000);
         assert_eq!(calls.apply(G, &later, &seen(ALICE, LAPTOP, 2_000, CallKind::Join, Some(11))).1, Change::Joined);
         let c = calls.get(&CALL).expect("call");
-        assert!(!c.ringing && c.answered && c.mine.is_none(), "answered elsewhere, not on this device");
+        assert!(!c.ringing(2_000) && c.answered && c.mine.is_none(), "answered elsewhere, not on this device");
         assert_eq!(c.participants.len(), 2);
         // Bob hangs up after five minutes.
         let end = calls.apply(G, &later, &seen(BOB, BOB_DEV, 2_000 + 300_000, CallKind::End, None)).1;
@@ -265,7 +305,7 @@ mod tests {
         // Fetched after a minute: a live call, but no longer ringing.
         let mut calls = Calls::default();
         calls.apply(G, &viewer(ALICE, PHONE, true, 1_000 + RING_FOR_MS + 1), &seen(BOB, BOB_DEV, 1_000, CallKind::Start, Some(10)));
-        assert!(!calls.get(&CALL).expect("call").ringing);
+        assert!(!ringing(&calls, 1_000 + RING_FOR_MS + 1));
         // Fetched hours later: history.
         let mut calls = Calls::default();
         let (_, change) = calls.apply(G, &viewer(ALICE, PHONE, true, STALE_MS + 2_000), &seen(BOB, BOB_DEV, 1_000, CallKind::Start, Some(10)));
@@ -302,6 +342,42 @@ mod tests {
         assert_ne!(a, sender_key(&[1; 32], &CALL, &[11; 16]), "another participant");
         assert_ne!(a, sender_key(&[2; 32], &CALL, &[10; 16]), "another epoch's base");
         assert_ne!(a, sender_key(&[1; 32], &[8; 16], &[10; 16]), "another call");
+    }
+
+    #[test]
+    fn a_call_rings_only_whom_it_names_and_can_ring_more_later() {
+        const CAROL: AccountId = LinkHash([3; 32]);
+        let names = |who: &[AccountId]| who.iter().map(|a| a.0.to_vec()).collect::<Vec<_>>();
+        let mut start = seen(BOB, BOB_DEV, 1_000, CallKind::Start, Some(10));
+        start.event.ring = names(&[ALICE]);
+        // Alice is named: it rings for her.
+        let mut for_alice = Calls::default();
+        for_alice.apply(G, &viewer(ALICE, PHONE, false, 1_000), &start);
+        assert!(ringing(&for_alice, 1_000));
+        // Carol is not: the call is there to join, silently.
+        let mut for_carol = Calls::default();
+        let carol = viewer(CAROL, DeviceId([4; 16]), false, 1_000);
+        for_carol.apply(G, &carol, &start);
+        assert!(!ringing(&for_carol, 1_000));
+        // Bob rings her into the call later, and it rings for a minute from then.
+        let mut ring = seen(BOB, BOB_DEV, 30_000, CallKind::Ring, None);
+        ring.event.ring = names(&[CAROL]);
+        let carol_later = viewer(CAROL, DeviceId([4; 16]), false, 30_000);
+        assert_eq!(for_carol.apply(G, &carol_later, &ring).1, Change::Rang);
+        assert!(ringing(&for_carol, 30_000 + RING_FOR_MS - 1));
+        // Nobody missed a call they were never rung for.
+        let mut for_dave = Calls::default();
+        let dave = viewer(LinkHash([5; 32]), DeviceId([5; 16]), false, 1_000);
+        for_dave.apply(G, &dave, &start);
+        let end = for_dave.apply(G, &dave, &seen(BOB, BOB_DEV, 2_000, CallKind::Leave, Some(10))).1;
+        assert_eq!(end, Change::Ended { missed: false, lasted_ms: None });
+
+        // A quiet start rings nobody.
+        let mut quiet = seen(BOB, BOB_DEV, 1_000, CallKind::Start, Some(10));
+        quiet.event.quiet = true;
+        let mut calls = Calls::default();
+        calls.apply(G, &viewer(ALICE, PHONE, false, 1_000), &quiet);
+        assert!(!ringing(&calls, 1_000));
     }
 
     #[test]

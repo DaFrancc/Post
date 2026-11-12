@@ -50,7 +50,9 @@ void main() {
     await h.register('bob', name: 'Bob B');
     await h.register('carol', name: 'Carol C');
     await h.cli('bob', ['send', '--to', 'sam', 'call you in a bit']);
+    await h.cli('carol', ['send', '--to', 'sam', 'free later?']);
     final dm = (await h.cliJson('bob', ['dm', 'sam']))['id'] as String;
+    final carolDm = (await h.cliJson('carol', ['dm', 'sam']))['id'] as String;
     final group = (await h.cliJson('alice', ['group', 'create', 'climbing', 'bob', 'carol', 'sam']))['id'] as String;
     await h.cli('alice', ['send', '--conversation', group, 'call at 8?']);
     for (final u in ['bob', 'carol', 'sam']) {
@@ -96,9 +98,10 @@ void main() {
     expect(find.text('In a call'), findsNothing, reason: 'the call closed when Bob hung up');
     await _shot(t, 'calls-03-ended');
 
-    // A group call: Alice starts it, it rings "in climbing", Sam answers,
-    // Bob joins too; Sam leaves and the call goes on without him.
-    final groupCall = (await h.cliJson('alice', ['call', 'start', group]))['call']['id'] as String;
+    // A group call ringing only Sam: it rings "in climbing", Sam answers,
+    // Bob joins too; Sam rings Carol in; Carol calls Sam while he is in it;
+    // Sam leaves and the call goes on without him.
+    final groupCall = (await h.cliJson('alice', ['call', 'start', group, '--ring', 'sam']))['call']['id'] as String;
     await waitFor(t, find.text('Alice A is calling'));
     expect(find.text('in climbing'), findsOneWidget);
     await _shot(t, 'calls-04-group-ringing');
@@ -109,6 +112,25 @@ void main() {
     await h.cli('bob', ['call', 'join', group, groupCall]);
     await waitFor(t, find.text('3 in the call'));
     await _shot(t, 'calls-05-group-in-call');
+
+    // Ring Carol, who was not rung by the start.
+    await t.tap(find.byTooltip('Ring someone'));
+    await waitFor(t, find.text('Ring Carol C'));
+    await _shot(t, 'calls-05b-ring-someone');
+    await t.tap(find.text('Ring Carol C'));
+    await settle(t, 1500);
+    final carolCalls = await h.cliJson('carol', ['call', 'list']) as List<dynamic>;
+    expect(carolCalls.single['ringing'], isTrue, reason: 'Carol is rung into the call');
+
+    // Carol calls Sam while he is in the group call: he sees it, declines,
+    // and stays where he is.
+    await h.cli('carol', ['call', 'start', carolDm]);
+    await waitFor(t, find.text('Carol C is calling'));
+    await _shot(t, 'calls-05c-call-waiting');
+    await t.tap(find.text('Decline'));
+    await settle(t, 1500);
+    expect(find.text('Carol C is calling'), findsNothing, reason: 'declined');
+    expect(find.text('3 in the call'), findsOneWidget, reason: 'still in the group call');
     await t.tap(find.byTooltip('Leave the call').first);
     await waitFor(t, find.text('Join'));
     expect(find.text('In a call'), findsNothing);

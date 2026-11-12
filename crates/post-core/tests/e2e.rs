@@ -299,7 +299,7 @@ async fn a_dm_call_rings_connects_and_ends() {
     bob.sync().await.expect("sync");
 
     // Alice calls: she gets a token for the room, with the host's limits.
-    let joined = alice.start_call(dm.id, false).await.expect("start");
+    let joined = alice.start_call(dm.id, false, &[]).await.expect("start");
     assert_eq!((joined.url.as_str(), joined.max_bitrate_kbps, joined.max_participants), ("wss://rtc.example.org", 1200, 8));
     assert_eq!(joined.token.split('.').count(), 3, "a JWT");
     assert!(joined.call.joined && !joined.call.ringing);
@@ -349,7 +349,7 @@ async fn group_call_keys_move_on_with_the_members() {
     bob.sync().await.expect("sync");
     carol.sync().await.expect("sync");
 
-    let call = alice.start_call(group.id, true).await.expect("start").call.id;
+    let call = alice.start_call(group.id, true, &[]).await.expect("start").call.id;
     bob.sync().await.expect("sync");
     bob.join_call(group.id, call).await.expect("join");
     carol.sync().await.expect("sync");
@@ -375,13 +375,45 @@ async fn group_call_keys_move_on_with_the_members() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_group_call_rings_whom_it_names_and_rings_more_later() {
+    let server = Server::start_with(Some(call_config())).await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let carol = server.client(dir.path(), "carol").await;
+    let group = alice.create_group("climbing", &["bob".into(), "carol".into()]).await.expect("group");
+    bob.sync().await.expect("sync");
+    carol.sync().await.expect("sync");
+
+    // Alice rings only Bob.
+    let call = alice.start_call(group.id, false, &["bob".into()]).await.expect("start").call.id;
+    bob.sync().await.expect("sync");
+    carol.sync().await.expect("sync");
+    assert!(bob.calls().await.expect("calls")[0].ringing, "Bob is rung");
+    let carols = carol.calls().await.expect("calls");
+    assert!(!carols[0].ringing, "Carol is not rung, but sees the call to join");
+
+    // Then she rings Carol into it; Bob, already rung, is not rung again
+    // once he is in it.
+    bob.join_call(group.id, call).await.expect("join");
+    alice.sync().await.expect("sync");
+    alice.ring_call(group.id, call, &["carol".into()]).await.expect("ring");
+    carol.sync().await.expect("sync");
+    assert!(carol.calls().await.expect("calls")[0].ringing, "Carol is rung now");
+    let e = alice.ring_call(group.id, call, &["bob".into()]).await.expect_err("Bob is in it");
+    assert!(e.to_string().contains("already in the call"), "{e}");
+    let e = alice.ring_call(group.id, call, &["mallory".into()]).await.expect_err("not a member");
+    assert!(e.to_string().contains("mallory"), "{e}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_dm_call_hangs_up_from_a_device_that_lost_its_call() {
     let server = Server::start_with(Some(call_config())).await;
     let dir = tempfile::tempdir().expect("tempdir");
     let alice = server.client(dir.path(), "alice").await;
     let bob = server.client(dir.path(), "bob").await;
     let dm = bob.start_dm("alice").await.expect("dm");
-    let call = bob.start_call(dm.id, false).await.expect("start").call.id;
+    let call = bob.start_call(dm.id, false, &[]).await.expect("start").call.id;
     alice.sync().await.expect("sync");
     assert_eq!(alice.calls().await.expect("calls").len(), 1);
 
@@ -403,7 +435,7 @@ async fn a_server_without_calls_refuses_before_anyone_rings() {
     let alice = server.client(dir.path(), "alice").await;
     let bob = server.client(dir.path(), "bob").await;
     let dm = alice.start_dm("bob").await.expect("dm");
-    let e = alice.start_call(dm.id, false).await.expect_err("no calls here");
+    let e = alice.start_call(dm.id, false, &[]).await.expect_err("no calls here");
     assert!(e.to_string().contains("does not offer calls"), "{e}");
     bob.sync().await.expect("sync");
     assert!(bob.calls().await.expect("calls").is_empty(), "nobody was rung");

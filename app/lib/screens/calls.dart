@@ -59,19 +59,48 @@ class CallButton extends StatelessWidget {
         final calls = state.calls;
         final here = calls.callIn(conversation.id);
         final inThis = calls.active?.conversation == conversation.id;
-        return PIconButton(
-          icon: Icons.call_outlined,
-          tooltip: inThis
-              ? 'In a call here'
-              : here != null
-              ? 'Join the call'
-              : 'Start a call',
-          size: 40,
-          selected: inThis,
-          onPressed: inThis || calls.busy ? null : () => unawaited(here != null ? calls.answer(here) : calls.start(conversation.id)),
+        return Builder(
+          builder: (anchor) => PIconButton(
+            icon: Icons.call_outlined,
+            tooltip: inThis
+                ? 'In a call here'
+                : here != null
+                ? 'Join the call'
+                : 'Start a call',
+            size: 40,
+            selected: inThis,
+            onPressed: inThis || calls.busy
+                ? null
+                : here != null
+                ? () => unawaited(calls.answer(here))
+                : conversation.isGroup
+                ? () => unawaited(_chooseWhom(anchor))
+                : () => unawaited(calls.start(conversation.id)),
+          ),
         );
       },
     );
+  }
+
+  /// In a group: ring everyone (a small group), or one person.
+  Future<void> _chooseWhom(BuildContext anchor) async {
+    final members = (await state.client.members(conversation: conversation.id)).where((m) => !m.you).toList();
+    if (!anchor.mounted) return;
+    final box = anchor.findRenderObject()! as RenderBox;
+    // A larger group is not rung by a plain start: the call shows to join.
+    final small = members.length + 1 <= 8;
+    final chosen = await showContextMenu<String>(anchor, box.localToGlobal(Offset(0, box.size.height + 4)), [
+      PMenuItem(
+        value: '',
+        label: small ? 'Call everyone' : 'Start a call',
+        caption: small ? 'Rings all ${members.length}' : 'No one is rung; members can join',
+        icon: Icons.groups_outlined,
+      ),
+      const PMenuDivider(),
+      for (final m in members) PMenuItem(value: m.username, label: 'Call ${m.shownName}', caption: 'Rings only them', icon: Icons.call_outlined),
+    ]);
+    if (chosen == null) return;
+    await state.calls.start(conversation.id, ring: chosen.isEmpty ? const [] : [chosen]);
   }
 }
 
@@ -278,6 +307,16 @@ class CallStrip extends StatelessWidget {
               style: const TextStyle(fontSize: 12.5, color: PColors.textMuted, fontFeatures: [FontFeature.tabularFigures()]),
             ),
             const SizedBox(width: 6),
+            if (state.conversationById(conversation)?.isGroup ?? false)
+              Builder(
+                builder: (anchor) => PIconButton(
+                  icon: Icons.person_add_alt_outlined,
+                  tooltip: 'Ring someone',
+                  size: 32,
+                  iconSize: 17,
+                  onPressed: () => unawaited(_ringSomeone(anchor, calls, people)),
+                ),
+              ),
             _MuteButton(calls: calls),
             PIconButton(
               icon: Icons.call_end_rounded,
@@ -296,6 +335,23 @@ class CallStrip extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// Ring a member who is not in the call yet.
+  Future<void> _ringSomeone(BuildContext anchor, CallController calls, List<CallParticipantInfo> people) async {
+    final inCall = {for (final p in people) p.username};
+    final members = (await state.client.members(conversation: conversation)).where((m) => !m.you && !inCall.contains(m.username)).toList();
+    if (!anchor.mounted) return;
+    final box = anchor.findRenderObject()! as RenderBox;
+    final at = box.localToGlobal(Offset(0, box.size.height + 4));
+    if (members.isEmpty) {
+      await showContextMenu<String>(anchor, at, [const PMenuItem(value: '', label: 'Everyone is in the call', icon: Icons.check_rounded)]);
+      return;
+    }
+    final chosen = await showContextMenu<String>(anchor, at, [
+      for (final m in members) PMenuItem(value: m.username, label: 'Ring ${m.shownName}', icon: Icons.call_outlined),
+    ]);
+    if (chosen != null && chosen.isNotEmpty) await calls.ringInto([chosen]);
   }
 }
 

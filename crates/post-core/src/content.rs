@@ -67,7 +67,19 @@ pub struct CallEvent {
     /// Starting with video.
     #[prost(bool, tag = "4")]
     pub video: bool,
+    /// Whom to ring (32-byte account IDs): on a start, only these (none
+    /// listed: everyone, unless `quiet`); on a ring, these, into a call
+    /// already under way.
+    #[prost(bytes = "vec", repeated, tag = "5")]
+    pub ring: Vec<Vec<u8>>,
+    /// A start that rings nobody: the call shows as one to join (large
+    /// groups, design section 10).
+    #[prost(bool, tag = "6")]
+    pub quiet: bool,
 }
+
+/// Most people one call event can ring.
+pub const MAX_RING: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, prost::Enumeration)]
 #[repr(i32)]
@@ -77,6 +89,8 @@ pub enum CallKind {
     Leave = 2,
     Decline = 3,
     End = 4,
+    /// Ring people into a call already under way.
+    Ring = 5,
 }
 
 impl CallEvent {
@@ -90,6 +104,13 @@ impl CallEvent {
         let needs_participant = matches!(kind, CallKind::Start | CallKind::Join | CallKind::Leave);
         if needs_participant && self.participant_id.len() != 16 || !needs_participant && !self.participant_id.is_empty() {
             return Err("a participant ID is 16 bytes, for start, join and leave only");
+        }
+        let rings = matches!(kind, CallKind::Start | CallKind::Ring);
+        if !rings && !self.ring.is_empty() || kind == CallKind::Ring && self.ring.is_empty() {
+            return Err("only a start or a ring names whom to ring, and a ring names someone");
+        }
+        if self.ring.len() > MAX_RING || self.ring.iter().any(|a| a.len() != 32) {
+            return Err("whom to ring: up to 256 account IDs of 32 bytes");
         }
         Ok(kind)
     }
