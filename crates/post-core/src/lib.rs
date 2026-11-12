@@ -12,6 +12,7 @@
 pub mod keyfile;
 
 mod content;
+mod calls;
 mod engine;
 mod ephemeral;
 mod link;
@@ -157,6 +158,80 @@ macro_rules! hex_id {
 
 hex_id!(ConversationId, "conversation");
 hex_id!(MessageId, "message");
+hex_id!(CallId, "call");
+
+/// A call in a conversation, as this device knows it (design section 10).
+/// Calls live only in memory: who was in a call is never stored.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Call {
+    /// Its ID.
+    pub id: CallId,
+    /// Where.
+    pub conversation: ConversationId,
+    /// Who started it (username).
+    pub started_by: String,
+    /// When it started (Unix ms, the starter's clock).
+    pub started_at_ms: u64,
+    /// Started as a video call.
+    pub video: bool,
+    /// Who is in it now.
+    pub participants: Vec<CallParticipant>,
+    /// It is calling the user: someone else started it moments ago, and none
+    /// of the user's devices has joined or declined.
+    pub ringing: bool,
+    /// This device is in it.
+    pub joined: bool,
+    /// It is over.
+    pub ended: bool,
+}
+
+/// Someone in a call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallParticipant {
+    /// Their random name in this call (hex): their identity in LiveKit.
+    pub participant_id: String,
+    /// Who they are.
+    pub username: String,
+    /// One of the user's own devices.
+    pub you: bool,
+    /// This device.
+    pub this_device: bool,
+}
+
+/// What a device needs to join a call's room.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallJoin {
+    /// The call, with this device in it.
+    pub call: Call,
+    /// This device's random name in the call (hex).
+    pub participant_id: String,
+    /// The LiveKit server's URL.
+    pub url: String,
+    /// A short-lived LiveKit access token.
+    pub token: String,
+    /// The host's limit on what each participant sends, kbit/s.
+    pub max_bitrate_kbps: u32,
+    /// The host's limit on participants.
+    pub max_participants: u32,
+}
+
+/// The keys encrypting a call's media now: one per participant, derived
+/// from the conversation's current MLS epoch, so they change when its
+/// members do. Fetch them again when the conversation or the call changes.
+#[derive(Clone, PartialEq, Eq)]
+pub struct CallKeys {
+    /// The slot to install them in (the epoch, modulo the key ring's size),
+    /// so frames under the previous keys still decrypt during the change.
+    pub key_index: u32,
+    /// Each participant's key: (participant ID, hex; 32-byte key).
+    pub keys: Vec<(String, Zeroizing<Vec<u8>>)>,
+}
+
+impl fmt::Debug for CallKeys {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CallKeys").field("key_index", &self.key_index).field("participants", &self.keys.len()).finish()
+    }
+}
 
 /// The account on this device.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -473,6 +548,9 @@ pub enum Event {
         /// What happened.
         text: String,
     },
+    /// A call started, rang, changed who is in it, or ended. Its timeline
+    /// notices ("Alice started a call") may have changed too.
+    CallChanged(Call),
 }
 
 /// Settings live in the meta table under their own prefix, so they can
@@ -742,6 +820,40 @@ impl Core {
     /// type; it sends at most once every three seconds.
     pub async fn send_typing(&self, conversation: ConversationId) -> Result<()> {
         self.engine.lock().await.send_typing(conversation.0).await
+    }
+
+    /// Start a call in a conversation (design section 10), with this device
+    /// in it. Others' devices ring; [`Event::CallChanged`] follows who joins.
+    pub async fn start_call(&self, conversation: ConversationId, video: bool) -> Result<CallJoin> {
+        self.engine.lock().await.start_call(conversation.0, video).await
+    }
+
+    /// Join a live call from this device (answering it, if it is ringing).
+    pub async fn join_call(&self, conversation: ConversationId, call: CallId) -> Result<CallJoin> {
+        self.engine.lock().await.join_call(conversation.0, call.0).await
+    }
+
+    /// Leave a call this device is in. In a DM, this ends the call.
+    pub async fn leave_call(&self, conversation: ConversationId, call: CallId) -> Result<()> {
+        self.engine.lock().await.leave_call(conversation.0, call.0).await
+    }
+
+    /// Decline a ringing call: the user's other devices stop ringing, and in
+    /// a DM the caller hears no.
+    pub async fn decline_call(&self, conversation: ConversationId, call: CallId) -> Result<()> {
+        self.engine.lock().await.decline_call(conversation.0, call.0).await
+    }
+
+    /// The keys encrypting a call's media now. Fetch again on
+    /// [`Event::CallChanged`] and [`Event::ConversationChanged`]: a new
+    /// participant needs a key, and a membership change moves every key on.
+    pub async fn call_keys(&self, conversation: ConversationId, call: CallId) -> Result<CallKeys> {
+        self.engine.lock().await.call_keys(conversation.0, call.0)
+    }
+
+    /// The live calls, in every conversation.
+    pub async fn calls(&self) -> Result<Vec<Call>> {
+        self.engine.lock().await.calls()
     }
 
     /// Choose the presence others see. Kept on this device; announced now

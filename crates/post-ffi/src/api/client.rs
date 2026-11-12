@@ -46,6 +46,72 @@ pub struct UpdateInfo {
     pub can_install: bool,
 }
 
+/// A live call (design section 10).
+pub struct CallInfo {
+    /// Its ID.
+    pub id: String,
+    /// Its conversation's ID.
+    pub conversation: String,
+    /// Who started it.
+    pub started_by: String,
+    /// When (Unix ms).
+    pub started_at_ms: i64,
+    /// Started with video.
+    pub video: bool,
+    /// Who is in it now.
+    pub participants: Vec<CallParticipantInfo>,
+    /// It is calling the user.
+    pub ringing: bool,
+    /// This device is in it.
+    pub joined: bool,
+    /// It is over.
+    pub ended: bool,
+}
+
+/// Someone in a call.
+pub struct CallParticipantInfo {
+    /// Their identity in LiveKit (hex).
+    pub participant_id: String,
+    /// Who they are.
+    pub username: String,
+    /// One of the user's own devices.
+    pub you: bool,
+    /// This device.
+    pub this_device: bool,
+}
+
+/// What joining a call's room takes.
+pub struct CallJoinInfo {
+    /// The call, with this device in it.
+    pub call: CallInfo,
+    /// This device's identity in LiveKit (hex).
+    pub participant_id: String,
+    /// LiveKit's URL.
+    pub url: String,
+    /// A short-lived LiveKit token.
+    pub token: String,
+    /// The host's limit on what each participant sends, kbit/s.
+    pub max_bitrate_kbps: u32,
+    /// The host's limit on participants.
+    pub max_participants: u32,
+}
+
+/// One participant's media key.
+pub struct CallKey {
+    /// Whose (their identity in LiveKit, hex).
+    pub participant_id: String,
+    /// 32 bytes.
+    pub key: Vec<u8>,
+}
+
+/// A call's media keys now.
+pub struct CallKeySet {
+    /// The key-ring slot to install them in.
+    pub key_index: u32,
+    /// One per participant.
+    pub keys: Vec<CallKey>,
+}
+
 /// How far a download has got.
 pub struct UpdateProgress {
     /// Bytes downloaded.
@@ -281,6 +347,9 @@ pub enum EventKind {
     Devices,
     /// Something to tell the user (`text`), usually a security warning.
     Notice,
+    /// A call in `conversation` started, rang, changed or ended: read
+    /// `calls()` for how things stand (an ended call is gone from it).
+    Call,
 }
 
 /// A live event.
@@ -638,6 +707,43 @@ impl Client {
         Ok(self.core.send_typing(conversation.parse()?).await?)
     }
 
+    // ------------------------------------------------------------ calls
+
+    /// Start a call in a conversation, with this device in it.
+    pub async fn start_call(&self, conversation: String, video: bool) -> Result<CallJoinInfo, PostError> {
+        Ok(call_join(self.core.start_call(conversation.parse()?, video).await?))
+    }
+
+    /// Join (or answer) a live call from this device.
+    pub async fn join_call(&self, conversation: String, call: String) -> Result<CallJoinInfo, PostError> {
+        Ok(call_join(self.core.join_call(conversation.parse()?, call.parse()?).await?))
+    }
+
+    /// Leave a call this device is in; in a DM this ends it.
+    pub async fn leave_call(&self, conversation: String, call: String) -> Result<(), PostError> {
+        Ok(self.core.leave_call(conversation.parse()?, call.parse()?).await?)
+    }
+
+    /// Decline a ringing call.
+    pub async fn decline_call(&self, conversation: String, call: String) -> Result<(), PostError> {
+        Ok(self.core.decline_call(conversation.parse()?, call.parse()?).await?)
+    }
+
+    /// The keys to install for a call's media now: fetch again on call and
+    /// conversation events, and install them at `key_index`.
+    pub async fn call_keys(&self, conversation: String, call: String) -> Result<CallKeySet, PostError> {
+        let k = self.core.call_keys(conversation.parse()?, call.parse()?).await?;
+        Ok(CallKeySet {
+            key_index: k.key_index,
+            keys: k.keys.into_iter().map(|(participant_id, key)| CallKey { participant_id, key: key.to_vec() }).collect(),
+        })
+    }
+
+    /// The live calls, in every conversation.
+    pub async fn calls(&self) -> Result<Vec<CallInfo>, PostError> {
+        Ok(self.core.calls().await?.into_iter().map(call_info).collect())
+    }
+
     // ------------------------------------------------------------ people
 
     /// What this device knows about someone.
@@ -728,6 +834,35 @@ fn identity(i: core::Identity) -> Identity {
     Identity { username: i.username, account_id: i.account_id, device_id: i.device_id, server: i.server, bot: i.bot }
 }
 
+fn call_info(c: core::Call) -> CallInfo {
+    CallInfo {
+        id: c.id.to_string(),
+        conversation: c.conversation.to_string(),
+        started_by: c.started_by,
+        started_at_ms: ms(c.started_at_ms),
+        video: c.video,
+        participants: c
+            .participants
+            .into_iter()
+            .map(|p| CallParticipantInfo { participant_id: p.participant_id, username: p.username, you: p.you, this_device: p.this_device })
+            .collect(),
+        ringing: c.ringing,
+        joined: c.joined,
+        ended: c.ended,
+    }
+}
+
+fn call_join(j: core::CallJoin) -> CallJoinInfo {
+    CallJoinInfo {
+        call: call_info(j.call),
+        participant_id: j.participant_id,
+        url: j.url,
+        token: j.token,
+        max_bitrate_kbps: j.max_bitrate_kbps,
+        max_participants: j.max_participants,
+    }
+}
+
 fn conversation(c: core::Conversation) -> ConversationInfo {
     ConversationInfo {
         id: c.id.to_string(),
@@ -784,6 +919,7 @@ fn app_event(e: core::Event) -> AppEvent {
             ev(EventKind::Presence, None, Some(username), Some(word.into()))
         }
         core::Event::Notice { conversation, text } => ev(EventKind::Notice, conversation, None, Some(sentence(&text))),
+        core::Event::CallChanged(c) => ev(EventKind::Call, Some(c.conversation), None, None),
     }
 }
 

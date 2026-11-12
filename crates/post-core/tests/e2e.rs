@@ -19,6 +19,10 @@ struct Server {
 
 impl Server {
     async fn start() -> Self {
+        Self::start_with(None).await
+    }
+
+    async fn start_with(calls: Option<post_server::CallConfig>) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("addr");
         let dir = tempfile::tempdir().expect("tempdir");
@@ -29,7 +33,7 @@ impl Server {
             db_path: db.clone(),
             db_key: Zeroizing::new(key),
             releases: post_server::ReleaseConfig::none(),
-            calls: None,
+            calls,
         };
         let running = post_server::spawn(listener, config).expect("server starts");
         Self { url: running.url(), _running: running, db, key, _dir: dir }
@@ -272,6 +276,116 @@ async fn mentions_are_counted_and_found() {
     drop(bob);
     let bob = Core::open(&dir.path().join("bob"), &DbKey::from_bytes([7; 32])).expect("reopen");
     assert_eq!(bodies(bob.search(&q("carol", "")).expect("search")), vec!["and @carol brings the rope"]);
+}
+
+fn call_config() -> post_server::CallConfig {
+    post_server::CallConfig {
+        url: "wss://rtc.example.org".into(),
+        api_key: "post".into(),
+        api_secret: Zeroizing::new(b"a test secret that is long enough".to_vec()),
+        max_bitrate_kbps: 1200,
+        max_participants: 8,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_dm_call_rings_connects_and_ends() {
+    let server = Server::start_with(Some(call_config())).await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let dm = alice.start_dm("bob").await.expect("dm");
+    alice.send_text(dm.id, "hi").await.expect("send");
+    bob.sync().await.expect("sync");
+
+    // Alice calls: she gets a token for the room, with the host's limits.
+    let joined = alice.start_call(dm.id, false).await.expect("start");
+    assert_eq!((joined.url.as_str(), joined.max_bitrate_kbps, joined.max_participants), ("wss://rtc.example.org", 1200, 8));
+    assert_eq!(joined.token.split('.').count(), 3, "a JWT");
+    assert!(joined.call.joined && !joined.call.ringing);
+    let call = joined.call.id;
+
+    // Bob's device rings.
+    let mut bob_events = bob.subscribe();
+    bob.sync().await.expect("sync");
+    let Event::CallChanged(ringing) = next_event(&mut bob_events, |e| matches!(e, Event::CallChanged(_))).await else { unreachable!() };
+    assert!(ringing.ringing && !ringing.joined);
+    assert_eq!(ringing.started_by, "alice");
+
+    // He answers, under his own participant ID.
+    let bob_joined = bob.join_call(dm.id, call).await.expect("join");
+    assert_ne!(bob_joined.participant_id, joined.participant_id);
+    assert_ne!(bob_joined.token, joined.token);
+    alice.sync().await.expect("sync");
+    let in_call = alice.calls().await.expect("calls");
+    assert_eq!(in_call.len(), 1);
+    assert_eq!(in_call[0].participants.len(), 2);
+
+    // Both derive the same key for each participant, and keys differ by
+    // participant.
+    let (ka, kb) = (alice.call_keys(dm.id, call).await.expect("keys"), bob.call_keys(dm.id, call).await.expect("keys"));
+    assert_eq!(ka, kb);
+    assert_eq!(ka.keys.len(), 2);
+    assert_ne!(ka.keys[0].1, ka.keys[1].1);
+
+    // Bob hangs up: in a DM that ends the call for both.
+    bob.leave_call(dm.id, call).await.expect("leave");
+    alice.sync().await.expect("sync");
+    assert!(alice.calls().await.expect("calls").is_empty());
+    assert!(bob.calls().await.expect("calls").is_empty());
+    let notices = |c: &Core| c.notices(Some(dm.id), 10).expect("notices").into_iter().map(|n| n.text).collect::<Vec<_>>();
+    assert_eq!(notices(&alice)[..2], ["you started a call".to_string(), "call ended · 0 s".to_string()]);
+    assert_eq!(notices(&bob)[..2], ["alice started a call".to_string(), "call ended · 0 s".to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn group_call_keys_move_on_with_the_members() {
+    let server = Server::start_with(Some(call_config())).await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let carol = server.client(dir.path(), "carol").await;
+    let group = alice.create_group("climbing", &["bob".into(), "carol".into()]).await.expect("group");
+    bob.sync().await.expect("sync");
+    carol.sync().await.expect("sync");
+
+    let call = alice.start_call(group.id, true).await.expect("start").call.id;
+    bob.sync().await.expect("sync");
+    bob.join_call(group.id, call).await.expect("join");
+    carol.sync().await.expect("sync");
+    assert!(carol.calls().await.expect("calls")[0].ringing, "a small group rings");
+    alice.sync().await.expect("sync");
+    let before = alice.call_keys(group.id, call).await.expect("keys");
+    assert_eq!(before, bob.call_keys(group.id, call).await.expect("keys"));
+
+    // Carol is removed: the epoch moves on, and every key with it.
+    alice.remove_members(group.id, &["carol".into()]).await.expect("remove");
+    bob.sync().await.expect("sync");
+    let after = alice.call_keys(group.id, call).await.expect("keys");
+    assert_ne!(after.key_index, before.key_index, "a new slot, so old frames still decrypt during the change");
+    assert!(before.keys.iter().zip(&after.keys).all(|(b, a)| b.0 == a.0 && b.1 != a.1), "same participants, new keys");
+    assert_eq!(after, bob.call_keys(group.id, call).await.expect("keys"));
+
+    // A group call ends when the last one leaves.
+    bob.leave_call(group.id, call).await.expect("leave");
+    alice.sync().await.expect("sync");
+    assert_eq!(alice.calls().await.expect("calls")[0].participants.len(), 1);
+    alice.leave_call(group.id, call).await.expect("leave");
+    assert!(alice.calls().await.expect("calls").is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_server_without_calls_refuses_before_anyone_rings() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let dm = alice.start_dm("bob").await.expect("dm");
+    let e = alice.start_call(dm.id, false).await.expect_err("no calls here");
+    assert!(e.to_string().contains("does not offer calls"), "{e}");
+    bob.sync().await.expect("sync");
+    assert!(bob.calls().await.expect("calls").is_empty(), "nobody was rung");
+    assert!(alice.calls().await.expect("calls").is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

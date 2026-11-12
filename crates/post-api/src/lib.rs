@@ -243,6 +243,22 @@ pub enum Event {
         /// What happened.
         text: String,
     },
+    /// A call started, rang, changed who is in it, or ended. The CLI does not
+    /// join calls; this says they happen.
+    Call {
+        /// Conversation ID.
+        conversation: String,
+        /// Call ID.
+        call: String,
+        /// Who started it.
+        started_by: String,
+        /// Usernames in it now.
+        participants: Vec<String>,
+        /// It is calling you.
+        ringing: bool,
+        /// It is over.
+        ended: bool,
+    },
 }
 
 fn conversation(c: core::Conversation) -> Conversation {
@@ -320,6 +336,14 @@ pub fn event(e: core::Event) -> Event {
         core::Event::Typing { conversation, username, text } => Event::Typing { conversation: conversation.to_string(), username, text },
         core::Event::Presence { username, presence } => Event::Presence { username, presence: presence_word(presence).into() },
         core::Event::Notice { conversation, text } => Event::Notice { conversation: conversation.map(|c| c.to_string()), text },
+        core::Event::CallChanged(c) => Event::Call {
+            conversation: c.conversation.to_string(),
+            call: c.id.to_string(),
+            started_by: c.started_by,
+            participants: c.participants.into_iter().map(|p| p.username).collect(),
+            ringing: c.ringing,
+            ended: c.ended,
+        },
     }
 }
 

@@ -108,6 +108,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   UpdateInfo dco_decode_box_autoadd_update_info(dynamic raw);
 
   @protected
+  CallInfo dco_decode_call_info(dynamic raw);
+
+  @protected
+  CallJoinInfo dco_decode_call_join_info(dynamic raw);
+
+  @protected
+  CallKey dco_decode_call_key(dynamic raw);
+
+  @protected
+  CallKeySet dco_decode_call_key_set(dynamic raw);
+
+  @protected
+  CallParticipantInfo dco_decode_call_participant_info(dynamic raw);
+
+  @protected
   ConversationInfo dco_decode_conversation_info(dynamic raw);
 
   @protected
@@ -133,6 +148,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<String> dco_decode_list_String(dynamic raw);
+
+  @protected
+  List<CallInfo> dco_decode_list_call_info(dynamic raw);
+
+  @protected
+  List<CallKey> dco_decode_list_call_key(dynamic raw);
+
+  @protected
+  List<CallParticipantInfo> dco_decode_list_call_participant_info(dynamic raw);
 
   @protected
   List<ConversationInfo> dco_decode_list_conversation_info(dynamic raw);
@@ -320,6 +344,23 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   UpdateInfo sse_decode_box_autoadd_update_info(SseDeserializer deserializer);
 
   @protected
+  CallInfo sse_decode_call_info(SseDeserializer deserializer);
+
+  @protected
+  CallJoinInfo sse_decode_call_join_info(SseDeserializer deserializer);
+
+  @protected
+  CallKey sse_decode_call_key(SseDeserializer deserializer);
+
+  @protected
+  CallKeySet sse_decode_call_key_set(SseDeserializer deserializer);
+
+  @protected
+  CallParticipantInfo sse_decode_call_participant_info(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   ConversationInfo sse_decode_conversation_info(SseDeserializer deserializer);
 
   @protected
@@ -345,6 +386,17 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
+
+  @protected
+  List<CallInfo> sse_decode_list_call_info(SseDeserializer deserializer);
+
+  @protected
+  List<CallKey> sse_decode_list_call_key(SseDeserializer deserializer);
+
+  @protected
+  List<CallParticipantInfo> sse_decode_list_call_participant_info(
+    SseDeserializer deserializer,
+  );
 
   @protected
   List<ConversationInfo> sse_decode_list_conversation_info(
@@ -563,6 +615,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_call_info(CallInfo self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_call_join_info(CallJoinInfo self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_call_key(CallKey self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_call_key_set(CallKeySet self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_call_participant_info(
+    CallParticipantInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_conversation_info(
     ConversationInfo self,
     SseSerializer serializer,
@@ -594,6 +664,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_call_info(List<CallInfo> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_call_key(List<CallKey> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_call_participant_info(
+    List<CallParticipantInfo> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_conversation_info(

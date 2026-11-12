@@ -130,6 +130,8 @@ class AppState extends ChangeNotifier {
         }
       case EventKind.devices:
       case EventKind.notice:
+      // Calls get their own handling with the call screens.
+      case EventKind.call:
         break;
     }
     _relay.add(e);

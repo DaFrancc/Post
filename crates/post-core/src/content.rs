@@ -19,7 +19,7 @@ pub struct Content {
     /// The sender's device chain head, for chain-head gossip (design section 5).
     #[prost(message, optional, tag = "3")]
     pub sender_chain: Option<ChainHead>,
-    #[prost(oneof = "Body", tags = "10, 13, 14, 17, 18, 30")]
+    #[prost(oneof = "Body", tags = "10, 13, 14, 16, 17, 18, 30")]
     pub body: Option<Body>,
 }
 
@@ -39,6 +39,9 @@ pub enum Body {
     Edit(Edit),
     #[prost(message, tag = "14")]
     Delete(Delete),
+    /// Design section 7 reserves 16 for `CallEvent`.
+    #[prost(message, tag = "16")]
+    Call(CallEvent),
     #[prost(message, tag = "17")]
     Profile(Profile),
     #[prost(message, tag = "18")]
@@ -46,6 +49,50 @@ pub enum Body {
     /// Self group only.
     #[prost(message, tag = "30")]
     SelfSync(SelfSync),
+}
+
+/// A call starting, someone joining or leaving it, declining it, or it
+/// ending (design section 10, "Signalling"). Not shown as a message.
+#[derive(Clone, PartialEq, Message)]
+pub struct CallEvent {
+    #[prost(enumeration = "CallKind", tag = "1")]
+    pub kind: i32,
+    /// The call's random 16-byte ID, chosen by whoever starts it.
+    #[prost(bytes = "vec", tag = "2")]
+    pub call_id: Vec<u8>,
+    /// The sender's random 16-byte name in the call (start, join, leave):
+    /// their identity in LiveKit, which never sees device IDs.
+    #[prost(bytes = "vec", tag = "3")]
+    pub participant_id: Vec<u8>,
+    /// Starting with video.
+    #[prost(bool, tag = "4")]
+    pub video: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, prost::Enumeration)]
+#[repr(i32)]
+pub enum CallKind {
+    Start = 0,
+    Join = 1,
+    Leave = 2,
+    Decline = 3,
+    End = 4,
+}
+
+impl CallEvent {
+    /// Well formed: a 16-byte call ID, and a 16-byte participant ID where
+    /// the kind needs one.
+    pub fn check(&self) -> Result<CallKind, &'static str> {
+        let kind = CallKind::try_from(self.kind).map_err(|_| "unknown call event")?;
+        if self.call_id.len() != 16 {
+            return Err("a call ID is 16 bytes");
+        }
+        let needs_participant = matches!(kind, CallKind::Start | CallKind::Join | CallKind::Leave);
+        if needs_participant && self.participant_id.len() != 16 || !needs_participant && !self.participant_id.is_empty() {
+            return Err("a participant ID is 16 bytes, for start, join and leave only");
+        }
+        Ok(kind)
+    }
 }
 
 /// What an account's devices keep in step, sent only in its self group

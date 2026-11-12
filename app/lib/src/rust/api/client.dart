@@ -8,7 +8,7 @@ import 'error.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `app_event`, `conversation`, `found_update`, `identity`, `message`, `ms`, `sentence`, `updater`
+// These functions are ignored because they are not marked as `pub`: `app_event`, `call_info`, `call_join`, `conversation`, `found_update`, `identity`, `message`, `ms`, `sentence`, `updater`
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>
 abstract class Client implements RustOpaqueInterface {
@@ -26,6 +26,16 @@ abstract class Client implements RustOpaqueInterface {
     required String deviceName,
   });
 
+  /// The keys to install for a call's media now: fetch again on call and
+  /// conversation events, and install them at `key_index`.
+  Future<CallKeySet> callKeys({
+    required String conversation,
+    required String call,
+  });
+
+  /// The live calls, in every conversation.
+  Future<List<CallInfo>> calls();
+
   /// Ask this account's server for a release newer than `current_version`
   /// (this app's), checked against the release key built into the app.
   Future<UpdateInfo?> checkUpdate({required String currentVersion});
@@ -40,6 +50,12 @@ abstract class Client implements RustOpaqueInterface {
   Future<ConversationInfo> createGroup({
     required String name,
     required List<String> usernames,
+  });
+
+  /// Decline a ringing call.
+  Future<void> declineCall({
+    required String conversation,
+    required String call,
   });
 
   /// Delete one of the user's messages, with every version, for everyone.
@@ -79,6 +95,15 @@ abstract class Client implements RustOpaqueInterface {
 
   /// Whether the app is connected to the server now.
   Future<bool> isConnected();
+
+  /// Join (or answer) a live call from this device.
+  Future<CallJoinInfo> joinCall({
+    required String conversation,
+    required String call,
+  });
+
+  /// Leave a call this device is in; in a DM this ends it.
+  Future<void> leaveCall({required String conversation, required String call});
 
   /// Leave a group, with all the user's devices.
   Future<void> leaveGroup({required String conversation});
@@ -216,6 +241,12 @@ abstract class Client implements RustOpaqueInterface {
   /// An app setting on this device, kept in the encrypted profile.
   Future<String?> setting({required String key});
 
+  /// Start a call in a conversation, with this device in it.
+  Future<CallJoinInfo> startCall({
+    required String conversation,
+    required bool video,
+  });
+
   /// Open a DM with `username`, creating it if needed.
   Future<ConversationInfo> startDm({required String username});
 
@@ -257,6 +288,209 @@ class AppEvent {
           conversation == other.conversation &&
           username == other.username &&
           text == other.text;
+}
+
+/// A live call (design section 10).
+class CallInfo {
+  /// Its ID.
+  final String id;
+
+  /// Its conversation's ID.
+  final String conversation;
+
+  /// Who started it.
+  final String startedBy;
+
+  /// When (Unix ms).
+  final PlatformInt64 startedAtMs;
+
+  /// Started with video.
+  final bool video;
+
+  /// Who is in it now.
+  final List<CallParticipantInfo> participants;
+
+  /// It is calling the user.
+  final bool ringing;
+
+  /// This device is in it.
+  final bool joined;
+
+  /// It is over.
+  final bool ended;
+
+  const CallInfo({
+    required this.id,
+    required this.conversation,
+    required this.startedBy,
+    required this.startedAtMs,
+    required this.video,
+    required this.participants,
+    required this.ringing,
+    required this.joined,
+    required this.ended,
+  });
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      conversation.hashCode ^
+      startedBy.hashCode ^
+      startedAtMs.hashCode ^
+      video.hashCode ^
+      participants.hashCode ^
+      ringing.hashCode ^
+      joined.hashCode ^
+      ended.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CallInfo &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          conversation == other.conversation &&
+          startedBy == other.startedBy &&
+          startedAtMs == other.startedAtMs &&
+          video == other.video &&
+          participants == other.participants &&
+          ringing == other.ringing &&
+          joined == other.joined &&
+          ended == other.ended;
+}
+
+/// What joining a call's room takes.
+class CallJoinInfo {
+  /// The call, with this device in it.
+  final CallInfo call;
+
+  /// This device's identity in LiveKit (hex).
+  final String participantId;
+
+  /// LiveKit's URL.
+  final String url;
+
+  /// A short-lived LiveKit token.
+  final String token;
+
+  /// The host's limit on what each participant sends, kbit/s.
+  final int maxBitrateKbps;
+
+  /// The host's limit on participants.
+  final int maxParticipants;
+
+  const CallJoinInfo({
+    required this.call,
+    required this.participantId,
+    required this.url,
+    required this.token,
+    required this.maxBitrateKbps,
+    required this.maxParticipants,
+  });
+
+  @override
+  int get hashCode =>
+      call.hashCode ^
+      participantId.hashCode ^
+      url.hashCode ^
+      token.hashCode ^
+      maxBitrateKbps.hashCode ^
+      maxParticipants.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CallJoinInfo &&
+          runtimeType == other.runtimeType &&
+          call == other.call &&
+          participantId == other.participantId &&
+          url == other.url &&
+          token == other.token &&
+          maxBitrateKbps == other.maxBitrateKbps &&
+          maxParticipants == other.maxParticipants;
+}
+
+/// One participant's media key.
+class CallKey {
+  /// Whose (their identity in LiveKit, hex).
+  final String participantId;
+
+  /// 32 bytes.
+  final Uint8List key;
+
+  const CallKey({required this.participantId, required this.key});
+
+  @override
+  int get hashCode => participantId.hashCode ^ key.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CallKey &&
+          runtimeType == other.runtimeType &&
+          participantId == other.participantId &&
+          key == other.key;
+}
+
+/// A call's media keys now.
+class CallKeySet {
+  /// The key-ring slot to install them in.
+  final int keyIndex;
+
+  /// One per participant.
+  final List<CallKey> keys;
+
+  const CallKeySet({required this.keyIndex, required this.keys});
+
+  @override
+  int get hashCode => keyIndex.hashCode ^ keys.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CallKeySet &&
+          runtimeType == other.runtimeType &&
+          keyIndex == other.keyIndex &&
+          keys == other.keys;
+}
+
+/// Someone in a call.
+class CallParticipantInfo {
+  /// Their identity in LiveKit (hex).
+  final String participantId;
+
+  /// Who they are.
+  final String username;
+
+  /// One of the user's own devices.
+  final bool you;
+
+  /// This device.
+  final bool thisDevice;
+
+  const CallParticipantInfo({
+    required this.participantId,
+    required this.username,
+    required this.you,
+    required this.thisDevice,
+  });
+
+  @override
+  int get hashCode =>
+      participantId.hashCode ^
+      username.hashCode ^
+      you.hashCode ^
+      thisDevice.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CallParticipantInfo &&
+          runtimeType == other.runtimeType &&
+          participantId == other.participantId &&
+          username == other.username &&
+          you == other.you &&
+          thisDevice == other.thisDevice;
 }
 
 /// A conversation in the list.
@@ -380,6 +614,10 @@ enum EventKind {
 
   /// Something to tell the user (`text`), usually a security warning.
   notice,
+
+  /// A call in `conversation` started, rang, changed or ended: read
+  /// `calls()` for how things stand (an ended call is gone from it).
+  call,
 }
 
 /// The account on this device.

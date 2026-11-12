@@ -30,7 +30,7 @@ use tokio::sync::broadcast;
 use zeroize::Zeroizing;
 
 use crate::content::{self, Body, Content};
-use crate::ephemeral;
+use crate::{calls, ephemeral};
 use crate::link::{self as linking, Channel, LinkCode};
 use crate::net::{ServerConn, expect_reply};
 use crate::provider::Provider;
@@ -224,6 +224,8 @@ enum Outcome {
     Conversation,
     /// A commit added accounts that were not members: they need our profile.
     NewMembers,
+    /// A call event, sent or received.
+    Call(calls::Seen),
 }
 
 fn random16() -> Result<[u8; 16]> {
@@ -298,6 +300,8 @@ pub(crate) struct Engine {
     /// Others' presence and when it was last heard. Memory only, by design.
     presence: HashMap<AccountId, (ephemeral::State, std::time::Instant)>,
     link: Option<PendingLink>,
+    /// Live calls. Memory only, by design.
+    calls: std::sync::Mutex<calls::Calls>,
     pub events: broadcast::Sender<Event>,
 }
 
@@ -320,6 +324,7 @@ impl Engine {
             typing_sent: HashMap::new(),
             presence: HashMap::new(),
             link: None,
+            calls: std::sync::Mutex::default(),
             events,
         };
         e.load_identity()?;
@@ -1762,6 +1767,9 @@ impl Engine {
             Body::Delete(d) => own_live_message(&self.conn, &gid, &d.target, &me.account)?,
             Body::ConversationName(n) => content::check_display_name(&n.name).map_err(|e| Error::InvalidInput(e.to_string()))?,
             Body::SelfSync(s) => check_self_sync(s).map_err(Error::InvalidInput)?,
+            Body::Call(c) => {
+                c.check().map_err(|e| Error::InvalidInput(e.into()))?;
+            }
             _ => {}
         }
         let id = random16()?;
@@ -1817,6 +1825,7 @@ impl Engine {
             // A snapshot only repeats what this device already holds.
             Body::SelfSync(s) if s.snapshot => Outcome::Nothing,
             Body::SelfSync(s) => Outcome::SelfSync(apply_self_sync(&tx, s, SyncSource::Local(Some(&id)))?),
+            Body::Call(c) => Outcome::Call(calls::Seen { sender: me.account, device: me.device, sent_at: now, event: c.clone() }),
         };
         tx.commit()?;
         self.emit_outcome(gid, outcome)?;
@@ -2181,8 +2190,194 @@ impl Engine {
                     self.emit(Event::ConversationChanged(crate::conversation_from_row(&self.conn, &c)?));
                 }
             }
+            Outcome::Call(seen) => self.apply_call(gid, &seen)?,
         }
         Ok(())
+    }
+
+    // ------------------------------------------------------------ calls
+
+    /// Apply a call event: update the live call, add its notice to the
+    /// timeline, and tell the app.
+    fn apply_call(&self, gid: [u8; 16], seen: &calls::Seen) -> Result<()> {
+        let Some(me) = self.me.as_ref() else { return Ok(()) };
+        let is_dm = store::conversation(&self.conn, &gid)?.is_some_and(|c| c.kind == KIND_DM);
+        let viewer = calls::Viewer { account: me.account, device: me.device, is_dm, now: store::now_ms() };
+        let mut live = self.calls.lock().unwrap_or_else(|p| p.into_inner());
+        let (id, change) = live.apply(gid, &viewer, seen);
+        // Notices are kept starting in lower case; the app capitalises them.
+        let name = |account: &AccountId| -> Result<String> {
+            if account == &me.account { Ok("you".into()) } else { store::shown_name(&self.conn, Some(&gid), &account.0) }
+        };
+        let kind = if seen.event.video { "a video call" } else { "a call" };
+        let notice = match &change {
+            calls::Change::Started => Some(format!("{} started {kind}", name(&seen.sender)?)),
+            calls::Change::StartedLongAgo if seen.sender != me.account => Some(format!("{} called", name(&seen.sender)?)),
+            calls::Change::Ended { missed: true, .. } => {
+                let starter = live.get(&id).map(|c| c.started_by).unwrap_or(seen.sender);
+                Some(if starter == me.account { "no one answered".into() } else { format!("missed call from {}", name(&starter)?) })
+            }
+            calls::Change::Ended { lasted_ms, .. } => Some(match lasted_ms {
+                Some(ms) => format!("call ended · {}", calls::lasted(*ms)),
+                None => "call ended".into(),
+            }),
+            _ => None,
+        };
+        if let Some(text) = notice {
+            store::add_notice(&self.conn, Some(&gid), &text)?;
+        }
+        if change == calls::Change::Nothing || change == calls::Change::StartedLongAgo {
+            return Ok(());
+        }
+        if let Some(state) = live.get(&id) {
+            let call = self.call_view(&id, state)?;
+            if state.ended {
+                live.remove(&id);
+            }
+            drop(live);
+            self.emit(Event::CallChanged(call));
+        }
+        Ok(())
+    }
+
+    /// A live call as the app sees it.
+    fn call_view(&self, id: &[u8; 16], c: &calls::CallState) -> Result<crate::Call> {
+        let me = self.me.as_ref().ok_or(Error::NotRegistered)?;
+        let username = |a: &AccountId| -> Result<String> { Ok(store::username_of(&self.conn, &a.0)?.unwrap_or_default()) };
+        let participants = c
+            .participants
+            .iter()
+            .map(|(p, (account, device))| {
+                Ok(crate::CallParticipant {
+                    participant_id: hex::encode(p),
+                    username: username(account)?,
+                    you: *account == me.account,
+                    this_device: *account == me.account && *device == me.device,
+                })
+            })
+            .collect::<Result<_>>()?;
+        Ok(crate::Call {
+            id: crate::CallId(*id),
+            conversation: ConversationId(c.group),
+            started_by: username(&c.started_by)?,
+            started_at_ms: c.started_at,
+            video: c.video,
+            participants,
+            ringing: c.ringing,
+            joined: c.mine.is_some(),
+            ended: c.ended,
+        })
+    }
+
+    /// The live calls, in every conversation.
+    pub fn calls(&self) -> Result<Vec<crate::Call>> {
+        let live = self.calls.lock().unwrap_or_else(|p| p.into_inner());
+        live.all().map(|(id, c)| self.call_view(id, c)).collect()
+    }
+
+    /// Start a call in a conversation, with this device in it.
+    pub async fn start_call(&mut self, gid: [u8; 16], video: bool) -> Result<crate::CallJoin> {
+        let gid = self.live_group(gid)?;
+        let (call_id, participant) = (random16()?, random16()?);
+        // The token first: a server without calls refuses it, and nobody
+        // is rung for a call that cannot happen.
+        let access = self.call_access(gid, call_id, participant).await?;
+        let event = content::CallEvent { kind: content::CallKind::Start as i32, call_id: call_id.to_vec(), participant_id: participant.to_vec(), video };
+        self.send_body(gid, Body::Call(event)).await?;
+        self.call_join(call_id, participant, access)
+    }
+
+    /// Join a live call from this device.
+    pub async fn join_call(&mut self, gid: [u8; 16], call_id: [u8; 16]) -> Result<crate::CallJoin> {
+        let gid = self.live_group(gid)?;
+        let already = {
+            let live = self.calls.lock().unwrap_or_else(|p| p.into_inner());
+            live.get(&call_id).filter(|c| c.group == gid && !c.ended).ok_or(Error::NotFound("call"))?.mine
+        };
+        // Already in it (rejoining after a dropped connection, say).
+        if let Some(p) = already {
+            let access = self.call_access(gid, call_id, p).await?;
+            return self.call_join(call_id, p, access);
+        }
+        let participant = random16()?;
+        let access = self.call_access(gid, call_id, participant).await?;
+        let event = content::CallEvent { kind: content::CallKind::Join as i32, call_id: call_id.to_vec(), participant_id: participant.to_vec(), video: false };
+        self.send_body(gid, Body::Call(event)).await?;
+        self.call_join(call_id, participant, access)
+    }
+
+    /// Leave a call this device is in. In a DM, hanging up ends the call.
+    pub async fn leave_call(&mut self, gid: [u8; 16], call_id: [u8; 16]) -> Result<()> {
+        let gid = self.live_group(gid)?;
+        let mine = {
+            let live = self.calls.lock().unwrap_or_else(|p| p.into_inner());
+            live.get(&call_id).filter(|c| c.group == gid).and_then(|c| c.mine)
+        };
+        let Some(participant) = mine else { return Ok(()) };
+        let is_dm = store::conversation(&self.conn, &gid)?.is_some_and(|c| c.kind == KIND_DM);
+        let leave = content::CallEvent { kind: content::CallKind::Leave as i32, call_id: call_id.to_vec(), participant_id: participant.to_vec(), video: false };
+        self.send_body(gid, Body::Call(leave)).await?;
+        let still_live = self.calls.lock().unwrap_or_else(|p| p.into_inner()).get(&call_id).is_some();
+        if is_dm && still_live {
+            let end = content::CallEvent { kind: content::CallKind::End as i32, call_id: call_id.to_vec(), ..Default::default() };
+            self.send_body(gid, Body::Call(end)).await?;
+        }
+        Ok(())
+    }
+
+    /// Decline a call that is ringing. In a DM this ends it for the caller.
+    pub async fn decline_call(&mut self, gid: [u8; 16], call_id: [u8; 16]) -> Result<()> {
+        let gid = self.live_group(gid)?;
+        let event = content::CallEvent { kind: content::CallKind::Decline as i32, call_id: call_id.to_vec(), ..Default::default() };
+        self.send_body(gid, Body::Call(event)).await.map(|_| ())
+    }
+
+    /// The media keys for a call under the conversation's current epoch.
+    pub fn call_keys(&self, gid: [u8; 16], call_id: [u8; 16]) -> Result<crate::CallKeys> {
+        let gid = self.live_group(gid)?;
+        let participants: Vec<[u8; 16]> = {
+            let live = self.calls.lock().unwrap_or_else(|p| p.into_inner());
+            let call = live.get(&call_id).filter(|c| c.group == gid).ok_or(Error::NotFound("call"))?;
+            call.participants.keys().copied().collect()
+        };
+        let provider = Provider::on(&self.conn);
+        let group = load_group(&provider, &gid)?;
+        let base = Zeroizing::new(group.export_secret(provider.crypto(), calls::EXPORTER_LABEL, &call_id, 32).map_err(mls)?);
+        Ok(crate::CallKeys {
+            key_index: (group.epoch().as_u64() % calls::KEY_RING) as u32,
+            keys: participants.iter().map(|p| (hex::encode(p), calls::sender_key(&base, &call_id, p))).collect(),
+        })
+    }
+
+    /// A LiveKit token for this device's participant ID in a call, asked of
+    /// the server with the group's access key.
+    async fn call_access(&mut self, gid: [u8; 16], call_id: [u8; 16], participant: [u8; 16]) -> Result<proto::CallAccess> {
+        let access_key = {
+            let provider = Provider::on(&self.conn);
+            access_key_of(&load_group(&provider, &gid)?, &provider)?
+        };
+        let req = proto::CallToken { group_id: gid.to_vec(), access_key, call_id: call_id.to_vec(), participant_id: participant.to_vec() };
+        match self.anon()?.request(Request::CallToken(req)).await? {
+            Reply::CallAccess(access) => Ok(access),
+            _ => Err(Error::Protocol("expected call access".into())),
+        }
+    }
+
+    /// What the app needs to join, once this device is in the call.
+    fn call_join(&self, call_id: [u8; 16], participant: [u8; 16], access: proto::CallAccess) -> Result<crate::CallJoin> {
+        let call = {
+            let live = self.calls.lock().unwrap_or_else(|p| p.into_inner());
+            let state = live.get(&call_id).ok_or(Error::NotFound("call"))?;
+            self.call_view(&call_id, state)?
+        };
+        Ok(crate::CallJoin {
+            call,
+            participant_id: hex::encode(participant),
+            url: access.url,
+            token: access.token,
+            max_bitrate_kbps: access.max_bitrate_kbps,
+            max_participants: access.max_participants,
+        })
     }
 
     /// Emit [`Event::ConversationChanged`] for the conversation a group is
@@ -2522,7 +2717,7 @@ fn check_device_name(name: &str) -> Result<()> {
 fn body_allowed(body: &Body, self_group: bool) -> bool {
     match body {
         Body::Profile(_) => true,
-        Body::Text(_) | Body::Edit(_) | Body::Delete(_) | Body::ConversationName(_) => !self_group,
+        Body::Text(_) | Body::Edit(_) | Body::Delete(_) | Body::ConversationName(_) | Body::Call(_) => !self_group,
         Body::SelfSync(_) => self_group,
     }
 }
@@ -3004,6 +3199,10 @@ fn handle_content(
             }
             store::set_conversation_name(tx, gid, &sender.0, &n.name)?;
             Ok(Outcome::Conversation)
+        }
+        Some(Body::Call(ev)) => {
+            ev.check().map_err(reject)?;
+            Ok(Outcome::Call(calls::Seen { sender: *sender, device: *sender_device, sent_at: c.sent_at_ms, event: ev.clone() }))
         }
         Some(Body::SelfSync(s)) => {
             // The self group holds only our own devices; check anyway.
