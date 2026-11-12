@@ -410,6 +410,15 @@ merging any commit, and when joining from a Welcome, the client checks every lea
 
 This check is what stops the server, or anyone, slipping a device into a group.
 
+A Welcome shows the group as it was when this device was added, which can be before
+one of its members' devices was removed: a phone that links, and whose approving
+laptop logs out before the phone first fetches its invitations, is invited by a
+device that has since left. A removal does not make earlier states wrong, so in a
+Welcome a leaf may also be a removed device, with the key its chain last listed. The
+new member then commits that leaf's removal like any removed device's, and the
+server refuses a removed device's login meanwhile. A device its account never listed
+is still refused.
+
 ### Group policy
 
 MLS lets any member commit anything, so policy is enforced by every client when it

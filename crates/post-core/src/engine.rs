@@ -263,6 +263,26 @@ fn authorize(chains: &HashMap<AccountId, Chain>, leaves: &[LeafIdentity]) -> std
     Ok(())
 }
 
+/// The membership check for a Welcome. A Welcome shows the group as it was
+/// when this device was added, which can be before one of its members'
+/// devices was removed from that account: a device that links, and whose
+/// approving device logs out before the new one first fetches its
+/// invitations, is invited by a device that has since left. A removal does
+/// not make earlier states wrong (design section 6), so a leaf may also be a
+/// removed device with the key its chain last listed for it. This device
+/// then removes that leaf like any removed device's (`plan_membership`), and
+/// meanwhile the server refuses a removed device's login, so it reads
+/// nothing. A device its account never listed is still refused.
+fn authorize_welcome(chains: &HashMap<AccountId, Chain>, leaves: &[LeafIdentity]) -> std::result::Result<(), Fail> {
+    for l in leaves {
+        let listed = chains.get(&l.account).and_then(|c| c.device(&l.device)).is_some_and(|d| d.entry.mls_sig_pub[..] == *l.signature_key);
+        if !listed {
+            return Err(Fail::NeedDirectory);
+        }
+    }
+    Ok(())
+}
+
 /// Domain for a server URL: host, plus port if not the scheme's default.
 pub(crate) fn domain_of(url: &str) -> Result<String> {
     let u = url::Url::parse(url).map_err(|_| Error::InvalidInput("server URL is not a valid URL".into()))?;
@@ -3002,7 +3022,7 @@ fn join_from_welcome(
     }
     let meta = GroupMeta::from_extensions(staged.group_context().extensions()).map_err(|e| reject(format!("bad group metadata: {e}")))?;
     let leaves = staged.members().map(|m| leaf_of_member(&m)).collect::<std::result::Result<Vec<_>, _>>()?;
-    authorize(chains, &leaves)?;
+    authorize_welcome(chains, &leaves)?;
     let accounts: HashSet<AccountId> = leaves.iter().map(|l| l.account).collect();
     if !leaves.iter().any(|l| l.account == me.account && l.device == me.device) {
         return Err(reject("this device is not in it"));

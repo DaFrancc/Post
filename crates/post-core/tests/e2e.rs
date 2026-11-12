@@ -775,6 +775,37 @@ async fn logging_out_leaves_the_account() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn invited_by_a_device_that_then_left() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let phone = link(&server, dir.path(), &alice, "phone").await;
+
+    // Bob starts a DM; the laptop adds the phone to it. That invitation
+    // lists the laptop, which logs out before the phone has fetched it.
+    let dm = bob.start_dm("alice").await.expect("dm");
+    bob.send_text(dm.id, "hello").await.expect("send");
+    alice.sync().await.expect("alice sync");
+    alice.log_out().await.expect("log out");
+    let mut phone_events = phone.subscribe();
+    phone.sync().await.expect("phone sync");
+    while let Ok(e) = phone_events.try_recv() {
+        assert!(!matches!(e, Event::Notice { .. }), "the phone refused something: {e:?}");
+    }
+    assert!(phone.conversation(dm.id).is_ok(), "the phone joined the DM");
+
+    // The conversation goes on between Bob and the phone, with the
+    // laptop's leaf gone.
+    bob.send_text(dm.id, "for the phone").await.expect("send");
+    phone.sync().await.expect("phone sync");
+    assert_eq!(last_in(&phone, dm.id).as_deref(), Some("for the phone"));
+    phone.send_text(dm.id, "got it").await.expect("reply");
+    bob.sync().await.expect("bob sync");
+    assert_eq!(last_in(&bob, dm.id).as_deref(), Some("got it"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn group_chat() {
     let server = Server::start().await;
     let dir = tempfile::tempdir().expect("tempdir");
