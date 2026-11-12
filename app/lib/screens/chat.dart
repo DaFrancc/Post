@@ -1579,14 +1579,21 @@ class _NoticeLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A phone for calls, red when one was missed; a shield for the rest,
+    // which are mostly security warnings.
+    final (icon, color) = switch (n.kind) {
+      NoticeKind.call => (Icons.call_outlined, PColors.online),
+      NoticeKind.missedCall => (Icons.phone_missed_outlined, PColors.danger),
+      NoticeKind.general => (Icons.shield_outlined, PColors.unverified),
+    };
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.only(top: 1),
-            child: Icon(Icons.shield_outlined, size: 15, color: PColors.unverified),
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(icon, size: 15, color: color),
           ),
           const SizedBox(width: 8),
           Expanded(

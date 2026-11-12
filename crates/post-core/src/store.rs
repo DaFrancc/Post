@@ -331,6 +331,9 @@ const MIGRATIONS: &[&str] = &[
                   ORDER BY v.seq IS NULL DESC, v.seq DESC, v.pk DESC LIMIT 1))) j
              WHERE m.deleted_at IS NULL AND m.unsupported = 0;"
     ),
+    // 11: what a notice is about, for how it is shown: 'notice' (security
+    // and other warnings, as every earlier one was), 'call', 'missed_call'.
+    "ALTER TABLE notices ADD COLUMN kind TEXT NOT NULL DEFAULT 'notice';",
 ];
 
 /// Create tables, both ours and OpenMLS's, and bring old databases up to date.
@@ -945,17 +948,19 @@ pub fn read_positions(conn: &Connection) -> Result<Vec<(Vec<u8>, u64)>> {
 pub struct NoticeRow {
     pub at: i64,
     pub text: String,
+    /// 'notice', 'call' or 'missed_call' (migration 11).
+    pub kind: String,
 }
 
 /// The newest `limit` notices about `groups`, or about the account as a whole
 /// when `groups` is empty; oldest first.
 pub fn notices(conn: &Connection, groups: &[Vec<u8>], limit: u32) -> Result<Vec<NoticeRow>> {
-    let row = |r: &rusqlite::Row<'_>| Ok(NoticeRow { at: r.get(0)?, text: r.get(1)? });
+    let row = |r: &rusqlite::Row<'_>| Ok(NoticeRow { at: r.get(0)?, text: r.get(1)?, kind: r.get(2)? });
     let mut out: Vec<NoticeRow> = if groups.is_empty() {
-        let mut stmt = conn.prepare("SELECT at, text FROM notices WHERE group_id IS NULL ORDER BY pk DESC LIMIT ?1")?;
+        let mut stmt = conn.prepare("SELECT at, text, kind FROM notices WHERE group_id IS NULL ORDER BY pk DESC LIMIT ?1")?;
         stmt.query_map([limit], row)?.collect::<rusqlite::Result<_>>()?
     } else {
-        let mut stmt = conn.prepare("SELECT at, text FROM notices WHERE group_id = ?1 ORDER BY pk DESC LIMIT ?2")?;
+        let mut stmt = conn.prepare("SELECT at, text, kind FROM notices WHERE group_id = ?1 ORDER BY pk DESC LIMIT ?2")?;
         let mut all = Vec::new();
         for g in groups {
             all.extend(stmt.query_map(params![g, limit], row)?.collect::<rusqlite::Result<Vec<_>>>()?);
@@ -1320,7 +1325,15 @@ pub fn shown_name(conn: &Connection, group: Option<&[u8]>, account: &[u8]) -> Re
 }
 
 pub fn add_notice(conn: &Connection, group: Option<&[u8]>, text: &str) -> Result<()> {
-    conn.execute("INSERT INTO notices (group_id, at, text) VALUES (?1, ?2, ?3)", params![group, i64_of(now_ms()), text])?;
+    add_notice_of(conn, group, "notice", text)
+}
+
+/// A notice of a kind (see [`NoticeRow::kind`]).
+pub fn add_notice_of(conn: &Connection, group: Option<&[u8]>, kind: &str, text: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO notices (group_id, at, text, kind) VALUES (?1, ?2, ?3, ?4)",
+        params![group, i64_of(now_ms()), text, kind],
+    )?;
     Ok(())
 }
 

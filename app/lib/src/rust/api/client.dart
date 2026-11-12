@@ -878,10 +878,17 @@ class NoticeInfo {
   /// What happened, as a sentence.
   final String text;
 
-  const NoticeInfo({required this.atMs, required this.text});
+  /// What it is about, for its icon.
+  final NoticeKind kind;
+
+  const NoticeInfo({
+    required this.atMs,
+    required this.text,
+    required this.kind,
+  });
 
   @override
-  int get hashCode => atMs.hashCode ^ text.hashCode;
+  int get hashCode => atMs.hashCode ^ text.hashCode ^ kind.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -889,7 +896,20 @@ class NoticeInfo {
       other is NoticeInfo &&
           runtimeType == other.runtimeType &&
           atMs == other.atMs &&
-          text == other.text;
+          text == other.text &&
+          kind == other.kind;
+}
+
+/// What a notice is about.
+enum NoticeKind {
+  /// A security warning, or something else about the conversation.
+  general,
+
+  /// A call started or ended.
+  call,
+
+  /// A call that rang the user went unanswered.
+  missedCall,
 }
 
 /// What this device knows about a person.

@@ -1057,11 +1057,29 @@ Limits to be aware of:
 
 ### Signalling
 
-- `CallEvent { start | join | leave | decline | end, call_id, participant_id, media }`
-  is an ordinary message.
-- DMs and small groups ring. Large groups show a "join call" banner instead.
+- `CallEvent { start | join | leave | decline | end | ring, call_id, participant_id,
+  video, ring: [account], quiet }` is an ordinary message (content tag 16), never
+  shown as one. Who is in which call is kept in memory only, on each device. The
+  timeline keeps notices such as "Alice started a call", "missed call from Bob" and
+  "call ended · 3 min".
+- Whom a call rings: a start names accounts to ring, or names none to ring everyone.
+  With nobody named, a DM or a group of up to eight rings everyone. A larger group's
+  start is `quiet`: it rings nobody and shows as a call to join. A `ring` event rings
+  named members into a call under way. A call rings for a minute from the event that
+  rang it; joining or declining on any of the user's devices stops it everywhere. Only
+  someone who was rung can miss a call.
+- A DM call ends when either side hangs up or declines. A group call ends when the
+  last person leaves, or when its starter ends it. Hanging up a DM works from any
+  device of a participant, even one that has restarted and lost its call state.
 - A ringing message is marked urgent, so Android gets a high-priority push and shows
   a full-screen incoming-call notification.
+
+Sounds: the app plays a sound for an incoming call (looping), for calling (looping
+until someone answers), for people joining and leaving, for leaving a call, for mute
+and unmute, and for new messages and mentions elsewhere. Each comes from a sound
+pack the user chooses: a folder of files matched by name, or named in its
+`pack.json`. Any single sound can be replaced by a file, or turned off. Post's own
+pack is synthesized by `app/tool/make_sounds.py`, so it is Post's to ship.
 
 ## 11. Client
 

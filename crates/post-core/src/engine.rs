@@ -2225,7 +2225,8 @@ impl Engine {
             _ => None,
         };
         if let Some(text) = notice {
-            store::add_notice(&self.conn, Some(&gid), &text)?;
+            let missed = matches!(change, calls::Change::Ended { missed: true, .. });
+            store::add_notice_of(&self.conn, Some(&gid), if missed { "missed_call" } else { "call" }, &text)?;
         }
         if change == calls::Change::Nothing || change == calls::Change::StartedLongAgo {
             return Ok(());

@@ -4364,9 +4364,24 @@ impl SseDecode for crate::api::client::NoticeInfo {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_atMs = <i64>::sse_decode(deserializer);
         let mut var_text = <String>::sse_decode(deserializer);
+        let mut var_kind = <crate::api::client::NoticeKind>::sse_decode(deserializer);
         return crate::api::client::NoticeInfo {
             at_ms: var_atMs,
             text: var_text,
+            kind: var_kind,
+        };
+    }
+}
+
+impl SseDecode for crate::api::client::NoticeKind {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::client::NoticeKind::General,
+            1 => crate::api::client::NoticeKind::Call,
+            2 => crate::api::client::NoticeKind::MissedCall,
+            _ => unreachable!("Invalid variant for NoticeKind: {}", inner),
         };
     }
 }
@@ -5155,6 +5170,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::NoticeInfo {
         [
             self.at_ms.into_into_dart().into_dart(),
             self.text.into_into_dart().into_dart(),
+            self.kind.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -5167,6 +5183,28 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::client::NoticeInfo>
     for crate::api::client::NoticeInfo
 {
     fn into_into_dart(self) -> crate::api::client::NoticeInfo {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::client::NoticeKind {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::General => 0.into_dart(),
+            Self::Call => 1.into_dart(),
+            Self::MissedCall => 2.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::client::NoticeKind
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::NoticeKind>
+    for crate::api::client::NoticeKind
+{
+    fn into_into_dart(self) -> crate::api::client::NoticeKind {
         self
     }
 }
@@ -5824,6 +5862,24 @@ impl SseEncode for crate::api::client::NoticeInfo {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i64>::sse_encode(self.at_ms, serializer);
         <String>::sse_encode(self.text, serializer);
+        <crate::api::client::NoticeKind>::sse_encode(self.kind, serializer);
+    }
+}
+
+impl SseEncode for crate::api::client::NoticeKind {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::client::NoticeKind::General => 0,
+                crate::api::client::NoticeKind::Call => 1,
+                crate::api::client::NoticeKind::MissedCall => 2,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
     }
 }
 

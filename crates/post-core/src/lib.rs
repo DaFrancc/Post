@@ -329,6 +329,19 @@ pub struct Notice {
     pub at_ms: u64,
     /// What happened, as a sentence starting in lower case.
     pub text: String,
+    /// What it is about.
+    pub kind: NoticeKind,
+}
+
+/// What a notice is about, for how it is shown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NoticeKind {
+    /// A security warning, or something else about the conversation.
+    General,
+    /// A call started or ended.
+    Call,
+    /// A call rang the user and none of their devices answered.
+    MissedCall,
 }
 
 /// One version of a message.
@@ -1018,7 +1031,18 @@ impl Core {
                 }
                 None => Vec::new(),
             };
-            Ok(store::notices(c, &groups, limit)?.into_iter().map(|n| Notice { at_ms: n.at as u64, text: n.text }).collect())
+            Ok(store::notices(c, &groups, limit)?
+                .into_iter()
+                .map(|n| Notice {
+                    at_ms: n.at as u64,
+                    kind: match n.kind.as_str() {
+                        "call" => NoticeKind::Call,
+                        "missed_call" => NoticeKind::MissedCall,
+                        _ => NoticeKind::General,
+                    },
+                    text: n.text,
+                })
+                .collect())
         })
     }
 

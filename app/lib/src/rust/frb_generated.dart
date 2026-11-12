@@ -3348,12 +3348,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   NoticeInfo dco_decode_notice_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 2)
-      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
     return NoticeInfo(
       atMs: dco_decode_i_64(arr[0]),
       text: dco_decode_String(arr[1]),
+      kind: dco_decode_notice_kind(arr[2]),
     );
+  }
+
+  @protected
+  NoticeKind dco_decode_notice_kind(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return NoticeKind.values[raw as int];
   }
 
   @protected
@@ -4120,7 +4127,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_atMs = sse_decode_i_64(deserializer);
     var var_text = sse_decode_String(deserializer);
-    return NoticeInfo(atMs: var_atMs, text: var_text);
+    var var_kind = sse_decode_notice_kind(deserializer);
+    return NoticeInfo(atMs: var_atMs, text: var_text, kind: var_kind);
+  }
+
+  @protected
+  NoticeKind sse_decode_notice_kind(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return NoticeKind.values[inner];
   }
 
   @protected
@@ -4875,6 +4890,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_64(self.atMs, serializer);
     sse_encode_String(self.text, serializer);
+    sse_encode_notice_kind(self.kind, serializer);
+  }
+
+  @protected
+  void sse_encode_notice_kind(NoticeKind self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
   }
 
   @protected

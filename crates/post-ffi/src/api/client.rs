@@ -257,6 +257,18 @@ pub struct NoticeInfo {
     pub at_ms: i64,
     /// What happened, as a sentence.
     pub text: String,
+    /// What it is about, for its icon.
+    pub kind: NoticeKind,
+}
+
+/// What a notice is about.
+pub enum NoticeKind {
+    /// A security warning, or something else about the conversation.
+    General,
+    /// A call started or ended.
+    Call,
+    /// A call that rang the user went unanswered.
+    MissedCall,
 }
 
 /// What others see of someone.
@@ -642,7 +654,15 @@ impl Client {
             .core
             .notices(id, limit)?
             .into_iter()
-            .map(|n| NoticeInfo { at_ms: ms(n.at_ms), text: sentence(&n.text) })
+            .map(|n| NoticeInfo {
+                at_ms: ms(n.at_ms),
+                text: sentence(&n.text),
+                kind: match n.kind {
+                    core::NoticeKind::General => NoticeKind::General,
+                    core::NoticeKind::Call => NoticeKind::Call,
+                    core::NoticeKind::MissedCall => NoticeKind::MissedCall,
+                },
+            })
             .collect())
     }
 
