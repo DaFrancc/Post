@@ -148,6 +148,12 @@ abstract class Client implements RustOpaqueInterface {
   /// The members, the user first.
   Future<List<MemberInfo>> members({required String conversation});
 
+  /// Who has one of the user's messages: each other member, and how far.
+  Future<MessageReceiptsInfo> messageReceipts({
+    required String conversation,
+    required String message,
+  });
+
   /// Every version of a message, the original first.
   Future<List<MessageVersionInfo>> messageVersions({
     required String conversation,
@@ -1055,6 +1061,37 @@ class MessageInfo {
           read == other.read;
 }
 
+/// Who has one of the user's messages.
+class MessageReceiptsInfo {
+  /// Every other member, by the name the user sees, sorted.
+  final List<PersonReceiptInfo> people;
+
+  /// Too large a conversation for receipts.
+  final bool tooLarge;
+
+  /// The user's own read receipts are off: deliveries only.
+  final bool readReceiptsOff;
+
+  const MessageReceiptsInfo({
+    required this.people,
+    required this.tooLarge,
+    required this.readReceiptsOff,
+  });
+
+  @override
+  int get hashCode =>
+      people.hashCode ^ tooLarge.hashCode ^ readReceiptsOff.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MessageReceiptsInfo &&
+          runtimeType == other.runtimeType &&
+          people == other.people &&
+          tooLarge == other.tooLarge &&
+          readReceiptsOff == other.readReceiptsOff;
+}
+
 /// One version of an edited message.
 class MessageVersionInfo {
   /// 0 is the original.
@@ -1197,6 +1234,31 @@ class PersonInfo {
           arrival == other.arrival;
 }
 
+/// How far one person has got with the user's message.
+class PersonReceiptInfo {
+  final String username;
+  final String shownName;
+  final ReceiptState state;
+
+  const PersonReceiptInfo({
+    required this.username,
+    required this.shownName,
+    required this.state,
+  });
+
+  @override
+  int get hashCode => username.hashCode ^ shownName.hashCode ^ state.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PersonReceiptInfo &&
+          runtimeType == other.runtimeType &&
+          username == other.username &&
+          shownName == other.shownName &&
+          state == other.state;
+}
+
 /// The presence the user chooses to show.
 enum PresenceChoice {
   /// Shown online.
@@ -1271,6 +1333,18 @@ class ProfileChange {
           note == other.note &&
           noteKeep == other.noteKeep &&
           arrival == other.arrival;
+}
+
+/// How far one person has got.
+enum ReceiptState {
+  /// Not on any of their devices yet.
+  waiting,
+
+  /// On one of their devices.
+  delivered,
+
+  /// Read.
+  read,
 }
 
 /// What a search found.

@@ -843,6 +843,9 @@ device, **two blue** once every other member has read it.
   position, blue. A member with no receipt yet holds the ticks back, so a group
   shows two ticks only when everyone has the message. A member added later counts
   as having everything sent before they joined.
+- **Who, person by person.** Hovering a message's ticks lists the other members
+  by the names you see for them: read by whom, delivered to whom, and who does not
+  have it yet. The same positions, compared with that one message's.
 - **Read receipts can be turned off; delivery cannot.** Off, the account sends
   `read = 0`, and, as in other messengers, its own messages show no blue ticks
   either. The setting is account-wide, synced through the self group like

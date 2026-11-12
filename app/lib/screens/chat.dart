@@ -902,6 +902,7 @@ class _ChatViewState extends State<ChatView> {
       onCancelEdit: _cancelEdit,
       onMenu: (at) => _messageMenu(m, at),
       onPerson: (anchor) => unawaited(showProfileCard(anchor, _state, m.senderUsername)),
+      receipts: () => _state.client.messageReceipts(conversation: widget.conversation.id, message: m.id),
     ),
   };
 }
@@ -1636,8 +1637,12 @@ class _MessageTile extends StatefulWidget {
     required this.onMenu,
     required this.onPerson,
     required this.arrival,
+    required this.receipts,
     this.flight,
   });
+
+  /// Who has this message (yours), for the ticks' hover card.
+  final Future<MessageReceiptsInfo> Function() receipts;
 
   /// The sender's avatar or name was clicked: given what was clicked, to
   /// show their card beside it.
@@ -1966,7 +1971,7 @@ class _MessageTileState extends State<_MessageTile> with TickerProviderStateMixi
                           if (m.outgoing && !m.deleted && !m.failed)
                             Padding(
                               padding: EdgeInsets.only(left: 10, top: widget.startsGroup ? 25 : 4),
-                              child: _Ticks(m),
+                              child: _Ticks(m, load: widget.receipts),
                             ),
                         ],
                       ),
@@ -2050,27 +2055,110 @@ const _readBlue = Color(0xFF5FB8FF);
 
 /// Where one of your messages has got to: a clock while it waits to send,
 /// one tick when the server has it, two when everyone else has it, two blue
-/// when everyone has read it.
-class _Ticks extends StatelessWidget {
-  const _Ticks(this.m);
+/// when everyone has read it. Hovering says who, person by person.
+class _Ticks extends StatefulWidget {
+  const _Ticks(this.m, {required this.load});
 
   final MessageInfo m;
+  final Future<MessageReceiptsInfo> Function() load;
+
+  @override
+  State<_Ticks> createState() => _TicksState();
+}
+
+class _TicksState extends State<_Ticks> {
+  MessageReceiptsInfo? _who;
+  bool _hover = false;
+
+  String get _label {
+    final m = widget.m;
+    return m.pending ? 'Sending' : (m.read ? 'Read' : (m.delivered ? 'Delivered' : 'Sent'));
+  }
+
+  Future<void> _load() async {
+    if (widget.m.pending) return;
+    try {
+      final who = await widget.load();
+      if (mounted) setState(() => _who = who);
+    } catch (_) {
+      // The card says only the summary.
+    }
+  }
+
+  @override
+  void didUpdateWidget(_Ticks old) {
+    super.didUpdateWidget(old);
+    // A tick moved on while the card is open: say who now.
+    if (_hover && (old.m.read != widget.m.read || old.m.delivered != widget.m.delivered || old.m.pending != widget.m.pending)) {
+      unawaited(_load());
+    }
+  }
+
+  /// Up to eight names, then how many more.
+  static String _names(List<PersonReceiptInfo> people) {
+    final shown = people.take(8).map((p) => p.shownName).join(', ');
+    return people.length > 8 ? '$shown and ${people.length - 8} more' : shown;
+  }
+
+  InlineSpan _card() {
+    const strong = TextStyle(fontWeight: FontWeight.w600, color: PColors.textStrong);
+    final who = _who;
+    final lines = <InlineSpan>[TextSpan(text: _label, style: strong)];
+    void line(String text) => lines.add(TextSpan(text: '\n$text'));
+    if (widget.m.pending) {
+      line('Waiting to reach the server.');
+    } else if (who == null) {
+      // Not loaded yet, or failed: the summary alone.
+    } else if (who.tooLarge) {
+      line('The server has it. Groups this large have no receipts.');
+    } else if (who.people.isEmpty) {
+      line('The server has it. No one else is here.');
+    } else {
+      final read = who.people.where((p) => p.state == ReceiptState.read).toList();
+      final delivered = who.people.where((p) => p.state == ReceiptState.delivered).toList();
+      final waiting = who.people.where((p) => p.state == ReceiptState.waiting).toList();
+      if (read.isNotEmpty) line('Read by ${_names(read)}');
+      if (delivered.isNotEmpty) line('Delivered to ${_names(delivered)}');
+      if (waiting.isNotEmpty) line('${read.isEmpty && delivered.isEmpty ? 'The server has it. ' : ''}Not delivered yet: ${_names(waiting)}');
+      if (who.readReceiptsOff) line('Your read receipts are off, so you don’t see who read it.');
+    }
+    return TextSpan(children: lines);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final (icon, color, label) = m.pending
-        ? (Icons.schedule_rounded, PColors.textFaint, 'Sending')
+    final m = widget.m;
+    final (icon, color) = m.pending
+        ? (Icons.schedule_rounded, PColors.textFaint)
         : m.read
-        ? (Icons.done_all_rounded, _readBlue, 'Read')
+        ? (Icons.done_all_rounded, _readBlue)
         : m.delivered
-        ? (Icons.done_all_rounded, PColors.textFaint, 'Delivered')
-        : (Icons.done_rounded, PColors.textFaint, 'Sent');
-    return Tooltip(
-      message: label,
-      child: AnimatedSwitcher(
-        duration: PMotion.normal,
-        transitionBuilder: (child, a) => FadeTransition(opacity: a, child: ScaleTransition(scale: Tween(begin: 0.7, end: 1.0).animate(a), child: child)),
-        child: Icon(icon, key: ValueKey(label), size: 15, color: color, semanticLabel: label),
+        ? (Icons.done_all_rounded, PColors.textFaint)
+        : (Icons.done_rounded, PColors.textFaint);
+    final label = _label;
+    return MouseRegion(
+      onEnter: (_) {
+        _hover = true;
+        unawaited(_load());
+      },
+      onExit: (_) => _hover = false,
+      child: Tooltip(
+        richMessage: _card(),
+        // Long enough to fetch who, short enough not to feel slow.
+        waitDuration: const Duration(milliseconds: 250),
+        preferBelow: false,
+        textStyle: const TextStyle(fontSize: 12.5, height: 1.5, color: PColors.textBody),
+        decoration: BoxDecoration(
+          color: PColors.panelRaised,
+          border: Border.all(color: PColors.borderStrong),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: AnimatedSwitcher(
+          duration: PMotion.normal,
+          transitionBuilder: (child, a) => FadeTransition(opacity: a, child: ScaleTransition(scale: Tween(begin: 0.7, end: 1.0).animate(a), child: child)),
+          child: Icon(icon, key: ValueKey(label), size: 15, color: color, semanticLabel: label),
+        ),
       ),
     );
   }

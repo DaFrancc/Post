@@ -471,6 +471,39 @@ pub(crate) fn announcements_from(conn: &rusqlite::Connection) -> Result<Announce
     })
 }
 
+/// Who has one of your messages, person by person: what the ticks sum up.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MessageReceipts {
+    /// Every other member now, by the name you see for them.
+    pub people: Vec<PersonReceipt>,
+    /// The conversation is too large for receipts: nobody sends any.
+    pub too_large: bool,
+    /// You have turned read receipts off, so you see deliveries only.
+    pub read_receipts_off: bool,
+}
+
+/// How far one person has got with one of your messages.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PersonReceipt {
+    /// Their username.
+    pub username: String,
+    /// The name you see for them here.
+    pub shown_name: String,
+    /// How far.
+    pub state: ReceiptState,
+}
+
+/// How far one person has got with a message.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReceiptState {
+    /// Not on any of their devices yet (or their app sends no receipts).
+    Waiting,
+    /// On one of their devices.
+    Delivered,
+    /// Read.
+    Read,
+}
+
 /// One version of a message.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MessageVersion {
@@ -1369,6 +1402,38 @@ impl Core {
     /// One message.
     pub fn message(&self, conversation: ConversationId, id: MessageId) -> Result<Message> {
         self.read(|c| message_from_row(c, &Self::find_message(c, conversation, id)?))
+    }
+
+    /// Who has one of your messages: each other member, and whether it is on
+    /// one of their devices or read. Read shows only while you send read
+    /// receipts yourself.
+    pub async fn message_receipts(&self, conversation: ConversationId, id: MessageId) -> Result<MessageReceipts> {
+        let me = self.engine.lock().await.me.as_ref().ok_or(Error::NotRegistered)?.account;
+        self.read(|c| {
+            let m = Self::find_message(c, conversation, id)?;
+            if !m.outgoing {
+                return Err(Error::NotAllowed("receipts are for your own messages"));
+            }
+            let seq = store::message_seq(c, &m.group_id, &m.id)?;
+            let read_on = store::read_receipts_on(c)?;
+            let (_, members) = engine::group_members(c, &m.group_id)?;
+            let mut people = Vec::new();
+            for (account, _) in members.iter().filter(|(a, _)| *a != me) {
+                let (delivered, read) = store::receipt(c, &m.group_id, &account.0)?;
+                let state = match seq {
+                    Some(s) if read_on && read >= s => ReceiptState::Read,
+                    Some(s) if delivered >= s => ReceiptState::Delivered,
+                    _ => ReceiptState::Waiting,
+                };
+                people.push(PersonReceipt {
+                    username: store::username_of(c, &account.0)?.unwrap_or_default(),
+                    shown_name: store::shown_name(c, Some(&m.group_id), &account.0)?,
+                    state,
+                });
+            }
+            people.sort_by_key(|p| p.shown_name.to_lowercase());
+            Ok(MessageReceipts { too_large: members.len() > engine::MAX_RECEIPT_ACCOUNTS, read_receipts_off: !read_on, people })
+        })
     }
 
     /// Every version of a message, the original first.

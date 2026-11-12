@@ -125,6 +125,8 @@ enum Command {
     Delete { conversation: String, message: String },
     /// Show every version of a message.
     Versions { conversation: String, message: String },
+    /// Who has one of your messages, and who has read it.
+    Receipts { conversation: String, message: String },
     /// Change your profile. Unspecified fields stay as they are.
     Profile {
         /// Global display name ("" clears it).
@@ -464,6 +466,7 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         }
         Command::Delete { conversation, message } => ("delete", json!({ "conversation": conversation, "message": message })),
         Command::Versions { conversation, message } => ("versions", json!({ "conversation": conversation, "message": message })),
+        Command::Receipts { conversation, message } => ("message_receipts", json!({ "conversation": conversation, "message": message })),
         Command::Profile { display_name, typing_template, note, keep_note, arrival } => (
             "set_profile",
             json!({
@@ -649,6 +652,17 @@ fn print_human(method: &str, v: &Value) {
         }
         "safety_number" => println!("{}", s(v, "safety_number")),
         "read_receipts" => println!("read receipts are {}", if v["on"] == true { "on" } else { "off" }),
+        "message_receipts" => {
+            if v["too_large"] == true {
+                println!("this conversation is too large for receipts");
+            }
+            for p in v["people"].as_array().into_iter().flatten() {
+                println!("{} (@{})  {}", s(p, "shown_name"), s(p, "username"), s(p, "state"));
+            }
+            if v["read_receipts_off"] == true {
+                println!("your read receipts are off, so you see deliveries only");
+            }
+        }
         "announcements" => {
             for a in v.as_array().into_iter().flatten() {
                 println!("{}  {}", time(a["at_ms"].as_u64().unwrap_or(0)), announcement_text(a));
@@ -867,6 +881,7 @@ mod tests {
             Command::Announcements { cmd: Some(AnnouncementsCommand::Read), limit: 5 },
             Command::Announce { text: "hi".into() },
             Command::ReadReceipts { set: None },
+            Command::Receipts { conversation: "00".into(), message: "00".into() },
             Command::ReadReceipts { set: Some("off".into()) },
             Command::Maintenance { cmd: MaintenanceCommand::Status },
             Command::Maintenance { cmd: MaintenanceCommand::Plan { at: None, minutes: 5, reason: String::new(), quiet: false } },

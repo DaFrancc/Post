@@ -834,6 +834,28 @@ pub struct VerifiedParams {
     pub verified: bool,
 }
 
+/// Who has one of your messages.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct MessageReceipts {
+    /// Every other member, and how far they have got.
+    pub people: Vec<PersonReceipt>,
+    /// The conversation is too large for receipts.
+    pub too_large: bool,
+    /// Your read receipts are off, so you see deliveries only.
+    pub read_receipts_off: bool,
+}
+
+/// How far one person has got with your message.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct PersonReceipt {
+    /// Their username.
+    pub username: String,
+    /// The name you see for them.
+    pub shown_name: String,
+    /// `waiting`, `delivered` or `read`.
+    pub state: String,
+}
+
 /// `set_read_receipts`.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -961,6 +983,7 @@ methods! {
     "set_verified", Connection, VerifiedParams, Done, "Record that you compared safety numbers with a user, or withdraw it.";
     "mark_read", Connection, ConversationParams, Done, "Mark a conversation read, on all your devices.";
     "read_receipts", Local, NoParams, ReadReceipts, "Whether you send read receipts.";
+    "message_receipts", Local, MessageParams, MessageReceipts, "Who has one of your messages, and who has read it.";
     "set_read_receipts", Connection, ReadReceiptsParams, Done, "Send read receipts or stop, on all your devices.";
     // A connection: calls live in memory, so a one-shot CLI must fetch first.
     "calls", Connection, NoParams, Vec<CallInfo>, "The live calls, in every conversation.";
@@ -1271,6 +1294,28 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
             ok(SafetyNumber { safety_number: core.safety_number(&p.username).await? })
         }
         "read_receipts" => ok(ReadReceipts { on: core.read_receipts()? }),
+        "message_receipts" => {
+            let p: MessageParams = params(p)?;
+            let r = core.message_receipts(id(&p.conversation)?, id(&p.message)?).await?;
+            ok(MessageReceipts {
+                people: r
+                    .people
+                    .into_iter()
+                    .map(|x| PersonReceipt {
+                        username: x.username,
+                        shown_name: x.shown_name,
+                        state: match x.state {
+                            core::ReceiptState::Waiting => "waiting",
+                            core::ReceiptState::Delivered => "delivered",
+                            core::ReceiptState::Read => "read",
+                        }
+                        .into(),
+                    })
+                    .collect(),
+                too_large: r.too_large,
+                read_receipts_off: r.read_receipts_off,
+            })
+        }
         "set_read_receipts" => {
             let p: ReadReceiptsParams = params(p)?;
             core.set_read_receipts(p.on).await?;

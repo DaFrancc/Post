@@ -376,6 +376,36 @@ pub enum EventKind {
     Announcements,
 }
 
+/// Who has one of the user's messages.
+pub struct MessageReceiptsInfo {
+    /// Every other member, by the name the user sees, sorted.
+    pub people: Vec<PersonReceiptInfo>,
+    /// Too large a conversation for receipts.
+    pub too_large: bool,
+    /// The user's own read receipts are off: deliveries only.
+    pub read_receipts_off: bool,
+}
+
+/// How far one person has got with the user's message.
+pub struct PersonReceiptInfo {
+    /// Their username.
+    pub username: String,
+    /// The name the user sees for them in this conversation.
+    pub shown_name: String,
+    /// How far they have got.
+    pub state: ReceiptState,
+}
+
+/// How far one person has got.
+pub enum ReceiptState {
+    /// Not on any of their devices yet.
+    Waiting,
+    /// On one of their devices.
+    Delivered,
+    /// Read.
+    Read,
+}
+
 /// One of the server's announcements, shown as from the server.
 pub struct AnnouncementInfo {
     /// Increasing ID.
@@ -955,6 +985,28 @@ impl Client {
     /// withdraw it.
     pub async fn set_verified(&self, username: String, verified: bool) -> Result<(), PostError> {
         Ok(self.core.set_verified(&username, verified).await?)
+    }
+
+    /// Who has one of the user's messages: each other member, and how far.
+    pub async fn message_receipts(&self, conversation: String, message: String) -> Result<MessageReceiptsInfo, PostError> {
+        let r = self.core.message_receipts(conversation.parse()?, message.parse()?).await?;
+        Ok(MessageReceiptsInfo {
+            people: r
+                .people
+                .into_iter()
+                .map(|p| PersonReceiptInfo {
+                    username: p.username,
+                    shown_name: p.shown_name,
+                    state: match p.state {
+                        core::ReceiptState::Waiting => ReceiptState::Waiting,
+                        core::ReceiptState::Delivered => ReceiptState::Delivered,
+                        core::ReceiptState::Read => ReceiptState::Read,
+                    },
+                })
+                .collect(),
+            too_large: r.too_large,
+            read_receipts_off: r.read_receipts_off,
+        })
     }
 
     /// Whether the user sends read receipts (on unless turned off).

@@ -1370,6 +1370,13 @@ pub fn read_position(conn: &Connection, group: &[u8]) -> Result<u64> {
     Ok(n.and_then(|n| u64::try_from(n).ok()).unwrap_or(0))
 }
 
+/// A message's position in its group's log; `None` until the server has it.
+pub fn message_seq(conn: &Connection, group: &[u8], id: &[u8]) -> Result<Option<u64>> {
+    let n: Option<Option<i64>> =
+        conn.query_row("SELECT seq FROM messages WHERE group_id = ?1 AND id = ?2", params![group, id], |r| r.get(0)).optional()?;
+    Ok(n.flatten().and_then(|n| u64::try_from(n).ok()))
+}
+
 /// Our own messages in a group whose log positions fall in `(from, to]`,
 /// newest first, at most `limit`: those whose ticks just changed.
 pub fn own_messages_between(conn: &Connection, group: &[u8], from: u64, to: u64, limit: u32) -> Result<Vec<Vec<u8>>> {
