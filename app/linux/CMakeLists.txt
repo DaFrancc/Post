@@ -39,11 +39,19 @@ endif()
 # Be cautious about adding new options here, as plugins use this function by
 # default. In most cases, you should add new options to specific targets instead
 # of modifying this function.
+# flutter_webrtc (calls) trips a warning newer clang added; keep it a warning
+# (spikes/calls-e2ee/RESULTS.md). Only where the compiler knows it: to an
+# older clang, such as the release build's, the option is itself unknown,
+# which -Werror turns into an error in every file.
+include(CheckCXXCompilerFlag)
+check_cxx_compiler_flag(-Wunused-but-set-global POST_HAS_UNUSED_BUT_SET_GLOBAL)
+
 function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_features(${TARGET} PUBLIC cxx_std_14)
-  # flutter_webrtc (calls) trips a warning newer clang added; keep it a
-  # warning (spikes/calls-e2ee/RESULTS.md).
-  target_compile_options(${TARGET} PRIVATE -Wall -Werror -Wno-error=unused-but-set-global)
+  target_compile_options(${TARGET} PRIVATE -Wall -Werror)
+  if(POST_HAS_UNUSED_BUT_SET_GLOBAL)
+    target_compile_options(${TARGET} PRIVATE -Wno-error=unused-but-set-global)
+  endif()
   target_compile_options(${TARGET} PRIVATE "$<$<NOT:$<CONFIG:Debug>>:-O3>")
   target_compile_definitions(${TARGET} PRIVATE "$<$<NOT:$<CONFIG:Debug>>:NDEBUG>")
 endfunction()
