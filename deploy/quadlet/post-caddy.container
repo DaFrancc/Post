@@ -8,7 +8,8 @@ Pod=post.pod
 Volume=%h/.config/post/Caddyfile:/etc/caddy/Caddyfile:ro,Z
 Volume=post-caddy-data.volume:/data
 Volume=post-caddy-config.volume:/config
-Environment=POST_DOMAIN=chat.example.org
+# POST_DOMAIN, for the Caddyfile.
+EnvironmentFile=%h/.config/post/post.env
 NoNewPrivileges=true
 
 [Service]

@@ -15,6 +15,45 @@ You need a host with a public IP, a DNS name pointing at it (here
 `chat.example.org`), ports 80 and 443 open, and Podman 4.4 or later. For
 calls, also ports 7881 (TCP) and 7882 (UDP).
 
+## Quick setup (Debian 13)
+
+On a Debian 13 server, as root, with the domain already pointing at it:
+
+```sh
+apt update && apt install -y git
+git clone https://github.com/DaFrancc/Post.git && cd Post
+git checkout vX.Y.Z            # optional: a release, whose server image is ready-made
+deploy/server.sh install chat.example.org
+```
+
+It installs what it needs (Podman and a few tools), offers to stop a web
+server already on ports 80 and 443, opens ufw or firewalld, makes the
+secrets, writes the settings to `~/.config/post/post.env`, starts
+everything, waits for the HTTPS certificate and prints your first invite.
+Run it again any time: it keeps your secrets and settings. Add `--no-calls`
+to offer no calls.
+
+Afterwards:
+
+```sh
+deploy/server.sh invite        # an invite code (--bot, --days N)
+deploy/server.sh status        # what is running, HTTPS, the app release offered
+deploy/server.sh update        # newer code: pull, new server image, restart
+```
+
+**The server image.** On a release checkout the script downloads the image
+CI built for it. Otherwise it builds one from the checkout, which takes a long
+time on a small server (one CPU, 2 GB). Build it on your own computer instead,
+where Podman is installed, and send it over:
+
+```sh
+deploy/server.sh push root@chat.example.org      # on your computer
+deploy/server.sh install chat.example.org --image local   # then on the server
+```
+
+The steps below are what the script does, for doing it by hand or on another
+system.
+
 ## 1. Build the server image
 
 From the repository root:
@@ -39,21 +78,22 @@ data either way.
 ```sh
 mkdir -p ~/.config/containers/systemd ~/.config/post
 cp deploy/quadlet/* ~/.config/containers/systemd/
-cp deploy/Caddyfile deploy/livekit.yaml ~/.config/post/
+cp deploy/Caddyfile deploy/livekit.yaml deploy/post.env ~/.config/post/
 ```
 
-Edit `POST_DOMAIN` in `post-server.container` and `post-caddy.container`, and
-the domain in `POST_LIVEKIT_URL`.
+In `~/.config/post/post.env`, put your domain in place of `chat.example.org`
+(twice). Every other setting is there too, commented out at its default.
 **The domain is bound into every account and cannot change later.**
 
-For calls, create the secret postd and LiveKit share:
+Create the secret postd and LiveKit share for calls. postd mounts it even
+with calls off, so make it either way:
 
 ```sh
 printf 'post: %s\n' "$(head -c 36 /dev/urandom | base64 | tr -d '/+=')" | podman secret create post-livekit-keys -
 ```
 
-To offer no calls instead, delete `post-livekit.container`, the three call
-lines in `post-server.container`, and the two call ports in `post.pod`.
+To offer no calls, delete the `POST_LIVEKIT_URL` line in `post.env`,
+`post-livekit.container`, and the two call ports in `post.pod`.
 
 To bind ports 80 and 443 as an unprivileged user, allow it once:
 
@@ -108,7 +148,7 @@ name per call for each participant, never who they are.
 
 You set the limits, so calls cannot outgrow your bandwidth:
 
-| Setting (in `post-server.container`) | Default | What it does |
+| Setting (in `post.env`) | Default | What it does |
 |---|---|---|
 | `POST_CALL_MAX_PARTICIPANTS` | `25` | The most people in one call |
 | `POST_CALL_MAX_BITRATE_KBPS` | `2500` | The most each person may send. Apps step their quality down to fit |
@@ -136,7 +176,8 @@ With the defaults, a release that comes out while the server runs waits on the
 server until it next restarts. A new server offers the latest release from the
 start.
 
-- To put it live now instead, run `systemctl --user reload post-server`.
+- To put it live now instead, run `systemctl reload post-server` (with
+  `--user` for a rootless install).
   Without systemd, send `postd` the HUP signal
   (`podman kill --signal HUP post-server`, or `kill -HUP <pid>`). A reload is
   you asking, so it does everything whatever the settings say: it re-reads
@@ -144,8 +185,7 @@ start.
   live. Nobody's connection drops.
 - With `POST_RELEASES_LIVE_ON_START=false`, a restart keeps offering the
   release that was live before, and only a reload changes it.
-- Set these in `post-server.container` as `Environment=` lines, like
-  `POST_DOMAIN`.
+- Set these in `~/.config/post/post.env`, then `systemctl restart post-pod`.
 - `POST_RELEASES_FROM=owner/repo` fetches from another repository. Leave it
   empty to fetch nothing.
 - To skip GitHub altogether, copy a release in by hand: a folder named after
