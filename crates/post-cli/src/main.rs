@@ -70,6 +70,12 @@ enum Command {
         #[command(subcommand)]
         cmd: GroupCommand,
     },
+    /// Calls: start, join, leave or decline one, or list them. The CLI
+    /// carries a call's signalling, not its audio.
+    Call {
+        #[command(subcommand)]
+        cmd: CallCommand,
+    },
     /// List your conversations.
     Conversations,
     /// Show the newest messages of a conversation.
@@ -173,6 +179,25 @@ enum Command {
     },
     /// Print the OpenRPC description of the local API.
     Schema,
+}
+
+#[derive(Subcommand)]
+enum CallCommand {
+    /// List the live calls.
+    List,
+    /// Start a call in a conversation.
+    Start {
+        conversation: String,
+        /// As a video call.
+        #[arg(long)]
+        video: bool,
+    },
+    /// Join (or answer) a call.
+    Join { conversation: String, call: String },
+    /// Leave a call; in a DM this ends it.
+    Leave { conversation: String, call: String },
+    /// Decline a ringing call.
+    Decline { conversation: String, call: String },
 }
 
 #[derive(Subcommand)]
@@ -327,6 +352,11 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
             ("create_group", json!({ "name": name, "members": members }))
         }
         Command::Group { cmd: GroupCommand::Members { conversation } } => ("members", json!({ "conversation": conversation })),
+        Command::Call { cmd: CallCommand::List } => ("calls", json!({})),
+        Command::Call { cmd: CallCommand::Start { conversation, video } } => ("call_start", json!({ "conversation": conversation, "video": video })),
+        Command::Call { cmd: CallCommand::Join { conversation, call } } => ("call_join", json!({ "conversation": conversation, "call": call })),
+        Command::Call { cmd: CallCommand::Leave { conversation, call } } => ("call_leave", json!({ "conversation": conversation, "call": call })),
+        Command::Call { cmd: CallCommand::Decline { conversation, call } } => ("call_decline", json!({ "conversation": conversation, "call": call })),
         Command::Group { cmd: GroupCommand::Add { conversation, members } } => {
             ("add_members", json!({ "conversation": conversation, "members": members }))
         }
@@ -430,6 +460,14 @@ fn print_human(method: &str, v: &Value) {
                 println!("{} (@{})  {}", s(m, "shown_name"), s(m, "username"), tags.join(", "));
             }
         }
+        "calls" => {
+            for c in v.as_array().into_iter().flatten() {
+                let people: Vec<&str> = c["participants"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect();
+                let ringing = if c["ringing"] == true { "  (calling you)" } else { "" };
+                println!("{}  in {}  started by {}: {}{ringing}", s(c, "id"), s(c, "conversation"), s(c, "started_by"), people.join(", "));
+            }
+        }
+        "call_start" | "call_join" => println!("in call {} as {}", s(&v["call"], "id"), s(v, "participant_id")),
         "conversations" => {
             for c in v.as_array().into_iter().flatten() {
                 let gone = if c["following"] == false { "  (left)" } else { "" };

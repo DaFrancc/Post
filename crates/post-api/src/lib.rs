@@ -314,6 +314,74 @@ fn presence_word(p: core::Presence) -> &'static str {
     }
 }
 
+/// A live call (design section 10). The CLI and daemon carry calls'
+/// signalling only, not their audio.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct CallInfo {
+    /// Call ID, hex.
+    pub id: String,
+    /// Conversation ID, hex.
+    pub conversation: String,
+    /// Who started it.
+    pub started_by: String,
+    /// Usernames in it now.
+    pub participants: Vec<String>,
+    /// It is calling you.
+    pub ringing: bool,
+    /// This device is in it.
+    pub joined: bool,
+}
+
+/// What joining a call's room takes, for a program that brings its own
+/// audio.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct CallJoined {
+    /// The call.
+    pub call: CallInfo,
+    /// This device's identity in the room (hex).
+    pub participant_id: String,
+    /// The LiveKit server's URL.
+    pub url: String,
+    /// A short-lived LiveKit access token.
+    pub token: String,
+}
+
+fn call_info(c: core::Call) -> CallInfo {
+    CallInfo {
+        id: c.id.to_string(),
+        conversation: c.conversation.to_string(),
+        started_by: c.started_by,
+        participants: c.participants.into_iter().map(|p| p.username).collect(),
+        ringing: c.ringing,
+        joined: c.joined,
+    }
+}
+
+fn call_joined(j: core::CallJoin) -> CallJoined {
+    CallJoined { call: call_info(j.call), participant_id: j.participant_id, url: j.url, token: j.token }
+}
+
+/// `call_start`.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CallStartParams {
+    /// Conversation ID, hex.
+    pub conversation: String,
+    /// Start as a video call.
+    #[serde(default)]
+    pub video: bool,
+}
+
+/// A call in a conversation.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CallParams {
+    /// Conversation ID, hex.
+    pub conversation: String,
+    /// Call ID, hex.
+    pub call: String,
+}
+
 /// Someone's presence, as last heard.
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct PresenceResult {
@@ -724,6 +792,11 @@ methods! {
     "safety_number", Local, UserParams, SafetyNumber, "The safety number between you and a user.";
     "set_verified", Connection, VerifiedParams, Done, "Record that you compared safety numbers with a user, or withdraw it.";
     "mark_read", Connection, ConversationParams, Done, "Mark a conversation read, on all your devices.";
+    "calls", Local, NoParams, Vec<CallInfo>, "The live calls, in every conversation.";
+    "call_start", Connection, CallStartParams, CallJoined, "Start a call (signalling only: bring your own audio with the token).";
+    "call_join", Connection, CallParams, CallJoined, "Join or answer a call (signalling only).";
+    "call_leave", Connection, CallParams, Done, "Leave a call; in a DM this ends it.";
+    "call_decline", Connection, CallParams, Done, "Decline a ringing call.";
 }
 
 /// Find a method by name.
@@ -973,6 +1046,25 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
         "send_typing" => {
             let p: ConversationParams = params(p)?;
             core.send_typing(id(&p.conversation)?).await?;
+            ok(Done {})
+        }
+        "calls" => ok(core.calls().await?.into_iter().map(call_info).collect::<Vec<_>>()),
+        "call_start" => {
+            let p: CallStartParams = params(p)?;
+            ok(call_joined(core.start_call(id(&p.conversation)?, p.video).await?))
+        }
+        "call_join" => {
+            let p: CallParams = params(p)?;
+            ok(call_joined(core.join_call(id(&p.conversation)?, id(&p.call)?).await?))
+        }
+        "call_leave" => {
+            let p: CallParams = params(p)?;
+            core.leave_call(id(&p.conversation)?, id(&p.call)?).await?;
+            ok(Done {})
+        }
+        "call_decline" => {
+            let p: CallParams = params(p)?;
+            core.decline_call(id(&p.conversation)?, id(&p.call)?).await?;
             ok(Done {})
         }
         "set_presence" => {
