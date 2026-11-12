@@ -149,6 +149,27 @@ CREATE TABLE IF NOT EXISTS invites (
     used_by     BLOB,
     used_at     INTEGER
 );
+CREATE TABLE IF NOT EXISTS hosts (
+    account_id  BLOB PRIMARY KEY REFERENCES accounts(account_id)
+);
+CREATE TABLE IF NOT EXISTS announcements (
+    id             INTEGER PRIMARY KEY,
+    created_at     INTEGER NOT NULL,
+    kind           INTEGER NOT NULL,
+    text           TEXT NOT NULL,
+    starts_at      INTEGER NOT NULL DEFAULT 0,
+    minutes        INTEGER NOT NULL DEFAULT 0,
+    client_msg_id  BLOB UNIQUE
+);
+CREATE TABLE IF NOT EXISTS maintenance (
+    id              INTEGER PRIMARY KEY,
+    starts_at       INTEGER NOT NULL,
+    minutes         INTEGER NOT NULL,
+    reason          TEXT NOT NULL,
+    reminders_done  INTEGER NOT NULL,
+    started         INTEGER NOT NULL DEFAULT 0,
+    finished        INTEGER NOT NULL DEFAULT 0
+);
 ";
 
 /// Changes to existing tables, in order. `SCHEMA` creates version 1 (plus any
@@ -222,7 +243,7 @@ pub(crate) fn sql_i64(n: u64) -> i64 {
     i64::try_from(n).unwrap_or(i64::MAX)
 }
 
-fn write_tx(conn: &mut Connection) -> Result<Transaction<'_>> {
+pub(crate) fn write_tx(conn: &mut Connection) -> Result<Transaction<'_>> {
     conn.transaction_with_behavior(TransactionBehavior::Immediate).db()
 }
 

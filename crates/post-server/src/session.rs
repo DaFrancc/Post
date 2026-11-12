@@ -19,6 +19,7 @@ use post_identity::{AccountId, Chain, DeviceId, HybridSignature, labels};
 use post_proto::{self as proto, ClientFrame, ErrorCode, Reply, Request, ServerFrame, ServerKind};
 use prost::Message as _;
 
+use crate::announce::{self, By};
 use crate::{Inbox, State, db, tokens};
 
 /// How long a new connection has to send its first request.
@@ -156,8 +157,9 @@ pub(crate) async fn run(mut socket: WebSocket, state: Arc<State>) {
                 for (group_id, payload) in p.ephemeral {
                     ok &= send(&mut socket, ServerKind::Ephemeral(proto::Ephemeral { group_id, payload })).await;
                 }
-                if p.mailbox || !p.groups.is_empty() {
-                    ok &= send(&mut socket, ServerKind::Wake(proto::Wake { mailbox: p.mailbox, groups: p.groups })).await;
+                if p.mailbox || p.announcements || !p.groups.is_empty() {
+                    let wake = proto::Wake { mailbox: p.mailbox, groups: p.groups, announcements: p.announcements };
+                    ok &= send(&mut socket, ServerKind::Wake(wake)).await;
                 }
                 if !ok {
                     break;
@@ -261,6 +263,24 @@ impl Conn {
             Request::IssueTokens(r) => {
                 let sigs = st.db.run(move |c| tokens::issue(c, &device.0, &r.key_id, &r.blinded)).await?;
                 Reply::IssuedTokens(proto::IssuedTokens { blind_signatures: sigs })
+            }
+            Request::FetchAnnouncements(r) => {
+                Reply::Announcements(st.db.run(move |c| announce::fetch(c, &account, r.after_id, r.limit)).await?)
+            }
+            Request::Announce(r) => {
+                let v = st.db.run(move |c| announce::announce(c, By::Host(&account), Some(&r.client_msg_id), &r.text)).await?;
+                st.announced(v);
+                Reply::Empty(proto::Empty {})
+            }
+            Request::PlanMaintenance(r) => {
+                let v = st.db.run(move |c| announce::plan(c, By::Host(&account), &r)).await?;
+                st.announced(v);
+                Reply::Empty(proto::Empty {})
+            }
+            Request::EndMaintenance(_) => {
+                let (_, v) = st.db.run(move |c| announce::end(c, By::Host(&account))).await?;
+                st.announced(v);
+                Reply::Empty(proto::Empty {})
             }
             _ => return Err(wrong_connection(true)),
         })
