@@ -83,7 +83,7 @@ on a warm tree, so roughly 700 KB at 250.
   creating it in turn, with key refreshes and messages both ways and matching
   exporter secrets. Passes.
 - Decision: use the libcrux provider, as in the design, and carry the interop test
-  into `postern-core`'s test suite so an upgrade that breaks agreement fails CI.
+  into `post-core`'s test suite so an upgrade that breaks agreement fails CI.
 
 ## Still open from spike 1
 

@@ -1,0 +1,3 @@
+# Caddy's certificates and ACME account.
+[Volume]
+VolumeName=post-caddy-data

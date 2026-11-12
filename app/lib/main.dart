@@ -1,0 +1,217 @@
+// Post, the app.
+
+import 'dart:async';
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kReleaseMode;
+import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:post/src/rust/api/client.dart';
+import 'package:post/src/rust/frb_generated.dart';
+
+import 'screens/home.dart';
+import 'screens/welcome.dart';
+import 'state/app_state.dart';
+import 'theme.dart';
+import 'ui/window_frame.dart';
+import 'ui/zoom.dart';
+
+/// Like the CLI, `POST_PROFILE` picks another profile directory and
+/// `POST_DB_KEY_FILE` takes its key from a file instead of the keyring:
+/// for running a second account, or a test profile, beside your own.
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // A widget that fails to build is drawn as a grey box in release builds,
+  // which over an overlay covers the whole window. Draw nothing instead;
+  // the error is still printed (and reaches the system log).
+  if (kReleaseMode) ErrorWidget.builder = (_) => const SizedBox.shrink();
+  await RustLib.init();
+  final env = Platform.environment;
+  runApp(PostApp(profileDir: env['POST_PROFILE'], keyFile: env['POST_DB_KEY_FILE']));
+}
+
+class PostApp extends StatelessWidget {
+  const PostApp({super.key, this.profileDir, this.keyFile});
+
+  /// The profile to open; null for this user's own.
+  final String? profileDir;
+
+  /// A key file for it; null to use the platform keyring.
+  final String? keyFile;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Post',
+      debugShowCheckedModeBanner: false,
+      theme: postTheme(),
+      // The frame goes around the navigator, so dialogs, menus and toasts
+      // open inside the window's rounded frame rather than over its
+      // transparent margin. Transparent, so the corners show the desktop.
+      // Zoom goes around everything, the frame included.
+      builder: (context, navigator) => Zoom(
+        child: _OverlayHost(
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: WindowFrame(child: navigator ?? const SizedBox()),
+          ),
+        ),
+      ),
+      home: Root(profileDir: profileDir, keyFile: keyFile),
+    );
+  }
+}
+
+/// An overlay for what sits outside the navigator (the window frame's title
+/// bar, whose buttons have tooltips). Keeps one entry and rebuilds it when
+/// the child changes.
+class _OverlayHost extends StatefulWidget {
+  const _OverlayHost({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_OverlayHost> createState() => _OverlayHostState();
+}
+
+class _OverlayHostState extends State<_OverlayHost> {
+  late final OverlayEntry _entry = OverlayEntry(builder: (_) => widget.child);
+
+  @override
+  void didUpdateWidget(_OverlayHost old) {
+    super.didUpdateWidget(old);
+    _entry.markNeedsBuild();
+  }
+
+  @override
+  Widget build(BuildContext context) => Overlay(initialEntries: [_entry]);
+}
+
+/// Opens this device's profile, then shows the welcome screens until there
+/// is an account, and the app once there is.
+class Root extends StatefulWidget {
+  const Root({super.key, this.profileDir, this.keyFile});
+
+  final String? profileDir;
+  final String? keyFile;
+
+  @override
+  State<Root> createState() => _RootState();
+}
+
+class _RootState extends State<Root> {
+  Client? _client;
+  AppState? _app;
+  String? _error;
+  bool _opening = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _open();
+  }
+
+  /// Spellcheck dictionaries, shared by every profile on this computer.
+  /// `POST_DICTIONARIES` picks another folder (tests keep theirs between
+  /// runs, so they download once).
+  String _dictionaries = '';
+
+  Future<void> _open() async {
+    try {
+      final support = (await getApplicationSupportDirectory()).path;
+      _dictionaries = Platform.environment['POST_DICTIONARIES'] ?? '$support/dictionaries';
+      final dir = widget.profileDir ?? '$support/profile';
+      final client = await Client.open(profileDir: dir, keyFile: widget.keyFile);
+      final me = await client.identity();
+      await _restoreZoom(client);
+      setState(() {
+        _client = client;
+        _opening = false;
+      });
+      if (me != null) _signedIn(me);
+    } catch (e) {
+      setState(() {
+        _error = errorText(e);
+        _opening = false;
+      });
+    }
+  }
+
+  static const _zoomKey = 'ui.zoom';
+  VoidCallback? _saveZoom;
+
+  /// The zoom this device last used, and from now on, the zoom saved as it
+  /// changes.
+  Future<void> _restoreZoom(Client client) async {
+    try {
+      final saved = double.tryParse(await client.setting(key: _zoomKey) ?? '');
+      if (saved != null && saved >= zoomLevels.first && saved <= zoomLevels.last) appZoom.value = saved;
+    } catch (_) {}
+    _saveZoom = () {
+      final z = appZoom.value;
+      unawaited(client.setSetting(key: _zoomKey, value: z == 1 ? null : '$z').catchError((_) {}));
+    };
+    appZoom.addListener(_saveZoom!);
+  }
+
+  /// From here the app stays connected for the rest of the session.
+  void _signedIn(Identity me) {
+    final client = _client;
+    if (client == null) return;
+    setState(() => _app = AppState(client, me, dictionaries: _dictionaries, onSignedOut: _signedOut));
+  }
+
+  /// Logged out: the profile is gone, so open a fresh one for the welcome
+  /// screens. The old state and client are let go after this frame, once
+  /// nothing on screen uses them.
+  void _signedOut() {
+    final app = _app;
+    final client = _client;
+    if (_saveZoom != null) appZoom.removeListener(_saveZoom!);
+    _saveZoom = null;
+    setState(() {
+      _app = null;
+      _client = null;
+      _error = null;
+      _opening = true;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      app?.dispose();
+      client?.dispose();
+    });
+    unawaited(_open());
+  }
+
+  @override
+  void dispose() {
+    if (_saveZoom != null) appZoom.removeListener(_saveZoom!);
+    _app?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final client = _client;
+    final app = _app;
+    if (_opening) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    if (client == null) return _Problem(text: 'Could not open your profile. $_error');
+    if (app == null) return WelcomeScreen(client: client, onSignedIn: _signedIn);
+    return HomeScreen(state: app);
+  }
+}
+
+class _Problem extends StatelessWidget {
+  const _Problem({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Text(text, textAlign: TextAlign.center, style: PType.text),
+      ),
+    );
+  }
+}

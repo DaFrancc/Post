@@ -1,0 +1,48 @@
+# The server image, ghcr.io/<owner>/post-server, for deploy/server.sh, so a
+# small server downloads it instead of compiling (deploy/README.md):
+#
+#   every push     :sha-<commit>   what server.sh downloads for that checkout
+#   release tags   :X.Y.Z, :latest
+#
+# Built with Podman, so .containerignore applies as it does on a server.
+name: Server image
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+# A newer push to the same branch replaces a build still running: servers
+# check out the newest commit.
+concurrency:
+  group: server-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and publish
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/post-server
+          tags=(-t "$image:sha-$GITHUB_SHA")
+          if [[ $GITHUB_REF == refs/tags/v* ]]; then
+            version=${GITHUB_REF_NAME#v}
+            tags+=(-t "$image:$version" -t "$image:latest")
+          fi
+          echo "$TOKEN" | podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          podman build -f deploy/Containerfile \
+            --label org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY" \
+            --label org.opencontainers.image.revision="$GITHUB_SHA" \
+            "${tags[@]}" .
+          for t in "${tags[@]}"; do
+            [[ $t == -t ]] || podman push "$t"
+          done

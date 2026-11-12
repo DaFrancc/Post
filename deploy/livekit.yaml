@@ -1,0 +1,32 @@
+# LiveKit beside postd: it carries calls' audio and video (design section 10).
+#
+# Media is encrypted end to end with keys only the people in a conversation
+# derive, so LiveKit relays frames it cannot read. postd decides who may join
+# a call; LiveKit only checks postd's tokens.
+#
+# Signalling goes through Caddy (wss://chat.example.org/livekit); media uses
+# its own ports, published by the pod: 7881 (TCP) and 7882 (UDP).
+
+port: 7880
+# Only Caddy, inside the pod, reaches signalling.
+bind_addresses: ["127.0.0.1"]
+
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  # Learn the public address apps should send media to.
+  use_external_ip: true
+
+# The shared secret: `post: <secret>`, from the Podman secret post-livekit-keys.
+key_file: /run/secrets/post-livekit-keys
+
+room:
+  # postd's tokens set each call's participant limit; these apply to rooms
+  # made any other way.
+  max_participants: 25
+  empty_timeout: 60
+  departure_timeout: 20
+
+logging:
+  # No per-call logs: who joined which call is not kept.
+  level: warn

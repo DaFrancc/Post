@@ -1,11 +1,18 @@
-# Caddy in front of posternd (design section 12).
+# Caddy in front of postd (design section 12).
 #
 # Caddy gets and renews the TLS certificate. Built with Go 1.24 or later, it
 # negotiates the hybrid post-quantum group X25519MLKEM768 by default.
 #
 # Caddy writes no access log unless a `log` directive asks for one; keep it
 # that way, so client IP addresses are not recorded (design section 3).
-{$POSTERN_DOMAIN} {
-	# posternd shares the pod's network namespace and listens on localhost only.
-	reverse_proxy 127.0.0.1:8080
+{$POST_DOMAIN} {
+	# Calls' signalling, to LiveKit (post-livekit.container).
+	handle_path /livekit/* {
+		reverse_proxy 127.0.0.1:7880
+	}
+	# Everything else is postd. Both share the pod's network namespace and
+	# listen on localhost only.
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
 }

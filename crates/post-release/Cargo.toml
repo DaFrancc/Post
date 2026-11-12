@@ -1,0 +1,33 @@
+[package]
+name = "post-release"
+description = "Post's signed releases: manifests, the release key, and the tool that signs them"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "post-release"
+path = "src/main.rs"
+
+[dependencies]
+post-identity = { path = "../post-identity" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+getrandom.workspace = true
+zeroize.workspace = true
+chacha20poly1305.workspace = true
+argon2.workspace = true
+# The tool only.
+clap.workspace = true
+anyhow.workspace = true
+rpassword.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

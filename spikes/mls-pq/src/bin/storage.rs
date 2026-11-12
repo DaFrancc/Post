@@ -59,7 +59,7 @@ fn proto(b: &[u8]) -> ProtocolMessage {
 }
 
 fn main() {
-    let dir = std::env::temp_dir().join(format!("postern-spike-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("post-spike-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("bob.db");
 

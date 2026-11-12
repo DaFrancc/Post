@@ -1,0 +1,32 @@
+[package]
+name = "post-cli"
+description = "post: the Post command-line client and JSON-RPC daemon"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "post"
+path = "src/main.rs"
+
+[dependencies]
+post-core = { path = "../post-core" }
+post-api = { path = "../post-api" }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+hex.workspace = true
+getrandom.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+post-server = { path = "../post-server" }
+tempfile.workspace = true
+
+[lints]
+workspace = true

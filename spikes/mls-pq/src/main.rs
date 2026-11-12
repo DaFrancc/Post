@@ -163,7 +163,7 @@ fn run<P: OpenMlsProvider + Default>(provider_name: &str, n: usize) {
     }
 
     // Everyone still in agrees on the epoch and the exporter secret.
-    let ex = |g: &MlsGroup, p: &P| g.export_secret(p.crypto(), "postern/call/v1", b"call", 32).unwrap();
+    let ex = |g: &MlsGroup, p: &P| g.export_secret(p.crypto(), "post/call/v1", b"call", 32).unwrap();
     let e = ex(&a, &alice.provider);
     assert_eq!(e, ex(&b, &members[1].provider));
     assert_eq!(e, ex(&d, &newcomer.provider));

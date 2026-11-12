@@ -1,30 +1,73 @@
-# Deploying Postern
+# Deploying Post
 
-A Postern server is one pod with two containers (design section 12):
+A Post server is one pod with two containers (design section 12):
 
 - **Caddy**: terminates TLS on port 443 with a Let's Encrypt certificate and
-  forwards to posternd. Writes no access log, so client addresses are not
+  forwards to postd. Writes no access log, so client addresses are not
   recorded.
-- **posternd**: the Postern server, listening on localhost inside the pod. Its
+- **postd**: the Post server, listening on localhost inside the pod. Its
   database is encrypted at rest with a key held as a Podman secret.
-
-Calls (LiveKit) are added in phase 8.
+- **LiveKit** (optional): carries calls' audio and video. The media is
+  encrypted end to end with keys only the people in the call derive, so it
+  relays frames it cannot read. See "Calls" below.
 
 You need a host with a public IP, a DNS name pointing at it (here
-`chat.example.org`), ports 80 and 443 open, and Podman 4.4 or later.
+`chat.example.org`), ports 80 and 443 open, and Podman 4.4 or later. For
+calls, also ports 7881 (TCP) and 7882 (UDP).
+
+## Quick setup (Debian 13)
+
+On a Debian 13 server, as root, with the domain already pointing at it:
+
+```sh
+apt update && apt install -y git
+git clone https://github.com/DaFrancc/Post.git && cd Post
+git checkout vX.Y.Z            # optional: a release rather than the newest code
+deploy/server.sh install chat.example.org
+```
+
+It installs what it needs (Podman and a few tools), offers to stop a web
+server already on ports 80 and 443, opens ufw or firewalld, makes the
+secrets, writes the settings to `~/.config/post/post.env`, starts
+everything, waits for the HTTPS certificate and prints your first invite.
+Run it again any time: it keeps your secrets and settings. Add `--no-calls`
+to offer no calls.
+
+Afterwards:
+
+```sh
+deploy/server.sh invite        # an invite code (--bot, --days N)
+deploy/server.sh status        # what is running, HTTPS, the app release offered
+deploy/server.sh update        # newer code: pull, new server image, restart
+```
+
+**The server image.** The script downloads the image CI built from the
+checkout's commit (`ghcr.io/dafrancc/post-server:sha-<commit>`), so the
+server never compiles anything. CI builds one for every push, a few minutes
+after it. If there is none yet, the script says so and asks before building
+here instead, which takes a long time on a small server. Two other ways:
+
+```sh
+deploy/server.sh install chat.example.org --image build   # build it on the server
+deploy/server.sh push root@chat.example.org               # build on your computer and send it,
+deploy/server.sh install chat.example.org --image local   # then use it on the server
+```
+
+The steps below are what the script does, for doing it by hand or on another
+system.
 
 ## 1. Build the server image
 
 From the repository root:
 
 ```sh
-podman build -f deploy/Containerfile -t localhost/posternd:latest .
+podman build -f deploy/Containerfile -t localhost/postd:latest .
 ```
 
 ## 2. Create the database key
 
 ```sh
-head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' | podman secret create postern-db-key -
+head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' | podman secret create post-db-key -
 ```
 
 Back the key up somewhere safe and separate from the data. Without it the
@@ -35,19 +78,30 @@ data either way.
 ## 3. Install the pod (Quadlet, managed by systemd)
 
 ```sh
-mkdir -p ~/.config/containers/systemd ~/.config/postern
+mkdir -p ~/.config/containers/systemd ~/.config/post
 cp deploy/quadlet/* ~/.config/containers/systemd/
-cp deploy/Caddyfile ~/.config/postern/Caddyfile
+cp deploy/Caddyfile deploy/livekit.yaml deploy/post.env ~/.config/post/
 ```
 
-Edit `POSTERN_DOMAIN` in `postern-server.container` and `postern-caddy.container`.
+In `~/.config/post/post.env`, put your domain in place of `chat.example.org`
+(twice). Every other setting is there too, commented out at its default.
 **The domain is bound into every account and cannot change later.**
+
+Create the secret postd and LiveKit share for calls. postd mounts it even
+with calls off, so make it either way:
+
+```sh
+printf 'post: %s\n' "$(head -c 36 /dev/urandom | base64 | tr -d '/+=')" | podman secret create post-livekit-keys -
+```
+
+To offer no calls, delete the `POST_LIVEKIT_URL` line in `post.env`,
+`post-livekit.container`, and the two call ports in `post.pod`.
 
 To bind ports 80 and 443 as an unprivileged user, allow it once:
 
 ```sh
 sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80
-echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/50-postern.conf
+echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/50-post.conf
 loginctl enable-linger "$USER"   # keep it running after you log out
 ```
 
@@ -55,22 +109,22 @@ Then start it:
 
 ```sh
 systemctl --user daemon-reload
-systemctl --user start postern-pod
+systemctl --user start post-pod
 ```
 
 ## 4. Invite people
 
 ```sh
-podman exec postern-server posternd invite            # a person
-podman exec postern-server posternd invite --bot      # a bot account
-podman exec postern-server posternd invite --days 1   # expires sooner
+podman exec post-server postd invite            # a person
+podman exec post-server postd invite --bot      # a bot account
+podman exec post-server postd invite --days 1   # expires sooner
 ```
 
 Each code works once. People register with:
 
 ```sh
-postern keygen ~/.config/postern/db.key
-postern --db-key-file ~/.config/postern/db.key register \
+post keygen ~/.config/post/db.key
+post --db-key-file ~/.config/post/db.key register \
     --server wss://chat.example.org/v1/ws --invite CODE --username NAME
 ```
 
@@ -84,18 +138,72 @@ openssl s_client -connect chat.example.org:443 -groups X25519MLKEM768 </dev/null
   | grep -E 'Negotiated TLS1.3 group|Server Temp Key'
 ```
 
-It should name `X25519MLKEM768`. The Postern client prefers this group, so it
+It should name `X25519MLKEM768`. The Post client prefers this group, so it
 is what clients use whenever the server offers it.
+
+## Calls
+
+Calls run through LiveKit in the same pod. postd hands out a short-lived
+token to anyone who proves they are in a conversation, and LiveKit relays the
+call's media, which is encrypted end to end. LiveKit only ever sees a random
+name per call for each participant, never who they are.
+
+You set the limits, so calls cannot outgrow your bandwidth:
+
+| Setting (in `post.env`) | Default | What it does |
+|---|---|---|
+| `POST_CALL_MAX_PARTICIPANTS` | `25` | The most people in one call |
+| `POST_CALL_MAX_BITRATE_KBPS` | `2500` | The most each person may send. Apps step their quality down to fit |
+
+A rough guide to bandwidth: a voice call uses about 50 kbit/s per person
+each way, and video up to the bitrate limit. Each person also receives
+everyone else's streams, so a call with N people uses about N × (N − 1)
+streams through the server.
+
+## App updates
+
+Apps get updates from their own server, so nobody else sees who runs Post.
+The server never updates itself. It hands new versions of the app to the
+people who use it, and each person's app still decides when to install.
+You decide how much the server does by itself:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `POST_RELEASES_CHECK` | `true` | Ask GitHub for a new release every hour |
+| `POST_RELEASES_DOWNLOAD` | `true` | Download it into `/var/lib/post/releases` and check its signature and files |
+| `POST_RELEASES_LIVE_WHILE_RUNNING` | `false` | Offer it to apps as soon as it has downloaded |
+| `POST_RELEASES_LIVE_ON_START` | `true` | When the server starts, offer apps the newest release: downloaded before, or found as it starts |
+
+With the defaults, a release that comes out while the server runs waits on the
+server until it next restarts. A new server offers the latest release from the
+start.
+
+- To put it live now instead, run `systemctl reload post-server` (with
+  `--user` for a rootless install).
+  Without systemd, send `postd` the HUP signal
+  (`podman kill --signal HUP post-server`, or `kill -HUP <pid>`). A reload is
+  you asking, so it does everything whatever the settings say: it re-reads
+  the releases folder, asks GitHub, downloads, and puts the newest release
+  live. Nobody's connection drops.
+- With `POST_RELEASES_LIVE_ON_START=false`, a restart keeps offering the
+  release that was live before, and only a reload changes it.
+- Set these in `~/.config/post/post.env`, then `systemctl restart post-pod`.
+- `POST_RELEASES_FROM=owner/repo` fetches from another repository. Leave it
+  empty to fetch nothing.
+- To skip GitHub altogether, copy a release in by hand: a folder named after
+  its version, holding its files, `manifest-<platform>.json` and the `.sig`
+  file. Then reload.
 
 ## Backups
 
-Back up the `postern-data` volume (a SQLite database in WAL mode; stop the pod
+Back up the `post-data` volume (a SQLite database in WAL mode; stop the pod
 or use `sqlite3 .backup` for a consistent copy) and, separately, the
-`postern-db-key` secret. Losing the server data loses only messages not yet
+`post-db-key` secret. Losing the server data loses only messages not yet
 delivered and the account registry: people keep their own history.
 
 ## Alternative: compose
 
-`deploy/compose.yaml` runs the same two containers with `podman compose` or
-`docker compose`. Put the key in `deploy/postern-db-key` (mode 0600) and set
-`POSTERN_DOMAIN`.
+`deploy/compose.yaml` runs the same containers with `podman compose` or
+`docker compose`. Put the database key in `deploy/post-db-key` and the calls
+secret (`post: <secret>`) in `deploy/post-livekit-keys`, both mode 0600, and
+set `POST_DOMAIN`.

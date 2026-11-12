@@ -1,0 +1,4 @@
+# postd's database. Back this up; it is encrypted with the post-db-key
+# secret, which must be backed up separately.
+[Volume]
+VolumeName=post-data

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Post
+GenericName=Messenger
+Comment=Private, post-quantum messaging
+Icon=com.dafrancc.post
+Exec=post
+Terminal=false
+Categories=Network;InstantMessaging;Chat;
+Keywords=chat;messages;encrypted;
+StartupWMClass=com.dafrancc.post
+StartupNotify=true

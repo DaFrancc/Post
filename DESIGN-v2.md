@@ -1,10 +1,11 @@
-# Postern: Design
+# Post: Design
 
 A small, private, end-to-end encrypted messenger with post-quantum key agreement:
 DMs, groups, files, and voice/video calls for an invite-only community of about 100 people.
 
 Status: design, nothing built. Supersedes `DESIGN.md` (kept unchanged for reference).
-"Postern" is a working name taken from the repo directory.
+Named Post (formerly Postern): plain and hard to search for, which suits a
+private, invite-only messenger.
 
 ## 1. Summary
 
@@ -84,7 +85,7 @@ anyone looked up. Section 8, "Metadata protection", says how.
 
 Users never connect to each other, so they never learn each other's IP address:
 
-- Messages, attachments and shared history go through `posternd`.
+- Messages, attachments and shared history go through `postd`.
 - Every call, including 1:1, goes through the LiveKit SFU. Clients offer no host or
   peer-reflexive ICE candidates to other participants; media flows only between each
   client and the SFU.
@@ -95,7 +96,7 @@ Users never connect to each other, so they never learn each other's IP address:
 The server operator does see addresses, because every connection ends at the
 server. To keep that exposure short-lived:
 
-- `posternd` never logs IP addresses.
+- `postd` never logs IP addresses.
 - The reference Caddy config disables access logging. LiveKit logs at a level that
   omits client addresses.
 
@@ -111,13 +112,13 @@ requires Tor or a VPN, which works for messaging but makes calls poor.
  │ Flutter UI (Dart)               │
  │   └ livekit_client ─────────────┼── WebRTC, E2EE frames ──► livekit-server
  │ flutter_rust_bridge             │                            (SFU + TURN)
- │ postern-core (Rust)             │                                 ▲
+ │ post-core (Rust)             │                                 ▲
  │   OpenMLS · SQLCipher · sync    │                                 │ join token
  └───────────────┬─────────────────┘                                 │
                  │ TLS 1.3, hybrid key exchange                      │
                  │ WebSocket (RPC + push) and HTTPS (blobs)          │
                  ▼                                                   │
-            Caddy ──► posternd (Rust) ───────────────────────────────┘
+            Caddy ──► postd (Rust) ───────────────────────────────┘
                         SQLite · blob directory · push sender
 ```
 
@@ -141,12 +142,12 @@ WebKitGTK, which breaks calls on Linux.
 ### Repository layout
 
 ```
-/crates/postern-proto      wire types (protobuf via prost), shared by server and core
-/crates/postern-identity   device chain, hybrid signatures, safety numbers
-/crates/postern-core       MLS, sync engine, storage, attachments, call keys
-/crates/postern-server     posternd
-/crates/postern-api        method and event definitions shared by the CLI and daemon; OpenRPC schema
-/crates/postern-cli        `postern`: supported command-line client, JSON-RPC daemon for bots and scripts
+/crates/post-proto      wire types (protobuf via prost), shared by server and core
+/crates/post-identity   device chain, hybrid signatures, safety numbers
+/crates/post-core       MLS, sync engine, storage, attachments, call keys
+/crates/post-server     postd
+/crates/post-api        method and event definitions shared by the CLI and daemon; OpenRPC schema
+/crates/post-cli        `post`: supported command-line client, JSON-RPC daemon for bots and scripts
 /app                       Flutter app; /app/rust is the flutter_rust_bridge shim
 /deploy                    Caddyfile, systemd units, LiveKit config
 /docs
@@ -171,7 +172,7 @@ Device keys:
 
 ### Device chain
 
-Implemented in `crates/postern-identity`.
+Implemented in `crates/post-identity`.
 
 ```
 Link {
@@ -187,8 +188,8 @@ SignedLink { link_bytes, sig_ed25519, sig_mldsa65, cosig_ed25519?, cosig_mldsa65
 
 DeviceEntry { chain_pub_ed25519, chain_pub_mldsa65, mls_sig_pub, bot }
 
-link_hash(b) = SHA-256(label("postern/link-hash/v1") ‖ b)
-device_id    = SHA-256(label("postern/device-id/v1") ‖ chain_pub_ed25519 ‖ chain_pub_mldsa65)[..16]
+link_hash(b) = SHA-256(label("post/link-hash/v1") ‖ b)
+device_id    = SHA-256(label("post/device-id/v1") ‖ chain_pub_ed25519 ‖ chain_pub_mldsa65)[..16]
 label(s)     = len(s) as one byte ‖ s
 ```
 
@@ -205,14 +206,14 @@ account's own devices; contacts see "Alice added a new device".
 | Op | Signed by | Notes |
 |---|---|---|
 | `Genesis { server_domain, username, device }` | The first device | `account_id = link_hash(genesis link bytes)`, so the ID commits to the server, username and first device |
-| `AddDevice { device }` | Any active device | Countersigned by the new device under `"postern/chain-cosign/v1"`, proving it holds its keys |
+| `AddDevice { device }` | Any active device | Countersigned by the new device under `"post/chain-cosign/v1"`, proving it holds its keys |
 | `RemoveDevice { device_id }` | Any active device | A device may remove itself, but the last device cannot be removed |
 | `RotateMlsKey { device_id, mls_sig_pub }` | That device only | Rare |
 
 Rules, enforced by every client and by the server:
 
 - A link is valid only if **both** signatures verify, over
-  `label("postern/chain/v1") ‖ link_bytes`. Signatures cover the exact bytes
+  `label("post/chain/v1") ‖ link_bytes`. Signatures cover the exact bytes
   received; nothing is re-serialised before verifying. ML-DSA signing is hedged
   (randomised), so the same link can carry different valid signatures; chains are
   compared by link hash, not by signature bytes.
@@ -255,8 +256,8 @@ stolen phone. Two defences:
 
 ### Linking a device
 
-Implemented in `crates/postern-core/src/link.rs`, with the server side in
-`crates/postern-server/src/link.rs`.
+Implemented in `crates/post-core/src/link.rs`, with the server side in
+`crates/post-server/src/link.rs`.
 
 The new device generates its keys and a random **link code** of 125 bits, shown as 25
 characters of Crockford base32 (`A884A-1S8XG-M86GD-BWP2J-AM8TG`), or as a QR code in
@@ -314,13 +315,23 @@ Any device publishes `RemoveDevice`. Two things follow:
 - Contacts learn of the removal from the chain head in the account's next message
   (below), or at their next directory fetch.
 
-A device cannot remove itself yet; another device of the account removes it. Signing
-out a device from itself, which would also wipe its local data, comes with the app.
+**Logging out** is a device removing itself, which the chain allows for any device
+but the last. The device sends what it has queued, publishes `RemoveDevice` for
+itself and closes for good: it stops reconnecting, and the server refuses it anyway.
+It cannot commit its own removal from groups, so the other members do, as for any
+removed device. Then it deletes its profile: the database, its downloads and its key
+in the keystore, and only the files Post made, so a profile pointed at a folder
+holding other things leaves them alone.
+
+On an account's only device there is nothing to remove it with, and without a device
+nobody can reach the account again. The app says so and offers only to delete the
+profile from the device, which loses the account; the server keeps the chain, and
+the username stays taken.
 
 ### Verification
 
 - The safety number for two accounts is derived from
-  `SHA-512(label("postern/safety/v1") ‖ min(id_a, id_b) ‖ max(id_a, id_b))`: each
+  `SHA-512(label("post/safety/v1") ‖ min(id_a, id_b) ‖ max(id_a, id_b))`: each
   5-byte chunk of the first 60 bytes, modulo 100 000, gives one 5-digit group, for
   60 digits in 12 groups. Also shown as a QR code. (SHA-512 because 60 digits need
   60 bytes of hash output.)
@@ -331,7 +342,7 @@ out a device from itself, which would also wipe its local data, comes with the a
 
 ### Losing every device
 
-An admin runs `posternd admin reset-account <user>`, which issues a one-time code.
+An admin runs `postd admin reset-account <user>`, which issues a one-time code.
 The user registers a new genesis under the same username, and every contact sees the
 reset warning. A later phase adds an optional 24-word recovery key that sits in the
 chain as an offline device able to sign `AddDevice`.
@@ -344,8 +355,8 @@ chain as an offline device able to sign `AddDevice`.
 - Each **device** is one leaf. Members at the application level are accounts.
 - Invariant: a group's leaves are exactly the current devices of its member accounts.
 - Each account also has a **self group** of only its own devices. It carries the
-  account's profile, private nicknames and device names now; read markers, verified
-  contacts, pinned usernames, settings and history-transfer keys later. The account's
+  account's profile, private nicknames, device names, verified contacts and read
+  positions now; pinned usernames, settings and history-transfer keys later. The account's
   oldest device creates it; the others wait to be added, so an account does not end
   up with one per device. If two ever exist, the lower group ID wins. It is never
   listed as a conversation, takes no messages, and clients refuse any Welcome or
@@ -356,6 +367,10 @@ chain as an offline device able to sign `AddDevice`.
   everything already logged; clearing leaves a marker so an older value cannot
   return. A device joining the self group gets a snapshot that fills in only values
   it lacks, so a stale snapshot never undoes a newer change.
+- A read position is a position in a group's server log, the same on every device;
+  later messages from others are unread. Positions only move forward, so they merge
+  by taking the larger, in any order. A device sends them only when the account has
+  another device to read them.
 
 Your other devices are ordinary members of each conversation, so they receive what
 you send with no special self-sync path.
@@ -370,10 +385,10 @@ hybrid KEM, AES-256-GCM, SHA-384, Ed25519 leaf signatures.
 - Provider: `openmls_libcrux_crypto`, whose ML-KEM is formally verified. That provider
   accepts the suite but does not advertise it, so upstream does not test the
   combination. Spike 1 showed a libcrux device and a RustCrypto device interoperate
-  in both directions; that interop test moves into `postern-core` so an upgrade that
+  in both directions; that interop test moves into `post-core` so an upgrade that
   breaks agreement fails CI. See `spikes/mls-pq/RESULTS.md`.
 - The IETF draft (revision 07, submitted for publication November 2026) assigns it
-  `0x0011`; OpenMLS uses the provisional `0x004E`. Postern clients only talk to each
+  `0x0011`; OpenMLS uses the provisional `0x004E`. Post clients only talk to each
   other, so this is not an interoperability problem. Pin the OpenMLS version and
   budget one group re-initialisation when the RFC is published.
 
@@ -395,13 +410,22 @@ merging any commit, and when joining from a Welcome, the client checks every lea
 
 This check is what stops the server, or anyone, slipping a device into a group.
 
+A Welcome shows the group as it was when this device was added, which can be before
+one of its members' devices was removed: a phone that links, and whose approving
+laptop logs out before the phone first fetches its invitations, is invited by a
+device that has since left. A removal does not make earlier states wrong, so in a
+Welcome a leaf may also be a removed device, with the key its chain last listed. The
+new member then commits that leaf's removal like any removed device's, and the
+server refuses a removed device's login meanwhile. A device its account never listed
+is still refused.
+
 ### Group policy
 
 MLS lets any member commit anything, so policy is enforced by every client when it
 inspects a staged commit:
 
 - Group name, avatar reference, admin list, conversation type and history setting
-  live in a GroupContext extension (`postern-mls::GroupMeta`, type `0xff10`). They
+  live in a GroupContext extension (`post-mls::GroupMeta`, type `0xff10`). They
   are part of the agreed group state and the server never sees them. Clients decode
   it strictly and reject unknown fields, so a group using a newer format is refused
   by older clients ("update the app") instead of being half-understood.
@@ -409,7 +433,7 @@ inspects a staged commit:
   both sides are admins and the account set is fixed.
 - Any member may add a **device** of an account that is already a member, and may
   remove a device whose removal appears in its account's chain.
-- A commit that changes the extension must set exactly Postern's extensions, may not
+- A commit that changes the extension must set exactly Post's extensions, may not
   change the conversation kind, and must leave at least one admin among the members.
   A self group never changes its metadata or gains another account.
 - Removing an account takes all its leaves and its admin role. Removals are justified
@@ -615,9 +639,9 @@ skip, and they would fill the group log. Instead:
 
 - The payload is `{ sender account, sender device, kind, body, sent_at }`, signed with
   the sender device's MLS signature key (Ed25519) under
-  `label("postern/ephemeral/v1") ‖ group_id ‖ epoch`.
+  `label("post/ephemeral/v1") ‖ group_id ‖ epoch`.
 - The whole thing is sealed with XChaCha20-Poly1305 under
-  `MLS-Exporter("postern/ephemeral/v1", "", 32)` with a random nonce.
+  `MLS-Exporter("post/ephemeral/v1", "", 32)` with a random nonce.
 - It is sent on the anonymous connection with the group's current access key
   (`SendEphemeral`). The server relays it to connections currently subscribed to the
   group and stores nothing.
@@ -627,7 +651,7 @@ skip, and they would fill the group log. Instead:
 - Signals more than 60 seconds old, or from more than 60 seconds in the future, on
   arrival are dropped.
 
-Implemented in `crates/postern-core/src/ephemeral.rs`. A device sends at most 15
+Implemented in `crates/post-core/src/ephemeral.rs`. A device sends at most 15
 signals a second when announcing presence to many groups, under the server's relay
 limit of 20.
 
@@ -645,9 +669,18 @@ message Profile {
   Avatar avatar = 3;           // blob reference and key (phase 6)
   string typing_template = 4;  // see below; empty means the standard text
   Note   note = 5;
+  string arrival = 6;          // how their messages arrive on screen; see below
 }
 message Note { string text = 1; uint64 set_at_ms = 2; uint64 expires_at_ms = 3; } // 0 = no expiry
 ```
+
+- **Arrival style.** Each person picks how their messages arrive on everyone's
+  screen: the name of an app animation preset (`bubble`, `rise`, `decode`,
+  `typewriter`, `focus`, `wave`, `instant`), up to 32 lowercase letters, digits and
+  dashes; empty means the app's default. An app that does not know a name uses its
+  default, so new presets need no protocol change, and a received name that is not
+  valid is dropped rather than refusing the profile. Viewers can turn everyone's
+  styles off, and the system's reduced-motion setting turns them all off.
 
 - **Distribution.** A profile is an ordinary message body, `Content.profile`, sent into
   every conversation the account follows whenever it changes. When a commit adds a
@@ -746,6 +779,20 @@ message Content {
 - MLS padding rounds ciphertext to a 256-byte multiple to blur message length.
 - Read receipts are sent in DMs and small groups only.
 
+### Mentions
+
+- A mention is `@` followed by a username in a message's text: no separate field, so
+  every client (and the CLI) reads it the same way, and older clients show it as text.
+- It counts only where nothing touches it (no letter, digit or `_` right before the
+  `@` or right after the name), outside inline code and code blocks, and not after a
+  backslash (`\@alice` is literal). `_` is part of usernames, so `_` italics cannot
+  wrap a mention; `*` italics can.
+- Each client works out who a message mentions from its latest text, so an edit can
+  add or remove a mention, and a deleted message mentions no one.
+- A conversation's unread count says how many unread messages mention the user. Apps
+  show that count on groups, where ordinary unread messages show only as a dot.
+- Search can narrow to messages mentioning someone (`mentions:alice`).
+
 ### Edits
 
 - `Edit { target, body }` replaces the text of message `target`. There is no time
@@ -776,7 +823,7 @@ message Content {
 
 ## 8. Server
 
-`posternd` is one Rust binary: axum, tokio, and SQLite in WAL mode through `rusqlite`
+`postd` is one Rust binary: axum, tokio, and SQLite in WAL mode through `rusqlite`
 with a single writer.
 
 ### Metadata protection
@@ -794,7 +841,7 @@ The server must not store who talks to whom. Three mechanisms:
    A request sent on the wrong kind of connection is refused, so a client bug cannot
    quietly link the two.
 2. **Group access keys instead of membership.** For every epoch, members derive
-   `access = MLS-Exporter("postern/group-access/v1", "", 32)`. The server stores only
+   `access = MLS-Exporter("post/group-access/v1", "", 32)`. The server stores only
    `SHA-256(access)` for each epoch. Sending, fetching and subscribing to a group
    prove membership by presenting that epoch's key, without saying who is asking.
    The server keeps no list of members.
@@ -836,7 +883,7 @@ like.
   `prefer-post-quantum` feature puts it first. A deploy check asserts the negotiated
   group.
 - Every connection starts with the server's `Hello` carrying a fresh nonce.
-- Session login: the device signs `label("postern/auth/v1") ‖ label(server_domain)
+- Session login: the device signs `label("post/auth/v1") ‖ label(server_domain)
   ‖ nonce` with its chain key (both signatures). The socket is then bound to that
   device.
 - Registration needs a single-use, expiring invite code and a valid genesis link,
@@ -905,7 +952,7 @@ a container secret or systemd credentials, never from the command line.
   member cannot follow the group after its removal.
 - **Wakes.** The anonymous connection subscribes to its groups with their access
   keys. The server keeps subscriptions in memory only and sends `Wake` on new
-  entries. Phones that are offline get a push in phase 7: the sender's client names
+  entries. Phones that are offline get a push in phase 8: the sender's client names
   the recipient devices in its send so the server can push them, used immediately
   and not stored.
 - **Mailboxes.** A Welcome is addressed to devices, so it goes to their mailboxes,
@@ -926,6 +973,25 @@ Admin actions run through a local CLI over a Unix socket: create invites, disabl
 reset an account, set quotas, show storage. There is no admin HTTP surface.
 Disabling an account disconnects its devices and refuses their logins at once;
 members' clients then remove its leaves.
+
+### Host limits
+
+A host decides how much load its server will carry, so a few heavy users cannot
+overburden a small server. Each limit is a server setting with a generous default.
+Each is built with the feature it limits.
+
+- **Messages.** The server cannot tell who sent a message, so it limits sending
+  where it can see. That means per group (sends a minute), per anonymous connection,
+  and per IP address. The IP limit is held in memory only and never stored. A
+  refused send tells the app to wait; the app holds the message back and retries.
+- **Calls.** A maximum bitrate per participant and a maximum number of participants
+  per call, set in LiveKit's configuration. The app asks for no more than the cap, so
+  quality steps down smoothly rather than failing.
+- **Files** (with attachments, phase 6). A maximum size per upload and a daily
+  upload quota per account.
+- **Apps know the limits.** The server tells apps its limits when they connect, so
+  the app can say "this server allows files up to 25 MB" before an upload, not after
+  it fails.
 
 ### Retention
 
@@ -960,21 +1026,28 @@ members' clients then remove its leaves.
 
 ### Media
 
-- `livekit-server` runs beside `posternd` as the SFU and TURN server for all calls,
+- `livekit-server` runs beside `postd` as the SFU and TURN server for all calls,
   including 1:1. One path for every call, and peers never learn each other's IP.
 - Clients use `livekit_client`, which handles capture, codecs, echo cancellation,
-  congestion control and frame encryption.
-- `Call.Token` checks that the caller's account is in the conversation and returns a
-  short-lived LiveKit token for room `hex(call_id)` with identity `hex(device_id)`.
+  congestion control and frame encryption. The core decides everything about keys,
+  tokens and signalling; the Flutter side only installs the keys it is given.
+- `Call.Token` is an anonymous-connection request, like `Send`. It presents the
+  group's current access key and returns a short-lived LiveKit token for the room
+  `hex(call_id)`. The server learns that a call is happening in a group, as it learns
+  that messages are, and never who is in it.
+- In LiveKit, each participant is a random `participant_id` chosen for that call, not
+  a device ID, so the server cannot tell which devices are talking. Joining sends an
+  ordinary MLS message (`CallEvent.join` with the participant ID), so the other
+  members learn whose ID is whose from a message whose sender MLS authenticates.
 
 ### Keys
 
 ```
-call_base  = MLS-Exporter("postern/call/v1", call_id, 32)          // per epoch
+call_base  = MLS-Exporter("post/call/v1", call_id, 32)          // per epoch
 sender_key = HKDF-SHA256(ikm = call_base, salt = call_id,
-                         info = "postern/call/sender" ‖ device_id, 32)
+                         info = "post/call/sender" ‖ participant_id, 32)
 
-keyProvider.setRawKey(sender_key, participantId: hex(device_id),
+keyProvider.setRawKey(sender_key, participantId: hex(participant_id),
                       keyIndex: epoch % keyRingSize)
 ```
 
@@ -991,21 +1064,47 @@ Limits to be aware of:
 
 - Media frames are encrypted but not signed. A member colluding with the server could
   send frames attributed to another member of the same call.
-- The frame cipher is whatever LiveKit's SDK implements (AES-GCM). Confirm the key
-  length during the spike.
+- The frame cipher is LiveKit's AES-GCM with a **128-bit** key: the 32-byte key the
+  app installs is stretched to 128 bits (spike 2, `spikes/calls-e2ee`). That holds
+  today, but it is below the 256-bit margin the rest of Post keeps against quantum
+  attacks. Raising it means patching LiveKit's libwebrtc.
+- WebRTC sends each speaker's audio level outside the encrypted frame, so the server
+  can see when each participant speaks, though not what they say. Turn it off where
+  the SDK allows.
+- On Linux the microphone must be chosen by device ID; with none chosen, WebRTC opens
+  the default source and drops it. The app always names one.
 
 ### Signalling
 
-- `CallEvent { start | decline | end, call_id, media }` is an ordinary message.
-- DMs and small groups ring. Large groups show a "join call" banner instead.
+- `CallEvent { start | join | leave | decline | end | ring, call_id, participant_id,
+  video, ring: [account], quiet }` is an ordinary message (content tag 16), never
+  shown as one. Who is in which call is kept in memory only, on each device. The
+  timeline keeps notices such as "Alice started a call", "missed call from Bob" and
+  "call ended · 3 min".
+- Whom a call rings: a start names accounts to ring, or names none to ring everyone.
+  With nobody named, a DM or a group of up to eight rings everyone. A larger group's
+  start is `quiet`: it rings nobody and shows as a call to join. A `ring` event rings
+  named members into a call under way. A call rings for a minute from the event that
+  rang it; joining or declining on any of the user's devices stops it everywhere. Only
+  someone who was rung can miss a call.
+- A DM call ends when either side hangs up or declines. A group call ends when the
+  last person leaves, or when its starter ends it. Hanging up a DM works from any
+  device of a participant, even one that has restarted and lost its call state.
 - A ringing message is marked urgent, so Android gets a high-priority push and shows
   a full-screen incoming-call notification.
+
+Sounds: the app plays a sound for an incoming call (looping), for calling (looping
+until someone answers), for people joining and leaving, for leaving a call, for mute
+and unmute, and for new messages and mentions elsewhere. Each comes from a sound
+pack the user chooses: a folder of files matched by name, or named in its
+`pack.json`. Any single sound can be replaced by a file, or turned off. Post's own
+pack is synthesized by `app/tool/make_sounds.py`, so it is Post's to ship.
 
 ## 11. Client
 
 ### Core
 
-`postern-core` owns every key, all protocol state and the database. Dart is a view.
+`post-core` owns every key, all protocol state and the database. Dart is a view.
 The API is coarse commands plus one event stream:
 
 ```rust
@@ -1054,22 +1153,22 @@ phones without Google services fully supported.
 
 ### Command-line client and local API
 
-`postern` (crate `postern-cli`) is a supported client, not only a test harness: it is
-how bots and scripts use Postern. A bot is an ordinary account with its own devices
+`post` (crate `post-cli`) is a supported client, not only a test harness: it is
+how bots and scripts use Post. A bot is an ordinary account with its own devices
 and keys. Because messages are end-to-end encrypted, an automation API cannot live on
 the server; it runs wherever the bot's core runs.
 
 **One method set, two front ends.** The core's public API (above) is exposed as a set
-of named methods with typed parameters and results, defined once in `postern-api`.
+of named methods with typed parameters and results, defined once in `post-api`.
 
-- The CLI maps each subcommand to one method: `postern send-text --to alice "hi"`
+- The CLI maps each subcommand to one method: `post send-text --to alice "hi"`
   calls `send_text`. Output is human-readable by default; `--json` prints the
   method's result as JSON, and failures exit non-zero with a JSON error.
-- `postern daemon` keeps the core running and serves the same methods as JSON-RPC
+- `post daemon` keeps the core running and serves the same methods as JSON-RPC
   2.0, with events (new messages, membership changes, security notices) pushed as
   JSON-RPC notifications after the client calls `subscribe`.
 
-A wrapper in any language spawns `postern daemon --stdio`, or connects to its socket,
+A wrapper in any language spawns `post daemon --stdio`, or connects to its socket,
 and exchanges JSON lines. There is no native library to bind.
 
 **Transports.**
@@ -1080,9 +1179,9 @@ and exchanges JSON lines. There is no native library to bind.
 | Unix socket (Windows: named pipe) | A long-running daemon shared by several local tools | File mode `0600` in a `0700` directory, owned by the user |
 | WebSocket on `127.0.0.1` | Languages or sandboxes without socket support; off by default | Requires a random bearer token from a `0600` file; binding a non-loopback address needs an explicit flag |
 
-**Schema.** `postern daemon --schema` prints an OpenRPC document generated from the
+**Schema.** `post daemon --schema` prints an OpenRPC document generated from the
 Rust types, so wrappers can generate bindings and stay in sync. The API is versioned
-(`postern.v1`); within a version, changes are additive only. Unknown fields in
+(`post.v1`); within a version, changes are additive only. Unknown fields in
 requests are rejected, so typos fail loudly.
 
 **Headless key storage.** Servers have no OS keyring. The database key comes from,
@@ -1108,14 +1207,14 @@ the daemon runs under. Run bots under their own system user.
 
 ```
 Caddy :443
-  chat.example.org → posternd :8080          WebSocket and HTTPS
+  chat.example.org → postd :8080          WebSocket and HTTPS
   rtc.example.org  → livekit-server :7880    call signalling
 livekit-server: UDP 7882 media, TCP 7881 fallback, TURN/TLS 5349
 ```
 
-- Three containers in one pod: Caddy, `posternd`, `livekit-server`. Calls arrive in a
-  late phase, so the first deployments are Caddy and `posternd` only.
-  - `posternd` ships as a minimal OCI image (static binary on a distroless base).
+- Three containers in one pod: Caddy, `postd`, `livekit-server`. Calls arrive in a
+  late phase, so the first deployments are Caddy and `postd` only.
+  - `postd` ships as a minimal OCI image (static binary on a distroless base).
     Caddy and LiveKit use their official images.
   - The reference deployment is a Podman pod managed by systemd through Quadlet
     files, with a compose file as an alternative. Kubernetes works but is not needed
@@ -1124,13 +1223,79 @@ livekit-server: UDP 7882 media, TCP 7881 fallback, TURN/TLS 5349
   - LiveKit needs UDP reachable from clients. Use its single-port UDP mode so only
     UDP 7882 and TURN/TLS 5349 need mapping. Hosts that block inbound UDP cannot run
     calls.
-- State is `/var/lib/postern/postern.db` and `/var/lib/postern/blobs/`, mounted from
+- State is `/var/lib/post/post.db` and `/var/lib/post/blobs/`, mounted from
   the volume.
 - Backups: a nightly SQLite snapshot (or Litestream). Clients keep their own
   history, so losing the server database loses only undelivered messages and the
   account registry.
-- `posternd` runs as a non-root user in a read-only container filesystem. Config is
+- `postd` runs as a non-root user in a read-only container filesystem. Config is
   one TOML file, overridable by environment variables.
+
+### App updates
+
+Apps find out about new releases from their own Post server and download them from
+it. A community's devices update without an app store, and no third party learns who
+runs Post or when. The server only distributes: it cannot make a build devices will
+accept. Built in phase 5b for Linux (`crates/post-release`, `post-server/src/releases.rs`,
+`post-core/src/update.rs`).
+
+- **A release key held offline**: a hybrid Ed25519 + ML-DSA-65 key like a device
+  chain key. Its public half is built into every app (`post-release/release-key.pub`);
+  a build without one accepts no release. Its secret half is sealed with a passphrase
+  (Argon2id, then XChaCha20-Poly1305) on the maintainer's machine.
+- **Manifests.** Each release has, per platform, a JSON manifest
+  `{ version, platform, files: [{ name, size, sha256 }], min_version, notes,
+  released_at_ms }`. The release key signs its exact bytes under the label
+  `post/release/v1`; both signatures must verify.
+- **Building and signing** (`scripts/release.sh`). `release.sh new X.Y.Z` tags the
+  pushed commit and pushes the tag. CI then builds each platform's files and an
+  unsigned manifest, and leaves them in a draft GitHub release. The tag message is
+  the notes; a `Min-Version:` line sets `min_version`. CI never holds the key.
+  `release.sh sign` takes the newest draft. It checks every file against its
+  manifest, signs each manifest with the key file (`~/post-release.key` by
+  default), uploads the signatures and publishes the release.
+- **Distribution.** `postd` fetches the latest published release from GitHub,
+  verifies the manifest and checks each file. It offers only a release that
+  passes, from its releases directory. An operator can also copy a release in by
+  hand. The operator controls how much happens alone, with four switches and these
+  defaults:
+  - check every hour: on;
+  - download what the check finds: on;
+  - put a downloaded release live (offer it to apps) at once: off;
+  - put the newest release live when the server starts: on.
+
+  So by default a new release waits until the server next restarts. A reload
+  (SIGHUP) is the operator asking: it re-reads the directory, then fetches,
+  downloads and puts the newest live, whatever the switches say. Which version
+  is live is remembered (`live-<platform>`), so a server that does not go live
+  on start keeps offering the same one. Apps fetch `GET /v1/releases/<platform>` (the manifest
+  and signature as signed) and
+  `GET /v1/releases/<platform>/<version>/<file>` over plain HTTPS. That
+  connection is not tied to an account, and range requests let a download
+  resume.
+- **Checks on the device**, before anything is installed: both signatures verify
+  under the built-in key; the version is newer than the running one (no downgrades,
+  and a version once seen is never accepted with different contents); each file's
+  size and SHA-256 match the manifest, checked again just before installing.
+- **Installing on Linux.** Post installs per user from a tarball:
+  `~/.local/share/post/versions/<version>/`, with `current` linking to the one the
+  desktop entry starts. The first install runs the tarball's `install.sh`. An update
+  unpacks beside the running version, accepting only plain files and folders with
+  plain names. It then swaps `current` in one rename, and keeps the version before
+  for going back. A copy run from anywhere else (a development build, a
+  distribution package) only says that an update exists. The tarball is packed
+  reproducibly: sorted names, fixed owners and timestamps, no gzip timestamp.
+- **Other platforms**, later: Windows runs the signed installer; Android hands the
+  APK to the system installer, which also requires the same app signing key.
+- **The user decides when.** With automatic updates on (the default), the app asks
+  every four hours and downloads in the background. The new version installs when
+  the user clicks Restart, or as they quit. With them off, the server is asked only
+  from Settings. `min_version` lets a release mark older versions as no longer able
+  to talk to the server (after a protocol change), which the app shows across the
+  top of the window.
+- **Key rotation**: a new release key is announced in a release signed by the old
+  one. Losing the release key means shipping a new key out of band, so it is kept
+  offline with a backup.
 
 ## 13. Sizing
 
@@ -1159,7 +1324,7 @@ For every change:
   and shown to the user, never skipped quietly.
 - Never accept a chain that does not extend the one already held.
 - Sign and verify exact bytes. Never re-serialise before verifying.
-- Every derivation and signature uses a unique, versioned label (`postern/.../v1`).
+- Every derivation and signature uses a unique, versioned label (`post/.../v1`).
 - Persist state before transmitting. Acknowledge only after committing.
 - Verify, then discard. A client stores only decrypted content. It never persists a
   received ciphertext or an MLS signature, and no feature may export either. Outbox
@@ -1190,21 +1355,22 @@ For every change:
 | Phase | Work | Done when |
 |---|---|---|
 | 0 | Spikes (below) | Each has a yes/no answer |
-| 1 | `postern-proto`, `postern-identity` | Chain and hybrid-signature tests pass. **Done 2026-11-10.** |
-| 2 | Server core with metadata protection (anonymous connection, access keys, tokens, mailboxes, ephemeral relay), `postern-api` and the CLI built on it: register, login, directory, KeyPackages, DMs with edits (all versions kept) and deletes, profiles (display names, per-conversation names, typing template, note); `--json` output and `postern daemon --stdio` | Two CLI devices exchange, edit and delete DMs and see each other's profiles in an in-process test, and a test drives one through the JSON-RPC daemon. **Done 2026-11-10**; see "Phase 2 status" below |
+| 1 | `post-proto`, `post-identity` | Chain and hybrid-signature tests pass. **Done 2026-11-10.** |
+| 2 | Server core with metadata protection (anonymous connection, access keys, tokens, mailboxes, ephemeral relay), `post-api` and the CLI built on it: register, login, directory, KeyPackages, DMs with edits (all versions kept) and deletes, profiles (display names, per-conversation names, typing template, note); `--json` output and `post daemon --stdio` | Two CLI devices exchange, edit and delete DMs and see each other's profiles in an in-process test, and a test drives one through the JSON-RPC daemon. **Done 2026-11-10**; see "Phase 2 status" below |
 | 3 | Multi-device: linking, self group, device add and remove, chain-head gossip, private nicknames (stored in the self group) | A linked device joins all conversations; a removed one is cut off. **Done 2026-11-10**; see "Phase 3 status" below |
 | 4 | Groups: policy, metadata, leave, stale devices, key refresh; typing indicators and presence | Adversarial server tests pass; typing and presence reach online members and are never stored. **Done 2026-11-11**; see "Phase 4 status" below |
-| 5 | Flutter app, text only: Linux, then Windows, then Android | Daily use between real devices |
-| 6 | Attachments, profile pictures, and history sharing for new members and new devices | Resumable upload and download on all three platforms; a member added to a `Shared` group sees its history |
-| 7 | Android push and background sync | Messages arrive with the app closed |
-| 8 | Calls: 1:1 audio, then video, then group | Rekey on membership change verified |
+| 5 | Flutter app, text only: Linux, then Windows | Daily use between real devices |
+| 5b | App updates over the wire (section 12, "App updates"): signed release manifests from the server, update detection, installing per platform | A device installs a signed update from the server and refuses an unsigned, modified or older one |
+| 6 | Attachments, profile pictures, and history sharing for new members and new devices | Resumable upload and download on Linux and Windows; a member added to a `Shared` group sees its history |
+| 7 | Calls, on the desktop: 1:1 audio, then video, then group. Until Android push exists, a call rings only where Post is open | Rekey on membership change verified |
+| 8 | Android: the app, attachments and calls on it, push and background sync (calls ring as full-screen notifications) | Messages and calls arrive with the app closed |
 | 9 | Receipts, reactions, search, recovery key | |
 | 10 | External review; ciphersuite codepoint migration | |
 
 ### Phase 2 status (2026-11-10)
 
-Built: `postern-proto`, `postern-mls`, `postern-server` (`posternd`), `postern-core`,
-`postern-api`, `postern-cli` (`postern`), container and Quadlet files in `deploy/`.
+Built: `post-proto`, `post-mls`, `post-server` (`postd`), `post-core`,
+`post-api`, `post-cli` (`post`), container and Quadlet files in `deploy/`.
 All tests pass in release and debug builds; clippy is clean.
 
 Verified:
@@ -1235,14 +1401,14 @@ Deferred, by design or to later phases:
 - Phone timings from spike 1; the deployment itself on a real host with Caddy.
 
 Spike 1's libcrux/RustCrypto interop check now runs in the test suite
-(`crates/postern-mls/tests/interop.rs`).
+(`crates/post-mls/tests/interop.rs`).
 
 ### Phase 3 status (2026-11-10)
 
 Built: linking by code with the server rendezvous, the self group, membership that
 follows device chains, device listing, naming and removal, nickname and device-name
 sync, chain-head gossip checks, `DevicesChanged` events, and the matching API methods
-and CLI commands (`postern link new`, `postern link add`, `postern devices`). Protocol
+and CLI commands (`post link new`, `post link add`, `post devices`). Protocol
 version 3. Profile databases now carry a schema version with ordered migrations.
 
 Verified:
@@ -1265,7 +1431,6 @@ Verified:
 
 Deferred:
 
-- Signing a device out from itself (section 5, "Removing a device").
 - History for a newly linked device (phase 6, with attachments).
 - A QR code in the CLI; the app will show one.
 
@@ -1275,7 +1440,7 @@ Built: named groups with admins (create, add and remove people, rename, admins,
 history setting, members list), leaving by proposal, weekly key refresh and
 `refresh_keys`, stale device removal and return, rejoining a group after removal,
 typing indicators and presence, and the matching API methods and CLI commands
-(`postern group ...`, `postern presence`, `postern typing`, `postern refresh-keys`).
+(`post group ...`, `post presence`, `post typing`, `post refresh-keys`).
 Protocol version 4. Profile databases reach schema version 5; the server database
 gains schema versioning (version 2).
 

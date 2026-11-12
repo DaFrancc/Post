@@ -19,6 +19,8 @@ sha2 = "0.10"
 # sections 5 and 6). The 0.10/0.12 lines share digest 0.10 with sha2.
 chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
 hkdf = "0.12"
+# LiveKit access tokens are HS256 JWTs (design section 10).
+hmac = "0.12"
 getrandom = { version = "0.4", features = ["sys_rng"] }
 zeroize = "1.8"
 prost = "0.14"
@@ -36,7 +38,7 @@ openmls_traits = { version = "=0.6.0", features = ["draft-ietf-mls-pq-ciphersuit
 openmls_sqlite_storage = { version = "=0.3.0", features = ["draft-ietf-mls-pq-ciphersuites"] }
 # Must match the version openmls_sqlite_storage uses, so they share one
 # Connection type. SQLCipher for client databases; harmless for the server.
-rusqlite = { version = "0.37", features = ["bundled-sqlcipher"] }
+rusqlite = { version = "0.37", features = ["bundled-sqlcipher", "functions"] }
 
 # Runtime, networking, interfaces.
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util", "io-std", "signal"] }
@@ -47,6 +49,15 @@ tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
 # X25519MLKEM768 group tried first (design section 8, Transport).
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "prefer-post-quantum", "std"] }
 futures-util = { version = "0.3", features = ["sink"] }
+# HTTPS for releases (design section 12): servers fetch them from GitHub,
+# apps download them from their server. rustls with aws-lc-rs, as above, and
+# the system's trusted certificates.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "stream"] }
+# Serving release files, with ranges so downloads resume.
+tower-http = { version = "0.6", features = ["fs"] }
+# Unpacking a Linux release tarball.
+tar = { version = "0.4", default-features = false }
+flate2 = "1.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 schemars = "1.2"
@@ -56,6 +67,23 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 url = "2.5"
 tempfile = "3"
+# The Flutter app's bridge (crates/post-ffi). Pinned exactly: it must equal
+# the flutter_rust_bridge_codegen version that generated the bindings, and the
+# Dart package version in app/pubspec.yaml.
+flutter_rust_bridge = "=2.13.0"
+# The app's database key lives in the platform keystore (design section 11).
+# Linux: the Secret Service (GNOME Keyring, KWallet), over encrypted D-Bus.
+keyring-core = "1.0"
+zbus-secret-service-keyring-store = { version = "1.0", features = ["rt-tokio-crypto-rust"] }
+# Spellchecking in the app: Hunspell dictionaries read in pure Rust, many of
+# them in legacy encodings that are converted to UTF-8 first.
+spellbook = "0.4"
+encoding_rs = "0.8"
+base64 = "0.22"
+# The offline release key's file, sealed with a passphrase (design section
+# 12, "App updates"): Argon2id stretches the passphrase.
+argon2 = "0.5"
+rpassword = "7.5"
 # Anonymous tokens, RFC 9474. Uses rsa 0.10, which fixed the Marvin timing
 # side channel (RUSTSEC-2023-0071) by moving to constant-time arithmetic.
 blind-rsa-signatures = "0.18"

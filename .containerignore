@@ -1,4 +1,12 @@
+# The server image builds from Cargo.toml, Cargo.lock and crates/ alone.
+# Everything else stays out of the build context: the app's build output alone
+# runs to tens of gigabytes.
 target
 **/target
 spikes
 .git
+app
+scripts
+logos
+pics
+blender

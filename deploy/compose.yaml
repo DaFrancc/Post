@@ -1,18 +1,41 @@
 # Alternative to the Quadlet files: `podman compose up -d` (or docker compose).
-# Set POSTERN_DOMAIN in the environment or an .env file first.
+# Set POST_DOMAIN in the environment or an .env file first.
 services:
-  posternd:
-    image: localhost/posternd:latest
+  postd:
+    image: localhost/postd:latest
     environment:
-      POSTERN_DOMAIN: ${POSTERN_DOMAIN:?set POSTERN_DOMAIN}
-      POSTERN_LISTEN: 127.0.0.1:8080
+      POST_DOMAIN: ${POST_DOMAIN:?set POST_DOMAIN}
+      POST_LISTEN: 127.0.0.1:8080
+      # Calls; remove these two and the livekit service to offer none.
+      POST_LIVEKIT_URL: wss://${POST_DOMAIN}/livekit
+      POST_LIVEKIT_SECRET_FILE: /run/secrets/post-livekit-keys
     volumes:
-      - postern-data:/var/lib/postern
+      - post-data:/var/lib/post
     secrets:
-      - source: postern-db-key
-        target: postern-db-key
+      - source: post-db-key
+        target: post-db-key
         uid: "65532"
         gid: "65532"
+        mode: 0400
+      - source: post-livekit-keys
+        target: post-livekit-keys
+        uid: "65532"
+        gid: "65532"
+        mode: 0400
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    network_mode: service:caddy
+    restart: always
+
+  livekit:
+    image: docker.io/livekit/livekit-server:v1.13.11
+    command: ["--config", "/etc/livekit.yaml"]
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro,Z
+    secrets:
+      - source: post-livekit-keys
+        target: post-livekit-keys
         mode: 0400
     read_only: true
     cap_drop: [ALL]
@@ -23,8 +46,9 @@ services:
   caddy:
     image: docker.io/library/caddy:2
     environment:
-      POSTERN_DOMAIN: ${POSTERN_DOMAIN}
-    ports: ["80:80", "443:443", "443:443/udp"]
+      POST_DOMAIN: ${POST_DOMAIN}
+    # 7881 and 7882/udp carry calls' media (LiveKit).
+    ports: ["80:80", "443:443", "443:443/udp", "7881:7881", "7882:7882/udp"]
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro,Z
       - caddy-data:/data
@@ -32,10 +56,12 @@ services:
     restart: always
 
 secrets:
-  postern-db-key:
-    file: ./postern-db-key
+  post-db-key:
+    file: ./post-db-key
+  post-livekit-keys:
+    file: ./post-livekit-keys
 
 volumes:
-  postern-data:
+  post-data:
   caddy-data:
   caddy-config:
