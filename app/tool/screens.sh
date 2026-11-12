@@ -4,15 +4,16 @@
 # it runs. Leaves PNGs in app/build/screens/ (or the directory given).
 #
 #   app/tool/screens.sh [OUTPUT_DIR]          everything
-#   app/tool/screens.sh calls [OUTPUT_DIR]    calls only (calls_test.dart)
+#   app/tool/screens.sh NAME [OUTPUT_DIR]     one area only: integration_test/NAME_test.dart
+#                                             (calls, account)
 set -euo pipefail
 
+app=$(cd "$(dirname "$0")/.." && pwd)
 test=integration_test/screens_test.dart
-if [[ ${1:-} == calls ]]; then
-  test=integration_test/calls_test.dart
+if [[ -n ${1:-} && -f $app/integration_test/${1}_test.dart ]]; then
+  test=integration_test/${1}_test.dart
   shift
 fi
-app=$(cd "$(dirname "$0")/.." && pwd)
 out=$(realpath -m "${1:-$app/build/screens}")
 # Fedora's ccache puts wrappers first in PATH; Flutter's native-asset builds
 # (flutter_soloud) follow the clang link to ccache itself and fail. Use the

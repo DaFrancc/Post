@@ -1009,20 +1009,80 @@ class _SecuritySettingsState extends State<_SecuritySettings> {
 
 // ---------------------------------------------------------------- about
 
-class _About extends StatelessWidget {
+class _About extends StatefulWidget {
   const _About({required this.state});
 
   final AppState state;
 
   @override
+  State<_About> createState() => _AboutState();
+}
+
+class _AboutState extends State<_About> {
+  bool _busy = false;
+
+  /// Asks first, saying what is lost: on the account's only device, the
+  /// account itself.
+  Future<void> _logOut() async {
+    final state = widget.state;
+    setState(() => _busy = true);
+    try {
+      final devices = await state.client.devices();
+      if (!mounted) return;
+      final lastDevice = !devices.any((d) => !d.thisDevice);
+      final name = '@${state.me.username}';
+      final ok = await confirm(
+        context,
+        title: lastDevice ? 'Log out and lose $name?' : 'Log out of $name?',
+        body: lastDevice
+            ? 'This is the only device signed in to $name, and an account can only be reached from one of its own devices. '
+                  'Logging out deletes it from this device for good, with its messages. To keep the account, link another device first.'
+            : 'This device leaves your account, and its copy of your messages and settings is deleted. '
+                  'Your other devices keep everything, and you can link this one again later.',
+        action: lastDevice ? 'Log out and lose account' : 'Log out',
+        danger: true,
+      );
+      if (!ok || !mounted) return;
+      final navigator = Navigator.of(context);
+      await state.logOut(lastDevice: lastDevice);
+      navigator.popUntil((r) => r.isFirst);
+      state.onSignedOut?.call();
+    } catch (e) {
+      if (mounted) showToast(context, errorText(e), error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final me = state.me;
+    final me = widget.state.me;
     return _Page(
       children: [
         _Detail(label: 'Username', value: '@${me.username}'),
         _Detail(label: 'Server', value: me.server),
         _Detail(label: 'Account ID', value: me.accountId, mono: true, help: 'Your safety numbers are made from this. It never changes.'),
         _Detail(label: 'This device', value: me.deviceId, mono: true),
+        const SizedBox(height: 8),
+        const Text('LOG OUT', style: PType.label),
+        const SizedBox(height: 6),
+        const Text(
+          'Takes this account off this device. Your other devices are not affected.',
+          style: TextStyle(fontSize: 13.5, height: 1.55, color: PColors.textMuted),
+        ),
+        const SizedBox(height: 12),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: _busy ? null : _logOut,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: PColors.danger,
+              side: const BorderSide(color: PColors.danger),
+            ),
+            icon: _busy ? const PSpinner() : const Icon(Icons.logout_rounded, size: 18),
+            label: const Text('Log out'),
+          ),
+        ),
       ],
     );
   }

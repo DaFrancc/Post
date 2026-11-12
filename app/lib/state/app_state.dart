@@ -30,7 +30,7 @@ const typingShownFor = Duration(seconds: 6);
 enum UpdateStage { idle, checking, downloading, ready, installing }
 
 class AppState extends ChangeNotifier {
-  AppState(this.client, this.me, {required String dictionaries}) : spelling = Spelling(client, dictionaries) {
+  AppState(this.client, this.me, {required String dictionaries, this.onSignedOut}) : spelling = Spelling(client, dictionaries) {
     unawaited(client.run());
     _events = client.events().listen(_onEvent);
     unawaited(refreshConversations());
@@ -51,6 +51,20 @@ class AppState extends ChangeNotifier {
 
   final Client client;
   final Identity me;
+
+  /// After [logOut]: close what shows this account and go back to the
+  /// welcome screens. Call it once the screens on top are closed.
+  final VoidCallback? onSignedOut;
+
+  /// Log out of this device: leave any call, then this device leaves the
+  /// account and its copy of everything is deleted. On the account's only
+  /// device ([lastDevice]) there is no leaving, which the account's rules
+  /// forbid: the profile is deleted and the account is lost.
+  Future<void> logOut({required bool lastDevice}) async {
+    if (calls.active != null) await calls.hangUp();
+    if (!lastDevice) await client.logOut();
+    await client.deleteProfile();
+  }
 
   /// Spellchecking in the composer.
   final Spelling spelling;

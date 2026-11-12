@@ -158,7 +158,28 @@ class _RootState extends State<Root> {
   void _signedIn(Identity me) {
     final client = _client;
     if (client == null) return;
-    setState(() => _app = AppState(client, me, dictionaries: _dictionaries));
+    setState(() => _app = AppState(client, me, dictionaries: _dictionaries, onSignedOut: _signedOut));
+  }
+
+  /// Logged out: the profile is gone, so open a fresh one for the welcome
+  /// screens. The old state and client are let go after this frame, once
+  /// nothing on screen uses them.
+  void _signedOut() {
+    final app = _app;
+    final client = _client;
+    if (_saveZoom != null) appZoom.removeListener(_saveZoom!);
+    _saveZoom = null;
+    setState(() {
+      _app = null;
+      _client = null;
+      _error = null;
+      _opening = true;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      app?.dispose();
+      client?.dispose();
+    });
+    unawaited(_open());
   }
 
   @override

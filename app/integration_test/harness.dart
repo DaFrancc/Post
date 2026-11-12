@@ -119,6 +119,31 @@ class Harness {
     ]);
   }
 
+  /// Link a new CLI device, the profile `device`, to `existing`'s account.
+  Future<void> link(String existing, String device) async {
+    await keyFor(device);
+    final p = await Process.start('$bin/post', [
+      '--profile',
+      '${work.path}/$device',
+      '--db-key-file',
+      '${work.path}/$device.key',
+      '--json',
+      'link',
+      'new',
+      '--server',
+      url,
+      '--name',
+      device,
+    ]);
+    unawaited(p.stderr.drain<void>());
+    final lines = StreamIterator(p.stdout.transform(utf8.decoder).transform(const LineSplitter()));
+    if (!await lines.moveNext()) throw StateError('post link new printed no code');
+    final code = (jsonDecode(lines.current) as Map<String, dynamic>)['code'] as String;
+    await cli(existing, ['link', 'add', code, '--yes']);
+    while (await lines.moveNext()) {}
+    if (await p.exitCode != 0) throw StateError('post link new failed');
+  }
+
   /// Keep `user` online, with this presence, until the test ends.
   Future<void> online(String user, String presence) async {
     await cli(user, ['presence', presence]);
