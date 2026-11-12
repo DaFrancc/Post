@@ -821,6 +821,40 @@ message Content {
 - Like every messenger's delete, this binds honest clients only. Someone running a
   modified client, or who took a screenshot, keeps what they saw.
 
+### Receipts
+
+Your own messages carry ticks: a clock while waiting to send, **one tick** once the
+server has the message, **two** once every other member has it on at least one
+device, **two blue** once every other member has read it.
+
+- **What is sent.** `Receipt { delivered, read }`, an application message like any
+  other, so the server sees only another encrypted entry. Both are positions in the
+  group's log, as read positions are: everything from others up to `delivered`
+  reached one of the sender's devices, and up to `read` the sender has read. They
+  only move forward and merge by taking the larger, so receipts may arrive in any
+  order, from any of the account's devices.
+- **How often.** At the end of each sync, one receipt in each conversation where the
+  account has received or read further than it last said, however many messages
+  arrived; and at once when the user reads a conversation. A device that sees its
+  own account's receipt from another device does not repeat it.
+- **Working out the ticks.** For each group the client keeps every member's latest
+  positions, and the least of them over the other current members. A message at or
+  below the least delivered position has two ticks; at or below the least read
+  position, blue. A member with no receipt yet holds the ticks back, so a group
+  shows two ticks only when everyone has the message. A member added later counts
+  as having everything sent before they joined.
+- **Read receipts can be turned off; delivery cannot.** Off, the account sends
+  `read = 0`, and, as in other messengers, its own messages show no blue ticks
+  either. The setting is account-wide, synced through the self group like
+  nicknames (`settings` in `SelfSync`).
+- **Large groups have none.** Each receipt is a message every member receives, so in
+  conversations of more than 32 accounts (`MAX_RECEIPT_ACCOUNTS`) none are sent and
+  messages stay at one tick.
+- **Silent bodies.** Receipts set `Content.silent`. A client that does not know a
+  silent body drops it instead of showing "unsupported, update the app". (Apps from
+  before receipts show their receipts that way, and send none themselves, which
+  holds their conversations' ticks at one until they update.)
+
 ## 8. Server
 
 `postd` is one Rust binary: axum, tokio, and SQLite in WAL mode through `rusqlite`
