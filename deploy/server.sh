@@ -15,6 +15,16 @@
 #   deploy/server.sh push SSH_HOST
 #       On your own computer: build the server image here and load it on a
 #       small server, which then runs `update --image local`.
+#   deploy/server.sh backup [FILE] [--to AGE_PUBLIC_KEY] [--stop]
+#       Everything the server needs, in one encrypted file: its database,
+#       secrets and settings. Encrypted with a passphrase you type, or to an
+#       age public key (--to), so it can run unattended and this server
+#       cannot open its own backups. postd stops for a few seconds while its
+#       database is copied. --stop leaves the server off afterwards, for
+#       moving it: messages sent to it after the backup would be lost.
+#   deploy/server.sh restore FILE [--identity AGE_KEY_FILE] [--image SOURCE]
+#       Bring a backup up on a new server, then set it up as install does.
+#       Only where there is no Post server yet: it never overwrites one.
 #
 # SOURCE is where the server image comes from:
 #   ci       downloaded: the image CI built for this checkout's commit (the
@@ -28,6 +38,7 @@ units=/etc/containers/systemd
 # Quadlet's %h for system units: root's home.
 conf=$(getent passwd root | cut -d: -f6)/.config/post
 image=localhost/postd:latest
+backups=$(getent passwd root | cut -d: -f6)/post-backups
 registry=ghcr.io/dafrancc/post-server
 caddy_image=docker.io/library/caddy:2
 livekit_image=docker.io/livekit/livekit-server:v1.13.11
@@ -137,7 +148,8 @@ check_dns() {
 #   ca-certificates, curl            HTTPS: pulling images, checking the site
 #   iproute2 (ip, ss), procps        addresses and ports; sysctl
 #   git, gzip                        updating this clone; loading pushed images
-packages=(podman netavark aardvark-dns catatonit ca-certificates curl iproute2 procps git gzip)
+#   age                              encrypting backups
+packages=(podman netavark aardvark-dns catatonit ca-certificates curl iproute2 procps git gzip age)
 
 install_packages() {
   local missing=() p
@@ -287,7 +299,8 @@ get_image() {
 # The image CI built from this checkout's commit, so it is exactly this code.
 download_image() {
   local sha
-  sha=$(git -C "$repo" rev-parse HEAD)
+  sha=$(git -C "$repo" rev-parse HEAD 2>/dev/null) ||
+    die "git cannot read $repo (if another user owns it: git config --global --add safe.directory $repo)"
   if [[ -n $(git -C "$repo" status --porcelain --untracked-files=no -- Cargo.toml Cargo.lock crates deploy/Containerfile) ]]; then
     warn "this clone has changes to the server's code; the downloaded image is the commit without them (--image build uses them)"
   fi
@@ -490,6 +503,155 @@ cmd_push() {
   note "  deploy/server.sh update --image local"
 }
 
+# --------------------------------------------------------------- backups
+#
+# A backup is a gzipped tar, encrypted with age, of one folder:
+#   backup-info          format, domain, when, which commit
+#   post.env             the settings
+#   post-db-key          the database key, exactly as stored
+#   post-livekit-keys    the secret LiveKit and postd share
+#   post-data.tar        the post-data volume: the database and releases
+# Caddy's certificates are left out: a new server gets its own.
+
+# A secret's exact bytes. Podman prints them with one newline added.
+save_secret() {
+  (umask 077 && podman secret inspect --showsecret --format '{{.SecretData}}' "$1" >"$2")
+  if [[ $(tail -c1 "$2" | od -An -c | tr -d ' ') == '\n' ]]; then truncate -s -1 "$2"; fi
+}
+
+cmd_backup() {
+  local out='' to='' stop=false
+  while (($#)); do
+    case $1 in
+      --to) to=${2:?--to needs an age public key}; shift ;;
+      --stop) stop=true ;;
+      -h | --help) usage ;;
+      -*) die "unknown option $1" ;;
+      *) out=$1 ;;
+    esac
+    shift
+  done
+  need_root
+  local domain
+  domain=$(installed_domain)
+  [[ -n $domain ]] || die "no Post server is set up here"
+  [[ -f $conf/post.env ]] || die "this server was set up before post.env: run deploy/server.sh update first"
+  [[ -n $to || -t 0 ]] || die "no terminal to type a passphrase in: give an age public key with --to"
+  install_packages
+  if [[ -z $out ]]; then
+    install -d -m 700 "$backups"
+    out=$backups/$domain-$(date -u +%Y%m%d-%H%M%S).age
+  fi
+  [[ ! -e $out ]] || die "$out exists already"
+
+  local work
+  work=$(mktemp -d)
+  # It holds the database key: gone however this ends. The path goes in
+  # now, as `work` is gone by the time the script exits.
+  # shellcheck disable=SC2064
+  trap "rm -rf -- '$work'" EXIT
+  local dir=$work/post-backup
+  mkdir -m 700 "$dir"
+  # The volume's own folder is not in its export, and postd must own it to
+  # write its database's journal there.
+  local owner
+  owner=$(stat -c %u:%g "$(podman volume inspect post-data --format '{{.Mountpoint}}')")
+  printf 'format=1\ndomain=%s\ncreated=%s\ncommit=%s\nvolume_owner=%s\n' \
+    "$domain" "$(date -u +%FT%TZ)" "$(git -C "$repo" rev-parse HEAD 2>/dev/null || echo unknown)" "$owner" >"$dir/backup-info"
+  cp "$conf/post.env" "$dir/"
+  save_secret post-db-key "$dir/post-db-key"
+  save_secret post-livekit-keys "$dir/post-livekit-keys"
+
+  # A consistent copy: the database is written to while postd runs.
+  say "Copying the database (postd stops for a moment)"
+  systemctl stop post-server
+  if ! podman volume export post-data -o "$dir/post-data.tar"; then
+    $stop || systemctl start post-server
+    die "copying the post-data volume failed"
+  fi
+  $stop || systemctl start post-server
+
+  say "Encrypting the backup"
+  local enc=(-r "$to")
+  [[ -n $to ]] || enc=(-p)
+  # umask: the file is never readable by others, even before chmod.
+  (umask 077 && tar -C "$work" -cf - post-backup | gzip | age "${enc[@]}" -o "$out") || {
+    rm -f "$out"
+    die "encrypting the backup failed"
+  }
+  if $stop; then
+    # Masked, so it stays off through reboots too.
+    systemctl mask --now post-server post-caddy post-livekit >/dev/null 2>&1 || true
+    systemctl stop post-pod
+    note "Post is stopped here and stays off. To start it again instead:"
+    note "  systemctl unmask post-server post-caddy post-livekit && systemctl start post-pod"
+  fi
+  echo
+  say "Backed up to $out ($(du -h "$out" | cut -f1))"
+  note "It holds the database key, encrypted. Copy it off this server, for example:"
+  note "  scp root@$domain:$out ."
+  note "To bring it up on a new server: deploy/server.sh restore FILE"
+}
+
+cmd_restore() {
+  local file='' identity='' pass=()
+  while (($#)); do
+    case $1 in
+      --identity) identity=${2:?--identity needs an age key file}; shift ;;
+      --image) pass+=(--image "${2:?--image needs a value}"); shift ;;
+      --yes) yes=true; pass+=(--yes) ;;
+      -h | --help) usage ;;
+      -*) die "unknown option $1" ;;
+      *) file=$1 ;;
+    esac
+    shift
+  done
+  need_root
+  [[ -n $file ]] || die "give the backup file: deploy/server.sh restore FILE"
+  [[ -f $file ]] || die "no such file: $file"
+  check_system
+  install_packages
+  # Never over a server: its key and data would be replaced.
+  if [[ -n $(installed_domain) ]] || podman secret exists post-db-key || podman volume exists post-data; then
+    die "this machine already has a Post server (or what is left of one). Restore onto a fresh machine."
+  fi
+
+  local work
+  work=$(mktemp -d)
+  # shellcheck disable=SC2064 # the path, now: `work` is gone at exit
+  trap "rm -rf -- '$work'" EXIT
+  say "Decrypting the backup"
+  local dec=(-d)
+  [[ -n $identity ]] && dec+=(-i "$identity")
+  age "${dec[@]}" -o "$work/backup.tar.gz" "$file" || die "could not decrypt $file"
+  tar -C "$work" -xzf "$work/backup.tar.gz" || die "$file is not a Post backup"
+  local dir=$work/post-backup
+  grep -qx 'format=1' "$dir/backup-info" 2>/dev/null || die "$file is not a Post backup this script knows"
+  local domain
+  domain=$(sed -n 's/^POST_DOMAIN=//p' "$dir/post.env" | tail -1)
+  [[ -n $domain ]] || die "the backup has no domain in its post.env"
+  say "Restoring $domain, backed up $(sed -n 's/^created=//p' "$dir/backup-info")"
+
+  podman secret create post-db-key "$dir/post-db-key" >/dev/null
+  podman secret create post-livekit-keys "$dir/post-livekit-keys" >/dev/null
+  mkdir -p "$conf"
+  install -m 600 "$dir/post.env" "$conf/post.env"
+  # Its people have invites already.
+  touch "$conf/first-invite-shown"
+  podman volume create post-data >/dev/null
+  podman volume import post-data "$dir/post-data.tar"
+  # Podman gives a new volume to the container's user when it first mounts
+  # it empty; this one is not empty, so hand it over as it was. (65532 is
+  # postd's user, for a backup that did not record it.)
+  local owner
+  owner=$(sed -n 's/^volume_owner=//p' "$dir/backup-info")
+  chown "${owner:-65532:65532}" "$(podman volume inspect post-data --format '{{.Mountpoint}}')"
+  rm -rf "$work"
+
+  note "Point $domain at this machine if you have not yet: until then the certificate waits."
+  cmd_install "$domain" "${pass[@]}"
+}
+
 main() {
   local cmd=${1:-}
   (($#)) && shift
@@ -499,6 +661,8 @@ main() {
     invite) cmd_invite "$@" ;;
     status) cmd_status "$@" ;;
     push) cmd_push "$@" ;;
+    backup) cmd_backup "$@" ;;
+    restore) cmd_restore "$@" ;;
     -h | --help | help) usage ;;
     *) usage 1 ;;
   esac

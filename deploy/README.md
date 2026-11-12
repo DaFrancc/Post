@@ -196,10 +196,39 @@ start.
 
 ## Backups
 
-Back up the `post-data` volume (a SQLite database in WAL mode; stop the pod
-or use `sqlite3 .backup` for a consistent copy) and, separately, the
-`post-db-key` secret. Losing the server data loses only messages not yet
-delivered and the account registry: people keep their own history.
+Losing the server's data loses only messages not yet delivered and the
+account registry: people keep their own history. But without the registry
+nobody can log in, so keep backups.
+
+```sh
+deploy/server.sh backup                      # asks for a passphrase
+deploy/server.sh backup --to age1...         # to an age public key, for cron
+```
+
+A backup is one file in `/root/post-backups/` holding the database, both
+secrets and `post.env`, encrypted with [age](https://age-encryption.org). It
+holds the database key, so it is always encrypted: with a passphrase you type,
+or to a public key (`age-keygen -o key.txt` on your own computer prints it),
+which lets it run unattended without this server being able to open its own
+backups. Copy it off the server. postd stops for a few seconds while the
+database is copied: messages wait in apps' outboxes meanwhile, and calls in
+progress carry on.
+
+Bring it up on a new machine, where it never overwrites an existing server:
+
+```sh
+deploy/server.sh restore FILE                         # passphrase
+deploy/server.sh restore FILE --identity key.txt      # age key
+```
+
+**Moving to another machine.** Back up with `--stop`, which leaves the old
+server off for good, so nothing reaches it after the copy: apps keep their
+messages until they reach the new one. Then restore on the new machine and
+point the domain at it. Apps carry on by themselves once the name resolves to
+the new address.
+
+By hand: stop `post-server`, `podman volume export post-data`, and keep the
+`post-db-key` secret separately.
 
 ## Alternative: compose
 
