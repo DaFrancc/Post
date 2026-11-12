@@ -900,6 +900,7 @@ like.
 | Session | KeyPackages | `UploadKeyPackages` |
 | Session | Mailbox | `FetchMailbox`, `AckMailbox` (Welcomes addressed to this device) |
 | Session | Tokens | `IssueTokens(blinded messages)` |
+| Session | Announcements | `FetchAnnouncements(after)`; hosts only: `Announce`, `PlanMaintenance`, `EndMaintenance` |
 | Anonymous | Groups | `CreateGroup` (token), `Send` (application messages and proposals), `Commit`, `FetchGroups`, `Subscribe` (access key) |
 | Anonymous | KeyPackages | `ClaimKeyPackages(account)` or `(account, device, count)` (token) |
 | Anonymous | Linking | `LinkPut`, `LinkGet` (sealed rendezvous slots; section 5) |
@@ -933,6 +934,9 @@ spent_tokens(key_id, token_hash, PRIMARY KEY (key_id, token_hash))
 token_issuance(device_id, day, count, PRIMARY KEY (device_id, day))
 invites(code_hash PK, bot, created_at, expires_at, used_by, used_at)
 directory_version(version)  -- bumped whenever an account or chain changes
+hosts(account_id PK)
+announcements(id PK, created_at, kind, text, starts_at, minutes, client_msg_id UNIQUE)
+maintenance(id PK, starts_at, minutes, reason, reminders_done, started, finished)
 ```
 
 No table links a device or account to a group. `group_log` stores no sender.
@@ -967,6 +971,45 @@ a container secret or systemd credentials, never from the command line.
   keep the group with the lower ID and retire the other; messages from both stay
   visible in the one conversation.
 
+### Announcements
+
+A server has one channel of announcements that every account receives: news from
+the people running it, and planned maintenance. Apps show it pinned above the
+conversations, with an unread count.
+
+- **Who posts.** The operator names *hosts* (`postd host add USER`), accounts that
+  may post from the app. The operator can also post from the server
+  (`postd announce`). Every announcement is shown as from the server's domain,
+  never as from a person: a host who wants to be known signs the text, as in an
+  email.
+- **The server posts too.** A host plans maintenance (`/maintenance` in the app,
+  or `postd maintenance plan`): when it starts and roughly how long it takes. The
+  server announces it at once (unless asked not to), reminds everyone a day, an
+  hour, 30 minutes and 5 minutes before (skipping reminders already past, and one
+  that would come within five minutes of the plan's own announcement), announces
+  the start, and announces it over when its time is up or a host ends it. After
+  downtime it says only what is still true: the latest reminder rather than every
+  one missed, and "over" rather than "started" for a maintenance already past.
+  These end "(Sent automatically by the server.)". One maintenance at a time.
+- **Times are data.** Maintenance announcements carry the time, the length and the
+  reason, not prose, so each app writes them in its reader's own time zone. The
+  planning dialog shows the host's time zone, so they choose the time they mean.
+- **Kept.** Announcements are never deleted, by the server or by apps. How far the
+  user has read them syncs between their devices through the self group, like read
+  positions in conversations.
+- **Delivery.** The server keeps a change counter; whenever it moves (a new
+  announcement, a host added or removed, the plan changed) every session gets a
+  `Wake` with `announcements` set, and fetches what is new along with whether it is
+  a host and the current plan. A task checks every 5 seconds for maintenance steps
+  that are due and for changes made by `postd` commands in another process.
+- **Privacy.** Announcements are fetched only over logged-in sessions and stored
+  encrypted at rest, but they are not end-to-end encrypted: the server writes some
+  of them itself. Every account receives the same ones, so fetching them reveals
+  nothing.
+- A client meets a server without announcements (an older one) as a refused
+  request, logs it and carries on: announcements never stand in the way of
+  messages.
+
 ### Administration
 
 Admin actions run through a local CLI over a Unix socket: create invites, disable or
@@ -998,6 +1041,7 @@ Each is built with the feature it limits.
 - Group log entries and epochs: 30 days. The server cannot tell when everyone has
   read an entry, so retention is by time only.
 - Mailbox entries: deleted when acknowledged, or after 30 days.
+- Announcements: kept for good.
 - Spent tokens: kept until their token key retires (weekly rotation, one week
   overlap).
 - Blobs: 30 days.
