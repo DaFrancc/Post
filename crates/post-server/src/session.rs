@@ -319,6 +319,27 @@ impl Conn {
                 Reply::Empty(proto::Empty {})
             }
             Request::LinkGet(r) => Reply::LinkSlot(st.links.get(&r).await?),
+            Request::CallToken(r) => {
+                let Some(calls) = &st.calls else {
+                    return Err(proto::Error::new(ErrorCode::Unavailable, "this server does not offer calls"));
+                };
+                if r.call_id.len() != 16 || r.participant_id.len() != 16 {
+                    return Err(proto::Error::new(ErrorCode::BadRequest, "call and participant IDs are 16 bytes"));
+                }
+                if !limiter.allow() {
+                    return Err(proto::Error::new(ErrorCode::RateLimited, "too many requests"));
+                }
+                let (group, access) = (r.group_id.clone(), r.access_key.clone());
+                st.db.run(move |c| db::check_current_access(c, &group, &access)).await?;
+                let room = crate::calls::room_name(&r.group_id, &r.call_id);
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                Reply::CallAccess(proto::CallAccess {
+                    url: calls.url.clone(),
+                    token: crate::calls::token(calls, &room, &hex::encode(&r.participant_id), now),
+                    max_bitrate_kbps: calls.max_bitrate_kbps,
+                    max_participants: calls.max_participants,
+                })
+            }
             _ => return Err(wrong_connection(false)),
         })
     }

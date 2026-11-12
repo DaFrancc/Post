@@ -37,6 +37,53 @@ struct DbArgs {
     db_key_file: Option<PathBuf>,
 }
 
+/// Calls, through the LiveKit server beside postd (design section 10).
+#[derive(clap::Args)]
+struct CallArgs {
+    /// LiveKit's WebSocket URL as apps reach it, such as
+    /// wss://rtc.example.org. Without it, this server offers no calls.
+    #[arg(long, env = "POST_LIVEKIT_URL")]
+    livekit_url: Option<String>,
+    /// LiveKit's API key name (the `keys:` entry in its config).
+    #[arg(long, env = "POST_LIVEKIT_KEY", default_value = "post")]
+    livekit_key: String,
+    /// File holding LiveKit's API secret. Default: the credential
+    /// post-livekit-secret ($CREDENTIALS_DIRECTORY).
+    #[arg(long, env = "POST_LIVEKIT_SECRET_FILE")]
+    livekit_secret_file: Option<PathBuf>,
+    /// The most each participant may send in a call, kbit/s.
+    #[arg(long, env = "POST_CALL_MAX_BITRATE_KBPS", default_value_t = 2500)]
+    call_max_bitrate_kbps: u32,
+    /// The most participants a call may have.
+    #[arg(long, env = "POST_CALL_MAX_PARTICIPANTS", default_value_t = 25)]
+    call_max_participants: u32,
+}
+
+impl CallArgs {
+    fn config(self) -> anyhow::Result<Option<post_server::CallConfig>> {
+        let Some(url) = self.livekit_url else { return Ok(None) };
+        let path = match self.livekit_secret_file {
+            Some(p) => p,
+            None => match std::env::var_os("CREDENTIALS_DIRECTORY") {
+                Some(dir) => Path::new(&dir).join("post-livekit-secret"),
+                None => bail!("calls need LiveKit's API secret: pass --livekit-secret-file, or provide the credential post-livekit-secret"),
+            },
+        };
+        let secret = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        let secret = secret.trim();
+        if secret.len() < 32 {
+            bail!("LiveKit's API secret in {} is too short: use at least 32 random characters", path.display());
+        }
+        Ok(Some(post_server::CallConfig {
+            url,
+            api_key: self.livekit_key,
+            api_secret: Zeroizing::new(secret.as_bytes().to_vec()),
+            max_bitrate_kbps: self.call_max_bitrate_kbps,
+            max_participants: self.call_max_participants,
+        }))
+    }
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Create a new random database key file, readable only by its owner.
@@ -76,6 +123,8 @@ enum Command {
         /// release offered before the restart stays.
         #[arg(long, env = "POST_RELEASES_LIVE_ON_START", default_value_t = true, action = clap::ArgAction::Set)]
         releases_live_on_start: bool,
+        #[command(flatten)]
+        calls: CallArgs,
     },
     /// Create a single-use invite code.
     Invite {
@@ -170,8 +219,14 @@ async fn main() -> anyhow::Result<()> {
             releases_download,
             releases_live_while_running,
             releases_live_on_start,
+            calls,
         } => {
             let db_key = read_key(&db)?;
+            let calls = calls.config()?;
+            match &calls {
+                Some(c) => tracing::info!(livekit = %c.url, "calls on"),
+                None => tracing::info!("calls off: no --livekit-url"),
+            }
             let listener = tokio::net::TcpListener::bind(&listen).await.with_context(|| format!("binding {listen}"))?;
             let key = match post_release::release_key() {
                 Ok(k) => Some(k),
@@ -188,7 +243,7 @@ async fn main() -> anyhow::Result<()> {
                 live_on_start: releases_live_on_start,
                 ..post_server::ReleaseConfig::new(releases_dir, key)
             };
-            let config = post_server::Config { server_domain: domain.clone(), db_path: db.db, db_key, releases };
+            let config = post_server::Config { server_domain: domain.clone(), db_path: db.db, db_key, releases, calls };
             let running = post_server::spawn(listener, config)?;
             tracing::info!(addr = %running.addr, %domain, "postd listening");
             // SIGHUP (`systemctl reload`, `podman kill --signal HUP`): look

@@ -19,6 +19,8 @@ sha2 = "0.10"
 # sections 5 and 6). The 0.10/0.12 lines share digest 0.10 with sha2.
 chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
 hkdf = "0.12"
+# LiveKit access tokens are HS256 JWTs (design section 10).
+hmac = "0.12"
 getrandom = { version = "0.4", features = ["sys_rng"] }
 zeroize = "1.8"
 prost = "0.14"

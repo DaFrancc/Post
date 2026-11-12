@@ -55,7 +55,7 @@ pub fn auth_message(server_domain: &str, nonce: &[u8]) -> Vec<u8> {
 pub struct ClientFrame {
     #[prost(uint64, tag = "1")]
     pub id: u64,
-    #[prost(oneof = "Request", tags = "10, 11, 20, 21, 22, 23, 24, 25, 26, 40, 41, 42, 43, 44, 45, 46, 47, 48")]
+    #[prost(oneof = "Request", tags = "10, 11, 20, 21, 22, 23, 24, 25, 26, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49")]
     pub request: Option<Request>,
 }
 
@@ -102,6 +102,8 @@ pub enum Request {
     LinkPut(LinkPut),
     #[prost(message, tag = "48")]
     LinkGet(LinkGet),
+    #[prost(message, tag = "49")]
+    CallToken(CallToken),
 }
 
 impl Request {
@@ -177,7 +179,7 @@ pub struct Wake {
 pub struct Response {
     #[prost(uint64, tag = "1")]
     pub id: u64,
-    #[prost(oneof = "Reply", tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22")]
+    #[prost(oneof = "Reply", tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23")]
     pub reply: Option<Reply>,
 }
 
@@ -209,6 +211,8 @@ pub enum Reply {
     GroupCreated(GroupCreated),
     #[prost(message, tag = "22")]
     LinkSlot(LinkSlot),
+    #[prost(message, tag = "23")]
+    CallAccess(CallAccess),
 }
 
 // ---------------------------------------------------------------- errors
@@ -250,6 +254,8 @@ pub enum ErrorCode {
     RateLimited = 15,
     /// The thing being created or written already exists.
     Conflict = 16,
+    /// The server does not offer this (calls not set up, say).
+    Unavailable = 17,
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -693,6 +699,44 @@ pub struct LinkSlot {
     pub payload: Vec<u8>,
 }
 
+// ---------------------------------------------------------------- calls
+
+/// Ask for a token to join a call's room on the server's LiveKit (design
+/// section 10, "Calls"). Authorized by the group's current access key, so
+/// the server learns that a call is happening in a group and never who is
+/// in it.
+#[derive(Clone, PartialEq, Message)]
+pub struct CallToken {
+    #[prost(bytes = "vec", tag = "1")]
+    pub group_id: Vec<u8>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub access_key: Vec<u8>,
+    /// The call's random 16-byte ID, from its `CallEvent`.
+    #[prost(bytes = "vec", tag = "3")]
+    pub call_id: Vec<u8>,
+    /// This device's random 16-byte name in the call, its identity in
+    /// LiveKit. Chosen per call, so LiveKit never sees device IDs.
+    #[prost(bytes = "vec", tag = "4")]
+    pub participant_id: Vec<u8>,
+}
+
+/// How to join a call, and the host's limits for it.
+#[derive(Clone, PartialEq, Message)]
+pub struct CallAccess {
+    /// The LiveKit server's WebSocket URL.
+    #[prost(string, tag = "1")]
+    pub url: String,
+    /// A short-lived LiveKit access token for the room.
+    #[prost(string, tag = "2")]
+    pub token: String,
+    /// The most each participant may send, kbit/s; the app asks no more.
+    #[prost(uint32, tag = "3")]
+    pub max_bitrate_kbps: u32,
+    /// The most participants a call may have.
+    #[prost(uint32, tag = "4")]
+    pub max_participants: u32,
+}
+
 impl Error {
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
         Self { code: code as i32, message: message.into(), current_epoch: 0 }
@@ -799,5 +843,6 @@ mod tests {
         // A device being linked has no account to log in with.
         assert!(!Request::LinkPut(LinkPut::default()).is_session());
         assert!(!Request::LinkGet(LinkGet::default()).is_session());
+        assert!(!Request::CallToken(CallToken::default()).is_session());
     }
 }

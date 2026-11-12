@@ -5,12 +5,14 @@
 //! anonymous tokens. It never holds a key that could decrypt a message, and
 //! it keeps no record of who is in which conversation.
 
+mod calls;
 pub mod db;
 mod link;
 mod releases;
 mod session;
 mod tokens;
 
+pub use calls::CallConfig;
 pub use releases::ReleaseConfig;
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
@@ -42,6 +44,8 @@ pub struct Config {
     pub db_key: Zeroizing<[u8; 32]>,
     /// The app releases to hand out.
     pub releases: ReleaseConfig,
+    /// The LiveKit server for calls, if this server offers calls.
+    pub calls: Option<CallConfig>,
 }
 
 /// Shared server state.
@@ -51,6 +55,7 @@ pub(crate) struct State {
     pub hub: Hub,
     pub links: link::Links,
     pub releases: Arc<releases::Releases>,
+    pub calls: Option<CallConfig>,
 }
 
 /// The database, used from blocking threads one request at a time.
@@ -297,6 +302,7 @@ pub fn spawn(listener: TcpListener, config: Config) -> Result<Running, StartErro
         hub: Hub::default(),
         links: link::Links::default(),
         releases: releases.clone(),
+        calls: config.calls,
     });
     let addr = listener.local_addr()?;
 

@@ -29,6 +29,7 @@ impl Server {
             db_path: db.clone(),
             db_key: Zeroizing::new(key),
             releases: post_server::ReleaseConfig::none(),
+            calls: None,
         };
         let running = post_server::spawn(listener, config).expect("server starts");
         Self { url: running.url(), _running: running, db, key, _dir: dir }

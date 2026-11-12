@@ -32,6 +32,7 @@ impl Server {
                 db_path: db.clone(),
                 db_key: Zeroizing::new(key),
                 releases: post_server::ReleaseConfig::none(),
+                calls: None,
             },
         )
         .expect("start");
