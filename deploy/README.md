@@ -159,6 +159,7 @@ delivered and the account registry: people keep their own history.
 
 ## Alternative: compose
 
-`deploy/compose.yaml` runs the same two containers with `podman compose` or
-`docker compose`. Put the key in `deploy/post-db-key` (mode 0600) and set
-`POST_DOMAIN`.
+`deploy/compose.yaml` runs the same containers with `podman compose` or
+`docker compose`. Put the database key in `deploy/post-db-key` and the calls
+secret (`post: <secret>`) in `deploy/post-livekit-keys`, both mode 0600, and
+set `POST_DOMAIN`.
