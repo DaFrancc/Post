@@ -47,7 +47,7 @@ pub enum By<'a> {
     Operator,
 }
 
-fn check_host(conn: &Connection, by: By<'_>) -> Result<()> {
+pub(crate) fn check_host(conn: &Connection, by: By<'_>) -> Result<()> {
     match by {
         By::Operator => Ok(()),
         By::Host(a) if is_host(conn, a)? => Ok(()),
