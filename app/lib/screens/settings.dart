@@ -13,9 +13,10 @@ import '../ui/controls.dart';
 import '../ui/format.dart';
 import '../ui/zoom.dart';
 import 'dialogs.dart';
+import 'sound_settings.dart';
 import 'update.dart' show UpdateSettings;
 
-enum SettingsSection { profile, appearance, spelling, devices, security, updates, about }
+enum SettingsSection { profile, appearance, sounds, spelling, devices, security, updates, about }
 
 Future<void> showSettings(BuildContext context, AppState state, {SettingsSection section = SettingsSection.profile}) => showDialog(
   context: context,
@@ -91,6 +92,7 @@ class _SettingsState extends State<_Settings> {
                       SettingsSection.appearance => const _AppearanceSettings(),
                       SettingsSection.spelling => _SpellingSettings(spelling: widget.state.spelling),
                       SettingsSection.security => _SecuritySettings(state: widget.state),
+                      SettingsSection.sounds => SoundSettings(sounds: widget.state.sounds),
                       SettingsSection.updates => UpdateSettings(
                         state: widget.state,
                         checkRow: ({required value, required label, help, required onChanged}) =>
@@ -114,6 +116,7 @@ class _SettingsState extends State<_Settings> {
     SettingsSection.appearance => 'Appearance',
     SettingsSection.spelling => 'Spelling',
     SettingsSection.security => 'Security',
+    SettingsSection.sounds => 'Sounds',
     SettingsSection.updates => 'Updates',
     SettingsSection.about => 'Account',
   };
@@ -141,6 +144,7 @@ class _NavItemState extends State<_NavItem> {
       SettingsSection.appearance => (Icons.palette_outlined, 'Appearance'),
       SettingsSection.spelling => (Icons.spellcheck_rounded, 'Spelling'),
       SettingsSection.security => (Icons.shield_outlined, 'Security'),
+      SettingsSection.sounds => (Icons.volume_up_outlined, 'Sounds'),
       SettingsSection.updates => (Icons.system_update_alt_rounded, 'Updates'),
       SettingsSection.about => (Icons.info_outline_rounded, 'Account'),
     };

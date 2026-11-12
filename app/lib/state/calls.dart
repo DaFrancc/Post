@@ -9,7 +9,9 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
+
+import 'sounds.dart';
+
 import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:post/src/rust/api/client.dart';
 import 'package:post/src/rust/api/error.dart';
@@ -49,9 +51,13 @@ class ActiveCall {
 }
 
 class CallController extends ChangeNotifier {
-  CallController(this.client, {required this.readSetting, required this.writeSetting});
+  CallController(this.client, {required this.me, required this.sounds, required this.readSetting, required this.writeSetting});
 
   final Client client;
+
+  /// The user's username.
+  final String me;
+  final Sounds sounds;
   final Future<String?> Function(String key) readSetting;
   final Future<void> Function(String key, String? value) writeSetting;
 
@@ -74,7 +80,6 @@ class CallController extends ChangeNotifier {
   static const _micKey = 'call.mic';
 
   Timer? _ringTimer;
-  Timer? _ringSound;
   Timer? _ringCheck;
   Timer? _keyRefresh;
   lk.EventsListener<lk.RoomEvent>? _listener;
@@ -124,23 +129,56 @@ class CallController extends ChangeNotifier {
     if (a != null && !_leaving && !calls.any((c) => c.id == a.id)) {
       await _close();
     }
-    _updateRingSound();
+    _updateSounds();
     // A call rings for a minute; look again then, so it stops on time.
     _ringCheck?.cancel();
     if (ringing != null) _ringCheck = Timer(const Duration(seconds: 61), () => unawaited(refresh()));
     notifyListeners();
   }
 
-  void _updateRingSound() {
-    // A gentle repeat while something rings. Desktops play their own alert
-    // sound; a ringtone of Post's own can come later.
-    if (ringing != null && active == null) {
-      _ringSound ??= Timer.periodic(const Duration(seconds: 2), (_) => SystemSound.play(SystemSoundType.alert));
+  String? _rangFor;
+  Set<String> _heard = {};
+
+  /// The sounds that follow the calls' state: the ring while one calls you
+  /// (once, if you are already in a call), the calling tone while you wait
+  /// for an answer, and people joining and leaving the call you are in.
+  void _updateSounds() {
+    final r = ringing;
+    if (r != null && active == null) {
+      unawaited(sounds.loop(SoundEvent.ringIncoming));
     } else {
-      _ringSound?.cancel();
-      _ringSound = null;
+      unawaited(sounds.stop(SoundEvent.ringIncoming));
+      if (r != null && r.id != _rangFor) unawaited(sounds.play(SoundEvent.ringIncoming));
     }
+    _rangFor = r?.id;
+
+    final a = active;
+    final info = activeInfo;
+    final others = {
+      for (final p in info?.participants ?? const <CallParticipantInfo>[])
+        if (!p.thisDevice) p.participantId,
+    };
+    // Started here, nobody else in it yet: the calling tone.
+    final waiting = a != null && info != null && info.startedBy == me && others.isEmpty;
+    unawaited(waiting ? sounds.loop(SoundEvent.ringOutgoing) : sounds.stop(SoundEvent.ringOutgoing));
+    if (a == null) {
+      _heardCall = null;
+      _heard = {};
+      return;
+    }
+    if (_heardCall != a.id) {
+      // Just joined: the join sound, unless waiting for someone to answer.
+      _heardCall = a.id;
+      if (others.isNotEmpty) unawaited(sounds.play(SoundEvent.join));
+    } else if (others.difference(_heard).isNotEmpty) {
+      unawaited(sounds.play(SoundEvent.join));
+    } else if (_heard.difference(others).isNotEmpty) {
+      unawaited(sounds.play(SoundEvent.leave));
+    }
+    _heard = others;
   }
+
+  String? _heardCall;
 
   // ---------------------------------------------------------------- actions
 
@@ -186,6 +224,7 @@ class CallController extends ChangeNotifier {
     if (a == null) return;
     a.muted = muted;
     notifyListeners();
+    unawaited(sounds.play(muted ? SoundEvent.mute : SoundEvent.unmute));
     await a.room.localParticipant?.setMicrophoneEnabled(!muted, audioCaptureOptions: _capture());
   }
 
@@ -318,6 +357,8 @@ class CallController extends ChangeNotifier {
     active = null;
     _ringTimer?.cancel();
     _keyRefresh?.cancel();
+    if (a != null && !_disposed) unawaited(sounds.play(SoundEvent.disconnect));
+    _updateSounds();
     // Off the screen at once; LiveKit can take a moment to let go.
     notifyListeners();
     final listener = _listener;
@@ -342,7 +383,8 @@ class CallController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _ringTimer?.cancel();
-    _ringSound?.cancel();
+    unawaited(sounds.stop(SoundEvent.ringIncoming));
+    unawaited(sounds.stop(SoundEvent.ringOutgoing));
     _ringCheck?.cancel();
     _keyRefresh?.cancel();
     unawaited(_close());

@@ -136,5 +136,14 @@ void main() {
     expect(find.text('In a call'), findsNothing);
     expect(find.textContaining('Call in progress · 2 people'), findsOneWidget, reason: 'Alice and Bob carry on');
     await _shot(t, 'calls-06-group-left');
+
+    // Settings › Sounds: Post's own pack, every sound listed and playable.
+    await tap(t, find.byTooltip('Settings'));
+    await tap(t, find.text('Sounds'));
+    expect(find.text('Post\'s own'), findsWidgets, reason: 'the pack, and each sound from it');
+    expect(find.text('Incoming call'), findsOneWidget);
+    await t.tap(find.byTooltip('Play incoming call'));
+    await settle(t, 500);
+    await _shot(t, 'calls-07-sound-settings');
   });
 }

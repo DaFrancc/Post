@@ -12,6 +12,7 @@ import '../ui/arrival.dart';
 import '../version.dart';
 import 'calls.dart';
 import 'search_spec.dart';
+import 'sounds.dart';
 import 'spelling.dart';
 
 /// One sentence to show for a failed call. Screens throw [ArgumentError]
@@ -57,9 +58,17 @@ class AppState extends ChangeNotifier {
   /// Calls: the live ones, the one ringing, the one this device is in.
   late final CallController calls = CallController(
     client,
+    me: me.username,
+    sounds: sounds,
     readSetting: (key) => client.setting(key: key),
     writeSetting: (key, value) => client.setSetting(key: key, value: value),
   )..refresh();
+
+  /// What plays for what: a sound pack, and the user's own choices.
+  late final Sounds sounds = Sounds(
+    readSetting: (key) => client.setting(key: key),
+    writeSetting: (key, value) => client.setSetting(key: key, value: value),
+  )..start();
 
   /// Live conversations, most recent first.
   List<ConversationInfo> conversations = const [];
@@ -182,7 +191,9 @@ class AppState extends ChangeNotifier {
 
   Future<void> refreshConversations() async {
     try {
+      final before = {for (final c in conversations) c.id: c};
       conversations = await client.conversations();
+      _soundForNew(before);
       notifyListeners();
     } catch (_) {
       // The list stays as it was; the next event tries again.
@@ -280,6 +291,24 @@ class AppState extends ChangeNotifier {
       updateError = errorText(e);
       notifyListeners();
       return null;
+    }
+  }
+
+  /// A sound for something new elsewhere: a mention, or a message, in a
+  /// conversation not on screen. Nothing on the first load.
+  void _soundForNew(Map<String, ConversationInfo> before) {
+    if (before.isEmpty) return;
+    var message = false, mention = false;
+    for (final c in conversations) {
+      final was = before[c.id];
+      if (was == null || c.id == selected) continue;
+      if (c.mentions > was.mentions) mention = true;
+      if (c.unread > was.unread) message = true;
+    }
+    if (mention) {
+      unawaited(sounds.play(SoundEvent.mention));
+    } else if (message) {
+      unawaited(sounds.play(SoundEvent.message));
     }
   }
 
@@ -532,6 +561,7 @@ class AppState extends ChangeNotifier {
     _relay.close();
     spelling.dispose();
     calls.dispose();
+    sounds.dispose();
     searchFocus.dispose();
     _typingSweep?.cancel();
     _refreshSoon?.cancel();
