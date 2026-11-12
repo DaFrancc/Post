@@ -57,6 +57,42 @@ String messageTime(int ms) {
   return '${dayLabel(ms)} ${clockTime(ms)}';
 }
 
+const _monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/// A moment written out in this device's time zone, for announcements:
+/// "today at 02:00", "tomorrow at 02:00", "Thursday 14 November at 02:00"
+/// (with the year when it is not this one).
+String longWhen(int ms) {
+  final t = _local(ms);
+  final ago = _daysAgo(ms);
+  final day = switch (ago) {
+    0 => 'today',
+    -1 => 'tomorrow',
+    1 => 'yesterday',
+    _ => '${_weekdays[t.weekday - 1]} ${t.day} ${_monthNames[t.month - 1]}${t.year == DateTime.now().year ? '' : ' ${t.year}'}',
+  };
+  return '$day at ${clockTime(ms)}';
+}
+
+/// A length of time in minutes, as words: "15 minutes", "1 hour 30
+/// minutes", "2 days".
+String minutesText(int minutes) {
+  String unit(int n, String one) => '$n $one${n == 1 ? '' : 's'}';
+  final (d, h, m) = (minutes ~/ 1440, minutes % 1440 ~/ 60, minutes % 60);
+  return [if (d > 0) unit(d, 'day'), if (h > 0) unit(h, 'hour'), if (m > 0 || minutes == 0) unit(m, 'minute')].join(' ');
+}
+
+/// This device's time zone, for someone choosing a time others will see in
+/// theirs: "CET (UTC+1)".
+String timeZoneText([DateTime? at]) {
+  final t = at ?? DateTime.now();
+  final o = t.timeZoneOffset;
+  final sign = o.isNegative ? '−' : '+';
+  final h = o.inMinutes.abs() ~/ 60, m = o.inMinutes.abs() % 60;
+  final utc = 'UTC$sign$h${m == 0 ? '' : ':${_two(m)}'}';
+  return t.timeZoneName == utc || t.timeZoneName.isEmpty ? utc : '${t.timeZoneName} ($utc)';
+}
+
 /// What others see of someone, as a label.
 String presenceLabel(String word) => switch (word) {
   'online' => 'Online',
