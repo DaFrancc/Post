@@ -107,8 +107,17 @@ class _MembersState extends State<_Members> {
   Future<void> _memberMenu(MemberInfo m, Offset at) async {
     // Like other chat apps: talking to them first, then naming, then what an
     // admin can do, then copying.
+    final calls = _state.calls;
+    final inCallHere = calls.active?.conversation == _c.id;
+    final theyreIn = calls.activeInfo?.participants.any((p) => p.username == m.username) ?? false;
+    final callHere = calls.callIn(_c.id);
     final choice = await showContextMenu<String>(context, at, [
       if (!m.you) const PMenuItem(value: 'dm', label: 'Message'),
+      // Ring just them: into the call you are in here, or into a new one.
+      if (!m.you && _c.following && inCallHere && !theyreIn)
+        PMenuItem(value: 'ring', label: 'Ring ${m.shownName} into the call', icon: Icons.call_outlined),
+      if (!m.you && _c.following && callHere == null)
+        PMenuItem(value: 'call', label: 'Call ${m.shownName}', caption: 'Rings only them', icon: Icons.call_outlined),
       if (!m.you) const PMenuItem(value: 'nickname', label: 'Set nickname', caption: 'Only you see it'),
       if (m.you) const PMenuItem(value: 'myname', label: 'Your name in this group', caption: 'Shown to everyone here'),
       if (_amAdmin) ...[
@@ -128,6 +137,10 @@ class _MembersState extends State<_Members> {
           await _state.refreshConversations();
           _state.select(dm.id);
         });
+      case 'ring':
+        await calls.ringInto([m.username]);
+      case 'call':
+        await calls.start(_c.id, ring: [m.username]);
       case 'nickname':
         await setNickname(context, _state, m.username);
       case 'myname':

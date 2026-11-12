@@ -6,8 +6,10 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:post/main.dart';
@@ -121,6 +123,24 @@ void main() {
     await settle(t, 1500);
     final carolCalls = await h.cliJson('carol', ['call', 'list']) as List<dynamic>;
     expect(carolCalls.single['ringing'], isTrue, reason: 'Carol is rung into the call');
+
+    // The member list's right-click menu rings people too: Carol, not in the
+    // call, can be rung; Bob, in it, cannot.
+    Future<void> rightClick(String name) async {
+      final row = t.getRect(find.text(name).last);
+      await t.tapAt(row.center, buttons: kSecondaryButton, kind: PointerDeviceKind.mouse);
+      await settle(t, 500);
+    }
+
+    await rightClick('Carol C');
+    expect(find.text('Ring Carol C into the call'), findsOneWidget);
+    await _shot(t, 'calls-05a-member-menu');
+    await t.sendKeyEvent(LogicalKeyboardKey.escape);
+    await settle(t, 500);
+    await rightClick('Bob B');
+    expect(find.text('Ring Bob B into the call'), findsNothing, reason: 'Bob is already in it');
+    await t.sendKeyEvent(LogicalKeyboardKey.escape);
+    await settle(t, 500);
 
     // Carol calls Sam while he is in the group call: he sees it, declines,
     // and stays where he is.
