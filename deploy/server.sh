@@ -47,6 +47,32 @@ yes=false
 # Whether the domain points here, as far as this machine can tell.
 dns_ok=true
 
+# Undone however the script ends: Ctrl-C, a dropped SSH connection, kill.
+# A folder holding the database key, a backup half written, and postd
+# stopped for a backup.
+cleanup_dir=''
+partial_out=''
+restart_postd=false
+# shellcheck disable=SC2329 # run by the trap below
+on_exit() {
+  if $restart_postd; then
+    systemctl start post-server || printf 'postd did not start again: systemctl start post-server\n' >&2
+  fi
+  if [[ -n $partial_out ]]; then rm -f -- "$partial_out"; fi
+  if [[ -n $cleanup_dir ]]; then rm -rf -- "$cleanup_dir"; fi
+}
+trap on_exit EXIT
+# Signals end the script through exit, so the cleanup above runs.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# A private folder on disk for a backup's or restore's files. Not /tmp,
+# which Debian 13 keeps in memory: a database copy there could fill it.
+work_dir() {
+  cleanup_dir=$(mktemp -d -p /var/tmp post-backup.XXXXXX)
+}
+
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 note() { printf '    %s\n' "$*"; }
 warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
@@ -542,44 +568,54 @@ cmd_backup() {
     install -d -m 700 "$backups"
     out=$backups/$domain-$(date -u +%Y%m%d-%H%M%S).age
   fi
-  [[ ! -e $out ]] || die "$out exists already"
+  [[ ! -e $out && ! -e $out.part ]] || die "$out (or $out.part) exists already"
 
-  local work
-  work=$(mktemp -d)
-  # It holds the database key: gone however this ends. The path goes in
-  # now, as `work` is gone by the time the script exits.
-  # shellcheck disable=SC2064
-  trap "rm -rf -- '$work'" EXIT
-  local dir=$work/post-backup
+  local volume
+  volume=$(podman volume inspect post-data --format '{{.Mountpoint}}')
+  # Room for the copy and for the backup beside it, before anything stops.
+  local need free_tmp free_out
+  need=$(($(du -sb "$volume" | cut -f1) * 2 + 100 * 1024 * 1024))
+  free_tmp=$(df -B1 --output=avail /var/tmp | tail -1)
+  free_out=$(df -B1 --output=avail "$(dirname "$out")" | tail -1)
+  ((free_tmp >= need && free_out >= need)) || die "not enough free disk space for a backup: it needs about $((need / 1024 / 1024)) MB in /var/tmp and beside $out"
+
+  # It holds the database key: removed however this ends (on_exit).
+  work_dir
+  local dir=$cleanup_dir/post-backup
   mkdir -m 700 "$dir"
   # The volume's own folder is not in its export, and postd must own it to
   # write its database's journal there.
-  local owner
-  owner=$(stat -c %u:%g "$(podman volume inspect post-data --format '{{.Mountpoint}}')")
   printf 'format=1\ndomain=%s\ncreated=%s\ncommit=%s\nvolume_owner=%s\n' \
-    "$domain" "$(date -u +%FT%TZ)" "$(git -C "$repo" rev-parse HEAD 2>/dev/null || echo unknown)" "$owner" >"$dir/backup-info"
+    "$domain" "$(date -u +%FT%TZ)" "$(git -C "$repo" rev-parse HEAD 2>/dev/null || echo unknown)" "$(stat -c %u:%g "$volume")" >"$dir/backup-info"
   cp "$conf/post.env" "$dir/"
   save_secret post-db-key "$dir/post-db-key"
   save_secret post-livekit-keys "$dir/post-livekit-keys"
 
-  # A consistent copy: the database is written to while postd runs.
+  # A consistent copy: the database is written to while postd runs. From
+  # here until the backup is whole, any way out starts postd again (on_exit),
+  # --stop or not: a failed backup must not leave the server off.
   say "Copying the database (postd stops for a moment)"
+  restart_postd=true
   systemctl stop post-server
-  if ! podman volume export post-data -o "$dir/post-data.tar"; then
-    $stop || systemctl start post-server
-    die "copying the post-data volume failed"
+  podman volume export post-data -o "$dir/post-data.tar" || die "copying the post-data volume failed"
+  if ! $stop; then
+    # Back at once: the copy is taken.
+    systemctl start post-server
+    restart_postd=false
   fi
-  $stop || systemctl start post-server
 
   say "Encrypting the backup"
   local enc=(-r "$to")
   [[ -n $to ]] || enc=(-p)
-  # umask: the file is never readable by others, even before chmod.
-  (umask 077 && tar -C "$work" -cf - post-backup | gzip | age "${enc[@]}" -o "$out") || {
-    rm -f "$out"
-    die "encrypting the backup failed"
-  }
+  # umask: the file is never readable by others, even for a moment. If this
+  # fails or is interrupted, the part written is removed with the folder.
+  partial_out=$out.part
+  (umask 077 && tar -C "$cleanup_dir" -cf - post-backup | gzip | age "${enc[@]}" -o "$partial_out") || die "encrypting the backup failed"
+  # Whole: renamed in one step, so FILE is never half written.
+  mv "$partial_out" "$out"
+  partial_out=''
   if $stop; then
+    restart_postd=false
     # Masked, so it stays off through reboots too.
     systemctl mask --now post-server post-caddy post-livekit >/dev/null 2>&1 || true
     systemctl stop post-pod
@@ -616,16 +652,14 @@ cmd_restore() {
     die "this machine already has a Post server (or what is left of one). Restore onto a fresh machine."
   fi
 
-  local work
-  work=$(mktemp -d)
-  # shellcheck disable=SC2064 # the path, now: `work` is gone at exit
-  trap "rm -rf -- '$work'" EXIT
+  # Unpacked, it holds the database key: removed however this ends.
+  work_dir
   say "Decrypting the backup"
   local dec=(-d)
-  [[ -n $identity ]] && dec+=(-i "$identity")
-  age "${dec[@]}" -o "$work/backup.tar.gz" "$file" || die "could not decrypt $file"
-  tar -C "$work" -xzf "$work/backup.tar.gz" || die "$file is not a Post backup"
-  local dir=$work/post-backup
+  if [[ -n $identity ]]; then dec+=(-i "$identity"); fi
+  age "${dec[@]}" -o "$cleanup_dir/backup.tar.gz" "$file" || die "could not decrypt $file"
+  tar -C "$cleanup_dir" -xzf "$cleanup_dir/backup.tar.gz" || die "$file is not a Post backup"
+  local dir=$cleanup_dir/post-backup
   grep -qx 'format=1' "$dir/backup-info" 2>/dev/null || die "$file is not a Post backup this script knows"
   local domain
   domain=$(sed -n 's/^POST_DOMAIN=//p' "$dir/post.env" | tail -1)
@@ -646,7 +680,8 @@ cmd_restore() {
   local owner
   owner=$(sed -n 's/^volume_owner=//p' "$dir/backup-info")
   chown "${owner:-65532:65532}" "$(podman volume inspect post-data --format '{{.Mountpoint}}')"
-  rm -rf "$work"
+  rm -rf -- "$cleanup_dir"
+  cleanup_dir=''
 
   note "Point $domain at this machine if you have not yet: until then the certificate waits."
   cmd_install "$domain" "${pass[@]}"
