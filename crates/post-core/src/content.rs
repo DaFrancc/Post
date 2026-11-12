@@ -135,6 +135,10 @@ pub struct SelfSync {
     /// so these merge by taking the larger, in any order.
     #[prost(message, repeated, tag = "5")]
     pub read: Vec<ReadEntry>,
+    /// How far the user has read the server's announcements, as the latest
+    /// read announcement's ID. Merges by taking the larger, like `read`.
+    #[prost(uint64, tag = "6")]
+    pub announcements_read: u64,
 }
 
 #[derive(Clone, PartialEq, Message)]

@@ -365,6 +365,72 @@ pub enum EventKind {
     /// A call in `conversation` started, rang, changed or ended: read
     /// `calls()` for how things stand (an ended call is gone from it).
     Call,
+    /// The server posted an announcement; `text` is a preview of it.
+    Announcement,
+    /// The announcements changed (new ones, read, the maintenance plan, or
+    /// whether you are a host): read `announcement_summary()`.
+    Announcements,
+}
+
+/// One of the server's announcements, shown as from the server.
+pub struct AnnouncementInfo {
+    /// Increasing ID.
+    pub id: i64,
+    /// When it was posted (Unix ms).
+    pub at_ms: i64,
+    /// What it is.
+    pub kind: AnnouncementKind,
+    /// A host's words, or for maintenance the reason given (may be empty).
+    pub text: String,
+    /// Maintenance: when it starts or started (Unix ms), to show in the
+    /// reader's time zone.
+    pub starts_at_ms: i64,
+    /// Maintenance: how long it should take.
+    pub minutes: u32,
+}
+
+/// What an announcement is. All but `Text` are posted by the server itself.
+pub enum AnnouncementKind {
+    /// Written by a host.
+    Text,
+    /// Maintenance was planned.
+    MaintenancePlanned,
+    /// The planned maintenance starts soon.
+    MaintenanceReminder,
+    /// Maintenance has started.
+    MaintenanceStarted,
+    /// Maintenance is over.
+    MaintenanceOver,
+    /// The planned maintenance was cancelled.
+    MaintenanceCancelled,
+    /// A kind from a newer server.
+    Unsupported,
+}
+
+/// Maintenance planned or underway.
+pub struct MaintenanceInfo {
+    /// When it starts or started (Unix ms).
+    pub starts_at_ms: i64,
+    /// How long it should take.
+    pub minutes: u32,
+    /// Why, if given.
+    pub reason: String,
+    /// It has started.
+    pub underway: bool,
+}
+
+/// The announcements channel at a glance.
+pub struct AnnouncementSummary {
+    /// The server's domain: what they are shown as from.
+    pub server: String,
+    /// Posted since the user last read them.
+    pub unread: u32,
+    /// The newest, for the channel's preview line.
+    pub latest: Option<AnnouncementInfo>,
+    /// The user is one of the server's hosts: show the composer.
+    pub host: bool,
+    /// Maintenance planned or underway.
+    pub maintenance: Option<MaintenanceInfo>,
 }
 
 /// A live event.
@@ -614,6 +680,51 @@ impl Client {
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
             }
         }
+    }
+
+    // ------------------------------------------------------------ announcements
+
+    /// The announcements channel at a glance.
+    pub async fn announcement_summary(&self) -> Result<AnnouncementSummary, PostError> {
+        let s = self.core.announcement_summary()?;
+        Ok(AnnouncementSummary {
+            server: s.server,
+            unread: s.unread,
+            latest: s.latest.map(announcement),
+            host: s.host,
+            maintenance: s.maintenance.map(|m| MaintenanceInfo {
+                starts_at_ms: ms(m.starts_at_ms),
+                minutes: m.minutes,
+                reason: m.reason,
+                underway: m.underway,
+            }),
+        })
+    }
+
+    /// The newest `limit` announcements, oldest first.
+    pub async fn announcements(&self, limit: u32) -> Result<Vec<AnnouncementInfo>, PostError> {
+        Ok(self.core.announcements(limit)?.into_iter().map(announcement).collect())
+    }
+
+    /// Mark the announcements read, on all the user's devices.
+    pub async fn mark_announcements_read(&self) -> Result<(), PostError> {
+        Ok(self.core.mark_announcements_read().await?)
+    }
+
+    /// As a host: post an announcement to everyone on the server.
+    pub async fn announce(&self, text: String) -> Result<(), PostError> {
+        Ok(self.core.announce(&text).await?)
+    }
+
+    /// As a host: plan maintenance. `starts_at_ms` 0 starts it now.
+    pub async fn plan_maintenance(&self, starts_at_ms: i64, minutes: u32, reason: String, quiet: bool) -> Result<(), PostError> {
+        let starts = u64::try_from(starts_at_ms).map_err(|_| PostError::new(ErrorKind::InvalidInput, "That time is not valid."))?;
+        Ok(self.core.plan_maintenance(starts, minutes, &reason, quiet).await?)
+    }
+
+    /// As a host: cancel the planned maintenance, or announce it is over.
+    pub async fn end_maintenance(&self) -> Result<(), PostError> {
+        Ok(self.core.end_maintenance().await?)
     }
 
     // ------------------------------------------------------------ conversations
@@ -984,6 +1095,28 @@ fn app_event(e: core::Event) -> AppEvent {
         }
         core::Event::Notice { conversation, text } => ev(EventKind::Notice, conversation, None, Some(sentence(&text))),
         core::Event::CallChanged(c) => ev(EventKind::Call, Some(c.conversation), None, None),
+        core::Event::AnnouncementAdded(a) => ev(EventKind::Announcement, None, None, Some(a.text)),
+        core::Event::AnnouncementsChanged(_) => ev(EventKind::Announcements, None, None, None),
+    }
+}
+
+fn announcement(a: core::Announcement) -> AnnouncementInfo {
+    use core::AnnouncementKind as K;
+    AnnouncementInfo {
+        id: ms(a.id),
+        at_ms: ms(a.at_ms),
+        kind: match a.kind {
+            K::Text => AnnouncementKind::Text,
+            K::MaintenancePlanned => AnnouncementKind::MaintenancePlanned,
+            K::MaintenanceReminder => AnnouncementKind::MaintenanceReminder,
+            K::MaintenanceStarted => AnnouncementKind::MaintenanceStarted,
+            K::MaintenanceOver => AnnouncementKind::MaintenanceOver,
+            K::MaintenanceCancelled => AnnouncementKind::MaintenanceCancelled,
+            K::Unsupported => AnnouncementKind::Unsupported,
+        },
+        text: a.text,
+        starts_at_ms: ms(a.starts_at_ms),
+        minutes: a.minutes,
     }
 }
 

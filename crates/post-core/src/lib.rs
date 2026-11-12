@@ -347,6 +347,124 @@ pub enum NoticeKind {
     MissedCall,
 }
 
+/// One of the server's announcements (design section 8, "Announcements").
+/// Shown as from the server, whoever wrote it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Announcement {
+    /// Increasing; the server's own ID.
+    pub id: u64,
+    /// When it was posted (Unix ms, the server's clock).
+    pub at_ms: u64,
+    /// What it is.
+    pub kind: AnnouncementKind,
+    /// A host's words for [`AnnouncementKind::Text`]; for the maintenance
+    /// kinds, the reason given, if any.
+    pub text: String,
+    /// The maintenance kinds: when it starts or started (Unix ms). Show it
+    /// in the reader's own time zone.
+    pub starts_at_ms: u64,
+    /// The maintenance kinds: how long it should take.
+    pub minutes: u32,
+}
+
+/// What an announcement is. All but [`AnnouncementKind::Text`] are posted
+/// by the server itself, and say so.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnnouncementKind {
+    /// Written by a host.
+    Text,
+    /// Maintenance was planned.
+    MaintenancePlanned,
+    /// The planned maintenance starts soon: at `starts_at_ms`, which is
+    /// how soon relative to `at_ms`.
+    MaintenanceReminder,
+    /// Maintenance has started.
+    MaintenanceStarted,
+    /// Maintenance is over.
+    MaintenanceOver,
+    /// The planned maintenance was cancelled.
+    MaintenanceCancelled,
+    /// A kind this version does not know, from a newer server.
+    Unsupported,
+}
+
+impl AnnouncementKind {
+    fn from_wire(kind: i32) -> Self {
+        use post_proto::AnnouncementKind as K;
+        match K::try_from(kind) {
+            Ok(K::Text) => Self::Text,
+            Ok(K::MaintenancePlanned) => Self::MaintenancePlanned,
+            Ok(K::MaintenanceReminder) => Self::MaintenanceReminder,
+            Ok(K::MaintenanceStarted) => Self::MaintenanceStarted,
+            Ok(K::MaintenanceOver) => Self::MaintenanceOver,
+            Ok(K::MaintenanceCancelled) => Self::MaintenanceCancelled,
+            Ok(K::Unspecified) | Err(_) => Self::Unsupported,
+        }
+    }
+}
+
+/// Maintenance the server's hosts planned.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Maintenance {
+    /// When it starts, or started (Unix ms).
+    pub starts_at_ms: u64,
+    /// How long it should take.
+    pub minutes: u32,
+    /// Why, if a host said.
+    pub reason: String,
+    /// Started and not yet over.
+    pub underway: bool,
+}
+
+/// The announcements channel at a glance.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Announcements {
+    /// The server they come from, as they are signed: its domain.
+    pub server: String,
+    /// Posted since the user last read them.
+    pub unread: u32,
+    /// The newest, for a preview.
+    pub latest: Option<Announcement>,
+    /// Whether this account is one of the server's hosts, who may announce
+    /// and plan maintenance.
+    pub host: bool,
+    /// The maintenance planned or underway.
+    pub maintenance: Option<Maintenance>,
+}
+
+fn announcement_from_row(r: store::AnnouncementRow) -> Announcement {
+    Announcement {
+        id: r.id,
+        at_ms: r.created_at,
+        kind: AnnouncementKind::from_wire(r.kind),
+        text: r.text,
+        starts_at_ms: r.starts_at,
+        minutes: r.minutes,
+    }
+}
+
+pub(crate) fn announcements_from(conn: &rusqlite::Connection) -> Result<Announcements> {
+    let maintenance = match store::meta_get(conn, store::META_MAINTENANCE)? {
+        Some(b) => {
+            let m = <post_proto::Maintenance as prost::Message>::decode(b.as_slice()).map_err(|_| Error::Corrupt("maintenance"))?;
+            Some(Maintenance {
+                starts_at_ms: m.starts_at_ms,
+                minutes: m.minutes,
+                underway: m.state() == post_proto::MaintenanceState::Underway,
+                reason: m.reason,
+            })
+        }
+        None => None,
+    };
+    Ok(Announcements {
+        server: store::meta_str(conn, "domain")?.unwrap_or_default(),
+        unread: store::unread_announcements(conn)?,
+        latest: store::latest_announcement(conn)?.map(announcement_from_row),
+        host: store::meta_str(conn, store::META_HOST)?.as_deref() == Some("1"),
+        maintenance,
+    })
+}
+
 /// One version of a message.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MessageVersion {
@@ -567,6 +685,11 @@ pub enum Event {
     /// A call started, rang, changed who is in it, or ended. Its timeline
     /// notices ("Alice started a call") may have changed too.
     CallChanged(Call),
+    /// The server posted an announcement.
+    AnnouncementAdded(Announcement),
+    /// The announcements channel changed: new ones, the read position,
+    /// the maintenance plan, or whether this account is a host.
+    AnnouncementsChanged(Announcements),
 }
 
 /// Settings live in the meta table under their own prefix, so they can
@@ -1125,6 +1248,42 @@ impl Core {
                 })
                 .collect())
         })
+    }
+
+    /// The announcements channel at a glance: unread count, the newest,
+    /// whether you are a host, and the maintenance plan.
+    pub fn announcement_summary(&self) -> Result<Announcements> {
+        self.read(announcements_from)
+    }
+
+    /// The newest `limit` announcements, oldest first. They are kept for
+    /// good: the server never deletes them, and neither does this device.
+    pub fn announcements(&self, limit: u32) -> Result<Vec<Announcement>> {
+        self.read(|c| Ok(store::announcements(c, limit)?.into_iter().map(announcement_from_row).collect()))
+    }
+
+    /// Mark every announcement read, on all your devices.
+    pub async fn mark_announcements_read(&self) -> Result<()> {
+        self.engine.lock().await.mark_announcements_read().await
+    }
+
+    /// Post an announcement to everyone on the server. Hosts only; needs a
+    /// connection, and fails rather than waiting for one.
+    pub async fn announce(&self, text: &str) -> Result<()> {
+        self.engine.lock().await.post_announcement(text).await
+    }
+
+    /// Plan maintenance (hosts only): everyone is told now unless `quiet`,
+    /// reminded a day, an hour, 30 minutes and 5 minutes before, and told
+    /// when it starts and when it is over. `starts_at_ms` of 0 starts it now.
+    pub async fn plan_maintenance(&self, starts_at_ms: u64, minutes: u32, reason: &str, quiet: bool) -> Result<()> {
+        self.engine.lock().await.plan_maintenance(starts_at_ms, minutes, reason, quiet).await
+    }
+
+    /// Cancel the planned maintenance, or announce the one underway is over
+    /// (hosts only).
+    pub async fn end_maintenance(&self) -> Result<()> {
+        self.engine.lock().await.end_maintenance().await
     }
 
     /// The newest `limit` messages of a conversation, oldest first.

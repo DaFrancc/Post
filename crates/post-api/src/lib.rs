@@ -259,6 +259,103 @@ pub enum Event {
         /// It is over.
         ended: bool,
     },
+    /// The server posted an announcement.
+    AnnouncementAdded {
+        /// The announcement.
+        announcement: Announcement,
+    },
+    /// The announcements changed: new ones, what you have read, the
+    /// maintenance plan, or whether you are a host.
+    AnnouncementsChanged {
+        /// How they stand now.
+        summary: AnnouncementSummary,
+    },
+}
+
+/// One of the server's announcements, from the server whoever wrote it.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct Announcement {
+    /// Increasing ID.
+    pub id: u64,
+    /// When it was posted, Unix ms.
+    pub at_ms: u64,
+    /// `text` (a host wrote it), or one the server posts itself:
+    /// `maintenance_planned`, `maintenance_reminder`, `maintenance_started`,
+    /// `maintenance_over`, `maintenance_cancelled`. `unsupported` for a kind
+    /// this version does not know.
+    pub kind: String,
+    /// The host's words, or for maintenance the reason given (may be empty).
+    pub text: String,
+    /// Maintenance: when it starts or started, Unix ms.
+    pub starts_at_ms: Option<u64>,
+    /// Maintenance: how long it should take.
+    pub minutes: Option<u32>,
+}
+
+/// Maintenance planned or underway.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct MaintenanceInfo {
+    /// When it starts or started, Unix ms.
+    pub starts_at_ms: u64,
+    /// How long it should take.
+    pub minutes: u32,
+    /// Why, if given.
+    pub reason: String,
+    /// It has started.
+    pub underway: bool,
+}
+
+/// The announcements at a glance.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct AnnouncementSummary {
+    /// The server's domain, which signs them.
+    pub server: String,
+    /// Posted since you last read them.
+    pub unread: u32,
+    /// The newest.
+    pub latest: Option<Announcement>,
+    /// You are one of the server's hosts: you may announce and plan
+    /// maintenance.
+    pub host: bool,
+    /// Maintenance planned or underway.
+    pub maintenance: Option<MaintenanceInfo>,
+}
+
+fn announcement(a: core::Announcement) -> Announcement {
+    use core::AnnouncementKind as K;
+    let kind = match a.kind {
+        K::Text => "text",
+        K::MaintenancePlanned => "maintenance_planned",
+        K::MaintenanceReminder => "maintenance_reminder",
+        K::MaintenanceStarted => "maintenance_started",
+        K::MaintenanceOver => "maintenance_over",
+        K::MaintenanceCancelled => "maintenance_cancelled",
+        K::Unsupported => "unsupported",
+    };
+    let maintenance = !matches!(a.kind, K::Text | K::Unsupported);
+    Announcement {
+        id: a.id,
+        at_ms: a.at_ms,
+        kind: kind.into(),
+        text: a.text,
+        starts_at_ms: maintenance.then_some(a.starts_at_ms),
+        minutes: maintenance.then_some(a.minutes),
+    }
+}
+
+fn announcement_summary(s: core::Announcements) -> AnnouncementSummary {
+    AnnouncementSummary {
+        server: s.server,
+        unread: s.unread,
+        latest: s.latest.map(announcement),
+        host: s.host,
+        maintenance: s.maintenance.map(|m| MaintenanceInfo {
+            starts_at_ms: m.starts_at_ms,
+            minutes: m.minutes,
+            reason: m.reason,
+            underway: m.underway,
+        }),
+    }
 }
 
 fn conversation(c: core::Conversation) -> Conversation {
@@ -427,6 +524,8 @@ pub fn event(e: core::Event) -> Event {
             ringing: c.ringing,
             ended: c.ended,
         },
+        core::Event::AnnouncementAdded(a) => Event::AnnouncementAdded { announcement: announcement(a) },
+        core::Event::AnnouncementsChanged(s) => Event::AnnouncementsChanged { summary: announcement_summary(s) },
     }
 }
 
@@ -731,6 +830,40 @@ pub struct VerifiedParams {
     pub verified: bool,
 }
 
+/// `announcements`: the newest announcements.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AnnouncementsParams {
+    /// How many, newest; default 50.
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+/// `announce`: post to everyone on the server.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AnnounceParams {
+    /// What to say.
+    pub text: String,
+}
+
+/// `plan_maintenance`.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PlanMaintenanceParams {
+    /// When it starts, Unix ms. Leave it out to start now.
+    #[serde(default)]
+    pub starts_at_ms: Option<u64>,
+    /// How long it should take.
+    pub minutes: u32,
+    /// Why, shown to everyone.
+    #[serde(default)]
+    pub reason: String,
+    /// Do not announce the plan now; the reminders still go out.
+    #[serde(default)]
+    pub quiet: bool,
+}
+
 // ---------------------------------------------------------------- methods
 
 /// Whether a method needs a server connection.
@@ -814,6 +947,13 @@ methods! {
     "call_leave", Connection, CallParams, Done, "Leave a call; in a DM this ends it.";
     "call_decline", Connection, CallParams, Done, "Decline a ringing call.";
     "call_ring", Connection, CallRingParams, Done, "Ring people into a live call.";
+    // A connection, so a one-shot CLI shows the server's newest.
+    "announcements", Connection, AnnouncementsParams, Vec<Announcement>, "The server's newest announcements, oldest first.";
+    "announcement_summary", Connection, NoParams, AnnouncementSummary, "Unread announcements, whether you are a host, and planned maintenance.";
+    "mark_announcements_read", Connection, NoParams, Done, "Mark the announcements read, on all your devices.";
+    "announce", Connection, AnnounceParams, Done, "As a host: post an announcement to everyone on the server.";
+    "plan_maintenance", Connection, PlanMaintenanceParams, Done, "As a host: plan maintenance; everyone is told and reminded.";
+    "end_maintenance", Connection, NoParams, Done, "As a host: cancel the planned maintenance, or announce it is over.";
 }
 
 /// Find a method by name.
@@ -1107,6 +1247,29 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
         "safety_number" => {
             let p: UserParams = params(p)?;
             ok(SafetyNumber { safety_number: core.safety_number(&p.username).await? })
+        }
+        "announcements" => {
+            let p: AnnouncementsParams = params(p)?;
+            ok(core.announcements(p.limit.unwrap_or(50))?.into_iter().map(announcement).collect::<Vec<_>>())
+        }
+        "announcement_summary" => ok(announcement_summary(core.announcement_summary()?)),
+        "mark_announcements_read" => {
+            core.mark_announcements_read().await?;
+            ok(Done {})
+        }
+        "announce" => {
+            let p: AnnounceParams = params(p)?;
+            core.announce(&p.text).await?;
+            ok(Done {})
+        }
+        "plan_maintenance" => {
+            let p: PlanMaintenanceParams = params(p)?;
+            core.plan_maintenance(p.starts_at_ms.unwrap_or(0), p.minutes, &p.reason, p.quiet).await?;
+            ok(Done {})
+        }
+        "end_maintenance" => {
+            core.end_maintenance().await?;
+            ok(Done {})
         }
         _ => Err(ApiError { code: -32601, message: format!("unknown method {name}") }),
     }

@@ -147,6 +147,14 @@ CREATE TABLE IF NOT EXISTS notices (
     at        INTEGER NOT NULL,
     text      TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS announcements (
+    id          INTEGER PRIMARY KEY,
+    created_at  INTEGER NOT NULL,
+    kind        INTEGER NOT NULL,
+    text        TEXT NOT NULL,
+    starts_at   INTEGER NOT NULL,
+    minutes     INTEGER NOT NULL
+);
 ";
 
 /// Message delivery state, as stored.
@@ -1340,6 +1348,95 @@ pub fn add_notice_of(conn: &Connection, group: Option<&[u8]>, kind: &str, text: 
         "INSERT INTO notices (group_id, at, text, kind) VALUES (?1, ?2, ?3, ?4)",
         params![group, i64_of(now_ms()), text, kind],
     )?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------- announcements
+
+/// The ID of the newest announcement fetched; fetching continues after it.
+pub const META_ANNOUNCEMENTS_SEEN: &str = "announcements_seen";
+/// The ID of the newest announcement the user has read.
+pub const META_ANNOUNCEMENTS_READ: &str = "announcements_read";
+/// "1" when this account is one of the server's hosts.
+pub const META_HOST: &str = "host";
+/// The maintenance planned or underway, as the server's protobuf; absent
+/// when there is none.
+pub const META_MAINTENANCE: &str = "maintenance";
+
+/// One stored announcement, as the server sent it.
+#[derive(Clone, Debug)]
+pub struct AnnouncementRow {
+    pub id: u64,
+    pub created_at: u64,
+    pub kind: i32,
+    pub text: String,
+    pub starts_at: u64,
+    pub minutes: u32,
+}
+
+/// Store announcements just fetched, and continue after the last of them.
+/// Returns how many were new.
+pub fn add_announcements(conn: &Connection, entries: &[post_proto::Announcement]) -> Result<usize> {
+    let mut stmt = conn.prepare_cached(
+        "INSERT OR IGNORE INTO announcements (id, created_at, kind, text, starts_at, minutes) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )?;
+    let mut added = 0;
+    for a in entries {
+        added += stmt.execute(params![i64_of(a.id), i64_of(a.created_at_ms), a.kind, a.text, i64_of(a.starts_at_ms), a.minutes])?;
+    }
+    if let Some(last) = entries.last() {
+        meta_put_u64(conn, META_ANNOUNCEMENTS_SEEN, last.id.max(meta_u64(conn, META_ANNOUNCEMENTS_SEEN)?))?;
+    }
+    Ok(added)
+}
+
+fn announcement_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<AnnouncementRow> {
+    Ok(AnnouncementRow {
+        id: u64::try_from(r.get::<_, i64>(0)?).unwrap_or(0),
+        created_at: u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0),
+        kind: r.get(2)?,
+        text: r.get(3)?,
+        starts_at: u64::try_from(r.get::<_, i64>(4)?).unwrap_or(0),
+        minutes: r.get(5)?,
+    })
+}
+
+/// The newest `limit` announcements, oldest first.
+pub fn announcements(conn: &Connection, limit: u32) -> Result<Vec<AnnouncementRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT * FROM (SELECT id, created_at, kind, text, starts_at, minutes FROM announcements ORDER BY id DESC LIMIT ?1) ORDER BY id",
+    )?;
+    Ok(stmt.query_map([limit], announcement_row)?.collect::<rusqlite::Result<_>>()?)
+}
+
+/// The newest announcement.
+pub fn latest_announcement(conn: &Connection) -> Result<Option<AnnouncementRow>> {
+    Ok(announcements(conn, 1)?.pop())
+}
+
+/// Announcements newer than the read position.
+pub fn unread_announcements(conn: &Connection) -> Result<u32> {
+    let read = i64_of(meta_u64(conn, META_ANNOUNCEMENTS_READ)?);
+    let n: i64 = conn.query_row("SELECT count(*) FROM announcements WHERE id > ?1", [read], |r| r.get(0))?;
+    Ok(u32::try_from(n).unwrap_or(u32::MAX))
+}
+
+/// Move the announcements read position forward to `id`. Returns whether
+/// it moved.
+pub fn raise_announcements_read(conn: &Connection, id: u64) -> Result<bool> {
+    if id <= meta_u64(conn, META_ANNOUNCEMENTS_READ)? {
+        return Ok(false);
+    }
+    meta_put_u64(conn, META_ANNOUNCEMENTS_READ, id)?;
+    Ok(true)
+}
+
+/// Forget the server's announcements, when this profile's account goes.
+pub fn forget_announcements(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM announcements", [])?;
+    for k in [META_ANNOUNCEMENTS_SEEN, META_ANNOUNCEMENTS_READ, META_HOST, META_MAINTENANCE] {
+        meta_delete(conn, k)?;
+    }
     Ok(())
 }
 

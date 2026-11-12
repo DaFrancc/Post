@@ -324,6 +324,9 @@ pub(crate) struct Engine {
     link: Option<PendingLink>,
     /// Live calls. Memory only, by design.
     calls: std::sync::Mutex<calls::Calls>,
+    /// Announcements are to be fetched at the next sync: set at login, and
+    /// again when fetching them failed.
+    announcements_due: bool,
     pub events: broadcast::Sender<Event>,
 }
 
@@ -348,6 +351,7 @@ impl Engine {
             presence: HashMap::new(),
             link: None,
             calls: std::sync::Mutex::default(),
+            announcements_due: false,
             events,
         };
         e.load_identity()?;
@@ -501,6 +505,7 @@ impl Engine {
             "DELETE FROM meta WHERE k IN ('chain_seeds', 'mls_seed', 'account_id', 'username', 'domain', 'url', 'bot', 'registered', 'kp_target')",
             [],
         )?;
+        store::forget_announcements(&self.conn)?;
         self.registered = false;
         Ok(())
     }
@@ -552,6 +557,7 @@ impl Engine {
         self.check_hello(&hello, &self.me()?.domain)?;
         self.anon = Some(anon);
         self.subscribed.clear();
+        self.announcements_due = true;
         self.retry_pending_groups().await?;
         self.retry_pending_commits().await?;
         self.ensure_self_group().await?;
@@ -1975,6 +1981,18 @@ impl Engine {
         // The directory first: device changes and stale devices decide what
         // membership should be. It is one small request when nothing changed.
         self.sync_directory().await?;
+        if std::mem::take(&mut self.announcements_due) | self.session()?.announcements.swap(false, std::sync::atomic::Ordering::AcqRel) {
+            // Never in the way of messages: a server too old to have
+            // announcements refuses the request, and that is all.
+            match self.sync_announcements().await {
+                Ok(()) => {}
+                Err(e @ (Error::NotConnected | Error::Network(_))) => {
+                    self.announcements_due = true;
+                    return Err(e);
+                }
+                Err(e) => tracing::warn!(error = %e, "could not fetch announcements"),
+            }
+        }
         // Group logs before Welcomes: a device removed and added back while
         // it was offline must see its removal before the Welcome, which only
         // replaces a group the device is no longer in. Then the logs of
@@ -1998,6 +2016,99 @@ impl Engine {
             self.top_up_tokens().await?;
         }
         Ok(())
+    }
+
+    /// Fetch new announcements, whether this account is a host, and the
+    /// maintenance plan.
+    async fn sync_announcements(&mut self) -> Result<()> {
+        let mut added = Vec::new();
+        let mut changed = false;
+        loop {
+            let after = store::meta_u64(&self.conn, store::META_ANNOUNCEMENTS_SEEN)?;
+            let req = Request::FetchAnnouncements(proto::FetchAnnouncements { after_id: after, limit: 0 });
+            let r = expect_reply!(self.session()?.request(req).await?, Reply::Announcements)?;
+            let tx = self.conn.transaction()?;
+            if store::add_announcements(&tx, &r.entries)? > 0 {
+                added.extend(r.entries.iter().filter(|a| a.id > after).cloned());
+            }
+            let host = if r.host { "1" } else { "0" };
+            if store::meta_str(&tx, store::META_HOST)?.as_deref() != Some(host) {
+                store::meta_put(&tx, store::META_HOST, host.as_bytes())?;
+                changed = true;
+            }
+            let maintenance = r.maintenance.as_ref().map(prost::Message::encode_to_vec);
+            if store::meta_get(&tx, store::META_MAINTENANCE)? != maintenance {
+                match &maintenance {
+                    Some(m) => store::meta_put(&tx, store::META_MAINTENANCE, m)?,
+                    None => store::meta_delete(&tx, store::META_MAINTENANCE)?,
+                }
+                changed = true;
+            }
+            tx.commit()?;
+            if !r.more {
+                break;
+            }
+        }
+        for a in &added {
+            self.emit(Event::AnnouncementAdded(crate::Announcement {
+                id: a.id,
+                at_ms: a.created_at_ms,
+                kind: crate::AnnouncementKind::from_wire(a.kind),
+                text: a.text.clone(),
+                starts_at_ms: a.starts_at_ms,
+                minutes: a.minutes,
+            }));
+        }
+        if changed || !added.is_empty() {
+            self.emit(Event::AnnouncementsChanged(crate::announcements_from(&self.conn)?));
+        }
+        Ok(())
+    }
+
+    /// Mark every announcement read, and tell this account's other devices.
+    pub async fn mark_announcements_read(&mut self) -> Result<()> {
+        let Some(latest) = store::latest_announcement(&self.conn)? else { return Ok(()) };
+        if !store::raise_announcements_read(&self.conn, latest.id)? {
+            return Ok(());
+        }
+        self.emit(Event::AnnouncementsChanged(crate::announcements_from(&self.conn)?));
+        if self.devices()?.len() > 1 {
+            self.sync_to_own_devices(content::SelfSync { announcements_read: latest.id, ..Default::default() }).await?;
+        }
+        Ok(())
+    }
+
+    /// Post an announcement (hosts only), then fetch it back.
+    pub async fn post_announcement(&mut self, text: &str) -> Result<()> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Err(Error::InvalidInput("an announcement needs some text".into()));
+        }
+        if text.len() > proto::MAX_ANNOUNCEMENT_BYTES {
+            return Err(Error::InvalidInput("the announcement is too long".into()));
+        }
+        let req = Request::Announce(proto::Announce { client_msg_id: random16()?.to_vec(), text: text.into() });
+        expect_reply!(self.session()?.request(req).await?, Reply::Empty)?;
+        self.sync_announcements().await
+    }
+
+    /// Plan maintenance (hosts only), then fetch what the server announced.
+    pub async fn plan_maintenance(&mut self, starts_at_ms: u64, minutes: u32, reason: &str, quiet: bool) -> Result<()> {
+        if minutes == 0 || minutes > proto::MAX_MAINTENANCE_MINUTES {
+            return Err(Error::InvalidInput("maintenance lasts from a minute to a week".into()));
+        }
+        if reason.len() > proto::MAX_ANNOUNCEMENT_BYTES {
+            return Err(Error::InvalidInput("the reason is too long".into()));
+        }
+        let req = Request::PlanMaintenance(proto::PlanMaintenance { starts_at_ms, minutes, reason: reason.trim().into(), quiet });
+        expect_reply!(self.session()?.request(req).await?, Reply::Empty)?;
+        self.sync_announcements().await
+    }
+
+    /// Cancel or end maintenance (hosts only), then fetch the announcement.
+    pub async fn end_maintenance(&mut self) -> Result<()> {
+        expect_reply!(self.session()?.request(Request::EndMaintenance(proto::EndMaintenance {})).await?, Reply::Empty)?;
+        self.sync_announcements().await
     }
 
     async fn sync_mailbox(&mut self) -> Result<usize> {
@@ -2253,6 +2364,9 @@ impl Engine {
                 }
                 for g in changes.read {
                     self.emit_conversation_of(&g)?;
+                }
+                if changes.announcements {
+                    self.emit(Event::AnnouncementsChanged(crate::announcements_from(&self.conn)?));
                 }
             }
             Outcome::Conversation | Outcome::NewMembers => {
@@ -2886,6 +3000,8 @@ struct SyncChanges {
     people: Vec<AccountId>,
     /// Groups whose read position moved.
     read: Vec<Vec<u8>>,
+    /// The announcements read position moved.
+    announcements: bool,
 }
 
 /// Apply a checked self-group sync (see [`store::Synced`] for the ordering
@@ -2917,6 +3033,7 @@ fn apply_self_sync(tx: &Connection, s: &content::SelfSync, from: SyncSource<'_>)
             changes.read.push(r.group.clone());
         }
     }
+    changes.announcements = store::raise_announcements_read(tx, s.announcements_read)?;
     Ok(changes)
 }
 
@@ -2936,6 +3053,7 @@ fn self_snapshot(conn: &Connection) -> Result<content::SelfSync> {
             .map(|(account, _)| content::VerifiedEntry { account, verified: true })
             .collect(),
         read: store::read_positions(conn)?.into_iter().map(|(group, seq)| content::ReadEntry { group, seq }).collect(),
+        announcements_read: store::meta_u64(conn, store::META_ANNOUNCEMENTS_READ)?,
         snapshot: true,
     })
 }
