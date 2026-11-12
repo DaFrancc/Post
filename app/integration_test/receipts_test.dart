@@ -100,17 +100,29 @@ void main() {
     final mouse = await t.createGesture(kind: PointerDeviceKind.mouse);
     await mouse.addPointer(location: Offset.zero);
     await mouse.moveTo(t.getCenter(_tick('Sent').last));
-    await waitFor(t, find.textContaining('Read by Bob B', findRichText: true));
-    expect(find.textContaining('Delivered to Carol', findRichText: true), findsOneWidget);
-    // Dave has never been online since, so Sam has only his username.
-    expect(find.textContaining('Not delivered yet: dave', findRichText: true), findsOneWidget);
-    await _shot(t, 'receipts-02-who');
+    // Hovering: a brief overview, faces and counts.
+    await waitFor(t, find.text('Click for details'));
+    expect(find.text('1 read'), findsOneWidget);
+    expect(find.text('1 delivered'), findsOneWidget);
+    expect(find.text('1 waiting'), findsOneWidget);
+    await _shot(t, 'receipts-02-overview');
+    // Clicking: everyone, stage by stage. Dave has not been online since he
+    // was added, so Sam has only his username.
+    await t.tap(_tick('Sent').last);
+    await waitFor(t, find.text('Message info'));
+    final info = find.ancestor(of: find.text('Message info'), matching: find.byType(SingleChildScrollView));
+    for (final s in ['READ · 1', 'DELIVERED · 1', 'NOT DELIVERED YET · 1', 'Bob B', 'Carol', '@dave']) {
+      expect(find.descendant(of: info, matching: find.text(s)), findsOneWidget, reason: s);
+    }
+    await _shot(t, 'receipts-03-details');
     await mouse.moveTo(Offset.zero);
     await mouse.removePointer();
+    await t.tapAt(const Offset(600, 300));
+    await settle(t);
 
     await tap(t, find.byTooltip('Settings'));
     await tap(t, find.text('Privacy'));
     await waitFor(t, find.text('Send read receipts'));
-    await _shot(t, 'receipts-03-setting');
+    await _shot(t, 'receipts-04-setting');
   });
 }

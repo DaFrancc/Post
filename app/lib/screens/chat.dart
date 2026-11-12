@@ -2094,35 +2094,133 @@ class _TicksState extends State<_Ticks> {
     }
   }
 
-  /// Up to eight names, then how many more.
-  static String _names(List<PersonReceiptInfo> people) {
-    final shown = people.take(8).map((p) => p.shownName).join(', ');
-    return people.length > 8 ? '$shown and ${people.length - 8} more' : shown;
+  /// A sentence for when there is no one to list, or null when there is.
+  String? _why(MessageReceiptsInfo? who) {
+    if (widget.m.pending) return 'Waiting to reach the server.';
+    if (who == null) return null;
+    if (who.tooLarge) return 'The server has it. Groups this large have no receipts.';
+    if (who.people.isEmpty) return 'The server has it. No one else is here.';
+    return null;
   }
 
+  /// The brief overview, on hover: for each stage, up to three faces and how
+  /// many more.
   InlineSpan _card() {
     const strong = TextStyle(fontWeight: FontWeight.w600, color: PColors.textStrong);
     final who = _who;
-    final lines = <InlineSpan>[TextSpan(text: _label, style: strong)];
-    void line(String text) => lines.add(TextSpan(text: '\n$text'));
-    if (widget.m.pending) {
-      line('Waiting to reach the server.');
-    } else if (who == null) {
-      // Not loaded yet, or failed: the summary alone.
-    } else if (who.tooLarge) {
-      line('The server has it. Groups this large have no receipts.');
-    } else if (who.people.isEmpty) {
-      line('The server has it. No one else is here.');
-    } else {
-      final read = who.people.where((p) => p.state == ReceiptState.read).toList();
-      final delivered = who.people.where((p) => p.state == ReceiptState.delivered).toList();
-      final waiting = who.people.where((p) => p.state == ReceiptState.waiting).toList();
-      if (read.isNotEmpty) line('Read by ${_names(read)}');
-      if (delivered.isNotEmpty) line('Delivered to ${_names(delivered)}');
-      if (waiting.isNotEmpty) line('${read.isEmpty && delivered.isEmpty ? 'The server has it. ' : ''}Not delivered yet: ${_names(waiting)}');
-      if (who.readReceiptsOff) line('Your read receipts are off, so you don’t see who read it.');
+    final why = _why(who);
+    if (who == null || why != null) {
+      return TextSpan(
+        children: [
+          TextSpan(text: _label, style: strong),
+          if (why != null) TextSpan(text: '\n$why'),
+        ],
+      );
     }
-    return TextSpan(children: lines);
+    return WidgetSpan(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final stage in _ReceiptStage.values)
+            if (stage.of(who.people) case final people when people.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Tooltip(
+                      message: stage.title,
+                      child: Icon(stage.icon, size: 15, color: stage.color),
+                    ),
+                    const SizedBox(width: 10),
+                    _Faces(people),
+                    const SizedBox(width: 8),
+                    Text('${people.length} ${stage.counted}', style: const TextStyle(fontSize: 12, color: PColors.textMuted)),
+                  ],
+                ),
+              ),
+          const SizedBox(height: 4),
+          const Text('Click for details', style: TextStyle(fontSize: 11.5, color: PColors.textFaint)),
+        ],
+      ),
+    );
+  }
+
+  /// The detailed overview, on click: everyone, stage by stage.
+  Future<void> _details() async {
+    Tooltip.dismissAllToolTips();
+    await _load();
+    if (!mounted) return;
+    final who = _who;
+    final why = _why(who);
+    await showPopover<void>(
+      context,
+      width: 290,
+      children: [
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 420),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text('Message info', style: PType.name),
+                const SizedBox(height: 4),
+                Text(
+                  why ?? (who == null ? _label : '${clockTime(widget.m.sentAtMs)} · ${dayLabel(widget.m.sentAtMs)}'),
+                  style: const TextStyle(fontSize: 12.5, height: 1.45, color: PColors.textMuted),
+                ),
+                if (who != null && why == null)
+                  for (final stage in _ReceiptStage.values)
+                    if (stage.of(who.people) case final people when people.isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Icon(stage.icon, size: 15, color: stage.color),
+                          const SizedBox(width: 8),
+                          Text('${stage.title.toUpperCase()} · ${people.length}', style: PType.label),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      for (final p in people)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              PAvatar(name: p.shownName, colorKey: p.username, size: 28),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      p.shownName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 13.5, color: PColors.textStrong),
+                                    ),
+                                    Text('@${p.username}', maxLines: 1, overflow: TextOverflow.ellipsis, style: PType.small),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                if (who != null && who.readReceiptsOff && why == null) ...[
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Your read receipts are off, so you don’t see who has read it.',
+                    style: TextStyle(fontSize: 12, height: 1.45, color: PColors.textFaint),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -2137,29 +2235,103 @@ class _TicksState extends State<_Ticks> {
         : (Icons.done_rounded, PColors.textFaint);
     final label = _label;
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) {
         _hover = true;
         unawaited(_load());
       },
       onExit: (_) => _hover = false,
-      child: Tooltip(
-        richMessage: _card(),
-        // Long enough to fetch who, short enough not to feel slow.
-        waitDuration: const Duration(milliseconds: 250),
-        preferBelow: false,
-        textStyle: const TextStyle(fontSize: 12.5, height: 1.5, color: PColors.textBody),
-        decoration: BoxDecoration(
-          color: PColors.panelRaised,
-          border: Border.all(color: PColors.borderStrong),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: AnimatedSwitcher(
-          duration: PMotion.normal,
-          transitionBuilder: (child, a) => FadeTransition(opacity: a, child: ScaleTransition(scale: Tween(begin: 0.7, end: 1.0).animate(a), child: child)),
-          child: Icon(icon, key: ValueKey(label), size: 15, color: color, semanticLabel: label),
+      child: GestureDetector(
+        onTap: () => unawaited(_details()),
+        child: Tooltip(
+          richMessage: _card(),
+          // Long enough to fetch who, short enough not to feel slow.
+          waitDuration: const Duration(milliseconds: 250),
+          preferBelow: false,
+          textStyle: const TextStyle(fontSize: 12.5, height: 1.5, color: PColors.textBody),
+          decoration: BoxDecoration(
+            color: PColors.panelRaised,
+            border: Border.all(color: PColors.borderStrong),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: AnimatedSwitcher(
+            duration: PMotion.normal,
+            transitionBuilder: (child, a) => FadeTransition(
+              opacity: a,
+              child: ScaleTransition(scale: Tween(begin: 0.7, end: 1.0).animate(a), child: child),
+            ),
+            child: Icon(icon, key: ValueKey(label), size: 15, color: color, semanticLabel: label),
+          ),
         ),
       ),
+    );
+  }
+}
+
+/// How far people have got with a message, furthest first, as the ticks
+/// show it.
+enum _ReceiptStage {
+  read(ReceiptState.read, Icons.done_all_rounded, _readBlue, 'Read', 'read'),
+  delivered(ReceiptState.delivered, Icons.done_all_rounded, PColors.textFaint, 'Delivered', 'delivered'),
+  waiting(ReceiptState.waiting, Icons.done_rounded, PColors.textFaint, 'Not delivered yet', 'waiting');
+
+  const _ReceiptStage(this.state, this.icon, this.color, this.title, this.counted);
+
+  final ReceiptState state;
+  final IconData icon;
+  final Color color;
+
+  /// The stage's name, and the word after a count of people at it.
+  final String title;
+  final String counted;
+
+  List<PersonReceiptInfo> of(List<PersonReceiptInfo> people) => people.where((p) => p.state == state).toList();
+}
+
+/// Up to three faces, overlapping, and how many more.
+class _Faces extends StatelessWidget {
+  const _Faces(this.people);
+
+  final List<PersonReceiptInfo> people;
+
+  static const _size = 22.0;
+  static const _step = 15.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = people.take(3).toList();
+    final more = people.length - shown.length;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: _size + _step * (shown.length - 1),
+          height: _size,
+          child: Stack(
+            children: [
+              for (final (i, p) in shown.indexed)
+                Positioned(
+                  left: _step * i,
+                  child: Container(
+                    // A ring of the card's colour, so each face reads as cut
+                    // out of the one behind.
+                    padding: const EdgeInsets.all(1.5),
+                    decoration: const BoxDecoration(color: PColors.panelRaised, shape: BoxShape.circle),
+                    child: PAvatar(name: p.shownName, colorKey: p.username, size: _size - 3),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        if (more > 0) ...[
+          const SizedBox(width: 6),
+          Text(
+            '+$more',
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: PColors.textMuted),
+          ),
+        ],
+      ],
     );
   }
 }
