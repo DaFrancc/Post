@@ -955,6 +955,25 @@ reset an account, set quotas, show storage. There is no admin HTTP surface.
 Disabling an account disconnects its devices and refuses their logins at once;
 members' clients then remove its leaves.
 
+### Host limits
+
+A host decides how much load its server will carry, so a few heavy users cannot
+overburden a small server. Each limit is a server setting with a generous default.
+Each is built with the feature it limits.
+
+- **Messages.** The server cannot tell who sent a message, so it limits sending
+  where it can see. That means per group (sends a minute), per anonymous connection,
+  and per IP address. The IP limit is held in memory only and never stored. A
+  refused send tells the app to wait; the app holds the message back and retries.
+- **Calls.** A maximum bitrate per participant and a maximum number of participants
+  per call, set in LiveKit's configuration. The app asks for no more than the cap, so
+  quality steps down smoothly rather than failing.
+- **Files** (with attachments, phase 6). A maximum size per upload and a daily
+  upload quota per account.
+- **Apps know the limits.** The server tells apps its limits when they connect, so
+  the app can say "this server allows files up to 25 MB" before an upload, not after
+  it fails.
+
 ### Retention
 
 - Group log entries and epochs: 30 days. The server cannot tell when everyone has
@@ -991,18 +1010,25 @@ members' clients then remove its leaves.
 - `livekit-server` runs beside `postd` as the SFU and TURN server for all calls,
   including 1:1. One path for every call, and peers never learn each other's IP.
 - Clients use `livekit_client`, which handles capture, codecs, echo cancellation,
-  congestion control and frame encryption.
-- `Call.Token` checks that the caller's account is in the conversation and returns a
-  short-lived LiveKit token for room `hex(call_id)` with identity `hex(device_id)`.
+  congestion control and frame encryption. The core decides everything about keys,
+  tokens and signalling; the Flutter side only installs the keys it is given.
+- `Call.Token` is an anonymous-connection request, like `Send`. It presents the
+  group's current access key and returns a short-lived LiveKit token for the room
+  `hex(call_id)`. The server learns that a call is happening in a group, as it learns
+  that messages are, and never who is in it.
+- In LiveKit, each participant is a random `participant_id` chosen for that call, not
+  a device ID, so the server cannot tell which devices are talking. Joining sends an
+  ordinary MLS message (`CallEvent.join` with the participant ID), so the other
+  members learn whose ID is whose from a message whose sender MLS authenticates.
 
 ### Keys
 
 ```
 call_base  = MLS-Exporter("post/call/v1", call_id, 32)          // per epoch
 sender_key = HKDF-SHA256(ikm = call_base, salt = call_id,
-                         info = "post/call/sender" ‖ device_id, 32)
+                         info = "post/call/sender" ‖ participant_id, 32)
 
-keyProvider.setRawKey(sender_key, participantId: hex(device_id),
+keyProvider.setRawKey(sender_key, participantId: hex(participant_id),
                       keyIndex: epoch % keyRingSize)
 ```
 
@@ -1019,12 +1045,20 @@ Limits to be aware of:
 
 - Media frames are encrypted but not signed. A member colluding with the server could
   send frames attributed to another member of the same call.
-- The frame cipher is whatever LiveKit's SDK implements (AES-GCM). Confirm the key
-  length during the spike.
+- The frame cipher is LiveKit's AES-GCM with a **128-bit** key: the 32-byte key the
+  app installs is stretched to 128 bits (spike 2, `spikes/calls-e2ee`). That holds
+  today, but it is below the 256-bit margin the rest of Post keeps against quantum
+  attacks. Raising it means patching LiveKit's libwebrtc.
+- WebRTC sends each speaker's audio level outside the encrypted frame, so the server
+  can see when each participant speaks, though not what they say. Turn it off where
+  the SDK allows.
+- On Linux the microphone must be chosen by device ID; with none chosen, WebRTC opens
+  the default source and drops it. The app always names one.
 
 ### Signalling
 
-- `CallEvent { start | decline | end, call_id, media }` is an ordinary message.
+- `CallEvent { start | join | leave | decline | end, call_id, participant_id, media }`
+  is an ordinary message.
 - DMs and small groups ring. Large groups show a "join call" banner instead.
 - A ringing message is marked urgent, so Android gets a high-priority push and shows
   a full-screen incoming-call notification.
