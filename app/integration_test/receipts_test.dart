@@ -110,14 +110,15 @@ void main() {
     // was added, so Sam has only his username.
     await t.tap(_tick('Sent').last);
     await waitFor(t, find.text('Message info'));
-    final info = find.ancestor(of: find.text('Message info'), matching: find.byType(SingleChildScrollView));
+    final info = find.byType(Dialog);
     for (final s in ['READ · 1', 'DELIVERED · 1', 'NOT DELIVERED YET · 1', 'Bob B', 'Carol', '@dave']) {
       expect(find.descendant(of: info, matching: find.text(s)), findsOneWidget, reason: s);
     }
     await _shot(t, 'receipts-03-details');
     await mouse.moveTo(Offset.zero);
     await mouse.removePointer();
-    await t.tapAt(const Offset(600, 300));
+    // The dialog's own close button: the window's has the same tooltip.
+    await tap(t, find.descendant(of: info, matching: find.byTooltip('Close')));
     await settle(t);
 
     await tap(t, find.byTooltip('Settings'));

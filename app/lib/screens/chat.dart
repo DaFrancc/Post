@@ -2154,27 +2154,48 @@ class _TicksState extends State<_Ticks> {
     if (!mounted) return;
     final who = _who;
     final why = _why(who);
-    await showPopover<void>(
-      context,
-      width: 290,
-      children: [
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 420),
+    final m = widget.m;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => PDialog(
+        title: 'Message info',
+        width: 420,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.6),
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text('Message info', style: PType.name),
-                const SizedBox(height: 4),
-                Text(
-                  why ?? (who == null ? _label : '${clockTime(widget.m.sentAtMs)} · ${dayLabel(widget.m.sentAtMs)}'),
-                  style: const TextStyle(fontSize: 12.5, height: 1.45, color: PColors.textMuted),
+                // Which message: its text, and when it was sent.
+                Container(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                  decoration: BoxDecoration(
+                    color: PColors.sunken,
+                    border: Border.all(color: PColors.border),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        plainText(m.body ?? ''),
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13.5, height: 1.45, color: PColors.textBody),
+                      ),
+                      const SizedBox(height: 4),
+                      Text('Sent ${messageTime(m.sentAtMs)}', style: PType.small),
+                    ],
+                  ),
                 ),
+                if (why != null || who == null) ...[
+                  const SizedBox(height: 14),
+                  Text(why ?? _label, style: const TextStyle(fontSize: 13.5, height: 1.45, color: PColors.textMuted)),
+                ],
                 if (who != null && why == null)
                   for (final stage in _ReceiptStage.values)
                     if (stage.of(who.people) case final people when people.isNotEmpty) ...[
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 18),
                       Row(
                         children: [
                           Icon(stage.icon, size: 15, color: stage.color),
@@ -2182,14 +2203,14 @@ class _TicksState extends State<_Ticks> {
                           Text('${stage.title.toUpperCase()} · ${people.length}', style: PType.label),
                         ],
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 8),
                       for (final p in people)
                         Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.symmetric(vertical: 5),
                           child: Row(
                             children: [
-                              PAvatar(name: p.shownName, colorKey: p.username, size: 28),
-                              const SizedBox(width: 10),
+                              PAvatar(name: p.shownName, colorKey: p.username, size: 32),
+                              const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -2209,17 +2230,17 @@ class _TicksState extends State<_Ticks> {
                         ),
                     ],
                 if (who != null && who.readReceiptsOff && why == null) ...[
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
                   const Text(
                     'Your read receipts are off, so you don’t see who has read it.',
-                    style: TextStyle(fontSize: 12, height: 1.45, color: PColors.textFaint),
+                    style: TextStyle(fontSize: 12.5, height: 1.45, color: PColors.textFaint),
                   ),
                 ],
               ],
             ),
           ),
         ),
-      ],
+      ),
     );
   }
 
