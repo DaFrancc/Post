@@ -3777,10 +3777,8 @@ fn handle_content(
     };
     match &c.body {
         Some(Body::Text(t)) => {
-            if t.body.len() > content::MAX_TEXT {
-                return Err(reject("a message was too long"));
-            }
-            let added = store::insert_message(tx, &new_message(Some(&t.body)))?;
+            // Too long: cut, not refused (see `content::fit_line`).
+            let added = store::insert_message(tx, &new_message(Some(content::fit_text(&t.body, content::MAX_TEXT))))?;
             store::touch(tx, gid)?;
             Ok(if added { Outcome::Added(id) } else { Outcome::Nothing })
         }
@@ -3792,10 +3790,10 @@ fn handle_content(
             if target.sender_account != *sender {
                 return Err(reject("someone tried to edit a message they did not send"));
             }
-            if ed.body.is_empty() || ed.body.len() > content::MAX_TEXT {
-                return Err(reject("an edit was empty or too long"));
+            if ed.body.is_empty() {
+                return Err(reject("an edit was empty"));
             }
-            store::add_version(tx, gid, &ed.target, &id, Some(e.seq), &ed.body, c.sent_at_ms)?;
+            store::add_version(tx, gid, &ed.target, &id, Some(e.seq), content::fit_text(&ed.body, content::MAX_TEXT), c.sent_at_ms)?;
             Ok(Outcome::Changed(ed.target.as_slice().try_into().map_err(|_| reject("bad message id"))?))
         }
         Some(Body::Delete(d)) => {
@@ -3807,18 +3805,14 @@ fn handle_content(
             Ok(Outcome::Deleted(d.target.as_slice().try_into().map_err(|_| reject("bad message id"))?))
         }
         Some(Body::Profile(p)) => {
+            // Nothing in a profile refuses it: what is too long is cut, and
+            // what is not valid is dropped.
             let note = p.note.clone().unwrap_or_default();
-            let valid = content::check_display_name(&p.display_name).is_ok()
-                && content::check_typing_template(&p.typing_template).is_ok()
-                && content::check_note(&note.text).is_ok();
-            if !valid {
-                return Err(reject("someone sent an invalid profile"));
-            }
             let row = store::ProfileRow {
                 version: p.version,
-                display_name: p.display_name.clone(),
-                typing_template: p.typing_template.clone(),
-                note_text: note.text,
+                display_name: content::fit_line(&p.display_name, content::MAX_DISPLAY_NAME),
+                typing_template: content::fit_typing_template(&p.typing_template),
+                note_text: content::fit_line(&note.text, content::MAX_NOTE),
                 note_set_at: note.set_at_ms,
                 note_expires_at: note.expires_at_ms,
                 // Only a look: one that is not a valid name is dropped
@@ -3832,10 +3826,7 @@ fn handle_content(
             Ok(if store::upsert_profile(tx, &sender.0, &row)? { Outcome::Profile(*sender) } else { Outcome::Nothing })
         }
         Some(Body::ConversationName(n)) => {
-            if content::check_display_name(&n.name).is_err() {
-                return Err(reject("someone set an invalid name"));
-            }
-            store::set_conversation_name(tx, gid, &sender.0, &n.name)?;
+            store::set_conversation_name(tx, gid, &sender.0, &content::fit_line(&n.name, content::MAX_DISPLAY_NAME))?;
             Ok(Outcome::Conversation)
         }
         Some(Body::Call(ev)) => {
@@ -3847,8 +3838,8 @@ fn handle_content(
             if sender != me {
                 return Err(reject("another account wrote to this account's device group"));
             }
-            check_self_sync(s).map_err(reject)?;
-            Ok(Outcome::SelfSync(apply_self_sync(tx, s, SyncSource::Log { seq: e.seq, snapshot: s.snapshot })?))
+            let s = content::fit_self_sync(s);
+            Ok(Outcome::SelfSync(apply_self_sync(tx, &s, SyncSource::Log { seq: e.seq, snapshot: s.snapshot })?))
         }
         Some(Body::Receipt(r)) => {
             // Positions before the receipt itself: nobody has received what

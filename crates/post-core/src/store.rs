@@ -573,6 +573,8 @@ pub fn insert_conversation(
     active: bool,
 ) -> Result<()> {
     let now = i64_of(now_ms());
+    // A group's name comes from whoever set it: cut to fit.
+    let name = content::fit_line(name, content::MAX_DISPLAY_NAME);
     // Creating or joining gives this device a fresh leaf.
     conn.execute(
         "INSERT OR IGNORE INTO conversations (group_id, kind, peer_account, name, created_at, last_activity, active, refreshed_at)
@@ -675,6 +677,7 @@ pub fn set_inactive(conn: &Connection, group: &[u8]) -> Result<()> {
 }
 
 pub fn set_name(conn: &Connection, group: &[u8], name: &str) -> Result<()> {
+    let name = content::fit_line(name, content::MAX_DISPLAY_NAME);
     conn.execute("UPDATE conversations SET name = ?1 WHERE group_id = ?2", params![name, group])?;
     Ok(())
 }
@@ -1687,7 +1690,9 @@ pub fn add_announcements(conn: &Connection, entries: &[post_proto::Announcement]
     )?;
     let mut added = 0;
     for a in entries {
-        added += stmt.execute(params![i64_of(a.id), i64_of(a.created_at_ms), a.kind, a.text, i64_of(a.starts_at_ms), a.minutes])?;
+        // The server checks this length too; cut, in case one does not.
+        let text = content::fit_text(&a.text, post_proto::MAX_ANNOUNCEMENT_BYTES);
+        added += stmt.execute(params![i64_of(a.id), i64_of(a.created_at_ms), a.kind, text, i64_of(a.starts_at_ms), a.minutes])?;
     }
     if let Some(last) = entries.last() {
         meta_put_u64(conn, META_ANNOUNCEMENTS_SEEN, last.id.max(meta_u64(conn, META_ANNOUNCEMENTS_SEEN)?))?;

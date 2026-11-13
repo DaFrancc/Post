@@ -366,6 +366,62 @@ pub const NOTE_DEFAULT_MS: u64 = 24 * 3600 * 1000;
 /// Longest arrival preset name.
 pub const MAX_ARRIVAL: usize = 32;
 
+// ---------------------------------------------------------------- what arrives
+//
+// What this app sends is checked against the limits above, and refused if
+// it breaks them. What arrives is never refused for being too long: another
+// app (a changed one, or one with other limits) may send more, so it is cut
+// to fit and shown. Servers refuse a message too large to be real; this is
+// what keeps one that got through from filling a screen.
+
+/// A received one-line field (a name, a note) made fit to show: control
+/// characters and line breaks dropped, then cut to `max` characters.
+pub fn fit_line(s: &str, max: usize) -> String {
+    s.chars().filter(|c| !c.is_control()).take(max).collect()
+}
+
+/// Received text cut to at most `max` bytes, at a character boundary.
+pub fn fit_text(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut end = max;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
+/// A received typing template cut to fit; one that no longer works (its
+/// placeholders cut off, say) becomes the standard text.
+pub fn fit_typing_template(s: &str) -> String {
+    let t = fit_line(s, MAX_TYPING_TEMPLATE);
+    if check_typing_template(&t).is_ok() { t } else { String::new() }
+}
+
+/// A self-group sync from another of this account's devices made fit:
+/// names cut, and entries naming nothing valid dropped.
+pub fn fit_self_sync(s: &SelfSync) -> SelfSync {
+    SelfSync {
+        nicknames: s
+            .nicknames
+            .iter()
+            .filter(|n| n.account.len() == 32)
+            .map(|n| NicknameEntry { account: n.account.clone(), name: fit_line(&n.name, MAX_DISPLAY_NAME) })
+            .collect(),
+        device_names: s
+            .device_names
+            .iter()
+            .filter(|d| d.device.len() == 16)
+            .map(|d| DeviceNameEntry { device: d.device.clone(), name: fit_line(&d.name, MAX_DISPLAY_NAME) })
+            .collect(),
+        verified: s.verified.iter().filter(|v| v.account.len() == 32).cloned().collect(),
+        read: s.read.iter().filter(|r| r.group.len() == 16).cloned().collect(),
+        settings: s.settings.iter().filter(|x| check_setting(x).is_ok()).cloned().collect(),
+        ..s.clone()
+    }
+}
+
 /// Why a name, template or note is not allowed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ProfileError {
@@ -533,6 +589,38 @@ fn scan_mentions(body: &str, from: usize, to: usize, found: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_arrives_is_cut_to_fit_not_refused() {
+        // One-line fields: control characters and line breaks go, then the
+        // rest is cut by characters, not bytes.
+        assert_eq!(fit_line("Ali\nce\u{7}", 64), "Alice");
+        assert_eq!(fit_line(&"é".repeat(100), MAX_DISPLAY_NAME).chars().count(), MAX_DISPLAY_NAME);
+        // Text is cut by bytes, never inside a character.
+        let s = "aé".repeat(10);
+        for max in 0..s.len() {
+            let cut = fit_text(&s, max);
+            assert!(cut.len() <= max && s.starts_with(cut));
+        }
+        assert_eq!(fit_text("short", 100), "short");
+        // A template cut short of its placeholder becomes the standard text.
+        let long = format!("{}{NAME_PLACEHOLDER}", "x".repeat(100));
+        assert_eq!(fit_typing_template(&long), "");
+        assert_eq!(fit_typing_template("$$NAME$$ types"), "$$NAME$$ types");
+        // A sync from another device: names cut, nonsense dropped.
+        let s = SelfSync {
+            nicknames: vec![
+                NicknameEntry { account: vec![1; 32], name: "n".repeat(200) },
+                NicknameEntry { account: vec![1; 3], name: "bad id".into() },
+            ],
+            settings: vec![SettingEntry { key: "NOT VALID".into(), value: String::new() }],
+            ..Default::default()
+        };
+        let fit = fit_self_sync(&s);
+        assert_eq!(fit.nicknames.len(), 1);
+        assert_eq!(fit.nicknames[0].name.chars().count(), MAX_DISPLAY_NAME);
+        assert!(fit.settings.is_empty());
+    }
 
     #[test]
     fn mentions_in_text() {
