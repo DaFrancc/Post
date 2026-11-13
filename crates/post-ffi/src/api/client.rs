@@ -248,6 +248,18 @@ pub struct PersonInfo {
     pub banner_color: Option<u32>,
     /// Their bio (about me), formatted like a message; empty if none.
     pub bio: String,
+    /// Their profile colours, if they chose them.
+    pub colors: Option<ProfileColors>,
+}
+
+/// Profile colours: the main colour of someone's profile card and its
+/// accent, `0xRRGGBB` each.
+#[derive(Clone, Copy)]
+pub struct ProfileColors {
+    /// The main colour, at the top of the card.
+    pub primary: u32,
+    /// The accent, at the bottom.
+    pub accent: u32,
 }
 
 /// One of this account's devices.
@@ -728,6 +740,7 @@ impl Client {
             arrival: change.arrival,
             banner_color: None,
             bio: change.bio,
+            theme: None,
         };
         Ok(self.core.set_profile(update).await?)
     }
@@ -736,6 +749,13 @@ impl Client {
     /// (`0xRRGGBB`), or with `None` leave it to the app.
     pub async fn set_banner_color(&self, color: Option<u32>) -> Result<(), PostError> {
         let update = core::ProfileUpdate { banner_color: Some(color), ..Default::default() };
+        Ok(self.core.set_profile(update).await?)
+    }
+
+    /// Set the user's profile colours, or with `None` go back to the app's
+    /// own look. Shared at once.
+    pub async fn set_profile_colors(&self, colors: Option<ProfileColors>) -> Result<(), PostError> {
+        let update = core::ProfileUpdate { theme: Some(colors.map(|c| [c.primary, c.accent])), ..Default::default() };
         Ok(self.core.set_profile(update).await?)
     }
 
@@ -1095,6 +1115,7 @@ impl Client {
             banner: p.banner,
             banner_color: p.banner_color,
             bio: p.bio,
+            colors: p.theme.map(|[primary, accent]| ProfileColors { primary, accent }),
         })
     }
 

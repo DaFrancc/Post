@@ -13,6 +13,7 @@ import '../ui/arrival.dart';
 import '../ui/controls.dart';
 import '../ui/format.dart';
 import '../ui/markup_text.dart';
+import '../ui/profile_theme.dart';
 import '../ui/zoom.dart';
 import 'dialogs.dart';
 import 'picture_editor.dart';
@@ -439,6 +440,14 @@ class _LookEditorState extends State<_LookEditor> {
     await widget.state.reloadPerson(widget.state.me.username);
   });
 
+  Future<void> _theme(ProfileTheme? t) => _run('theme', () async {
+    int rgb(Color c) => c.toARGB32() & 0xFFFFFF;
+    await widget.state.client.setProfileColors(
+      colors: t == null ? null : ProfileColors(primary: rgb(t.primary), accent: rgb(t.accent)),
+    );
+    await widget.state.reloadPerson(widget.state.me.username);
+  });
+
   /// A change (tonal) or a removal (danger): both tactile, like every
   /// button that does something.
   Widget _button(String what, String label, {required Future<void> Function() onPressed, bool remove = false}) {
@@ -461,42 +470,53 @@ class _LookEditorState extends State<_LookEditor> {
         final hasAvatar = p?.avatar != null;
         final hasBanner = p?.banner != null;
         final chosen = p?.bannerColor;
+        final theme = state.themeOf(me);
+        final face = theme?.top ?? PColors.panelRaised;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(
-              height: 168,
-              child: Stack(
-                children: [
-                  // A rounded shape filled with the banner, not a clip: its
-                  // corners stay smooth on every renderer.
-                  SizedBox(
-                    height: 120,
-                    width: double.infinity,
-                    child: BannerView(picture: banner, color: state.bannerColorOf(me), radius: BorderRadius.circular(14)),
-                  ),
-                  Positioned(
-                    left: 16,
-                    top: 74,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(color: PColors.dialog, shape: BoxShape.circle),
-                      child: PAvatar(name: widget.shownName, colorKey: me, size: 84, image: avatar),
+            // As others see the top of your card, in your colours.
+            ProfileFrame(
+              theme: theme,
+              body: const SizedBox(height: 8),
+              header: (inner) => SizedBox(
+                height: 168,
+                child: Stack(
+                  children: [
+                    // A rounded shape filled with the banner, not a clip: its
+                    // corners stay smooth on every renderer.
+                    SizedBox(
+                      height: 120,
+                      width: double.infinity,
+                      child: BannerView(
+                        picture: banner,
+                        color: state.bannerColorOf(me),
+                        radius: BorderRadius.vertical(top: Radius.circular(inner)),
+                      ),
                     ),
-                  ),
-                  Positioned(
-                    left: 120,
-                    right: 0,
-                    top: 128,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(widget.shownName, style: PType.heading, maxLines: 1, overflow: TextOverflow.ellipsis),
-                        Text('@$me', style: PType.small),
-                      ],
+                    Positioned(
+                      left: 16,
+                      top: 74,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(color: face, shape: BoxShape.circle),
+                        child: PAvatar(name: widget.shownName, colorKey: me, size: 84, image: avatar),
+                      ),
                     ),
-                  ),
-                ],
+                    Positioned(
+                      left: 120,
+                      right: 0,
+                      top: 128,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(widget.shownName, style: PType.heading, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          Text('@$me', style: PType.small),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 14),
@@ -541,6 +561,36 @@ class _LookEditorState extends State<_LookEditor> {
                 ],
               ),
             ],
+            const SizedBox(height: 18),
+            const Text('Profile colours', style: PType.name),
+            const SizedBox(height: 4),
+            const Text('Your card in two colours, for everyone who opens it.', style: PType.small),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _Swatch(
+                  what: 'Profile colours',
+                  label: "The app's own",
+                  color: PColors.panelRaised,
+                  outlined: true,
+                  chosen: theme == null,
+                  onTap: _busy == null ? () => unawaited(_theme(null)) : null,
+                ),
+                for (final t in ThemePreset.all)
+                  _Swatch(
+                    what: 'Profile colours',
+                    label: t.name,
+                    gradient: t.theme.edge,
+                    chosen: theme == t.theme,
+                    onTap: _busy == null ? () => unawaited(_theme(t.theme)) : null,
+                  ),
+                // Colours chosen elsewhere (the command line, say).
+                if (theme != null && !ThemePreset.all.any((t) => t.theme == theme))
+                  _Swatch(what: 'Profile colours', label: 'Your own colours', gradient: theme.edge, chosen: true, onTap: null),
+              ],
+            ),
           ],
         );
       },
@@ -548,12 +598,26 @@ class _LookEditorState extends State<_LookEditor> {
   }
 }
 
-/// A round colour to choose, ringed when chosen.
+/// A round colour (or two) to choose, ringed when chosen.
 class _Swatch extends StatelessWidget {
-  const _Swatch({required this.label, required this.color, required this.chosen, required this.onTap});
+  const _Swatch({
+    this.what = 'Banner colour',
+    required this.label,
+    this.color,
+    this.gradient,
+    this.outlined = false,
+    required this.chosen,
+    required this.onTap,
+  });
 
+  /// What is being chosen, for screen readers.
+  final String what;
   final String label;
-  final Color color;
+  final Color? color;
+  final Gradient? gradient;
+
+  /// A faint edge, for a colour close to what is behind it.
+  final bool outlined;
   final bool chosen;
   final VoidCallback? onTap;
 
@@ -564,7 +628,7 @@ class _Swatch extends StatelessWidget {
       child: Semantics(
         button: true,
         selected: chosen,
-        label: 'Banner colour $label',
+        label: '$what $label',
         child: MouseRegion(
           cursor: onTap == null ? SystemMouseCursors.basic : SystemMouseCursors.click,
           child: GestureDetector(
@@ -579,7 +643,12 @@ class _Swatch extends StatelessWidget {
                 border: Border.all(color: chosen ? PColors.textStrong : Colors.transparent, width: 2),
               ),
               child: DecoratedBox(
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                  color: color,
+                  gradient: gradient,
+                  shape: BoxShape.circle,
+                  border: outlined ? Border.all(color: PColors.borderStrong) : null,
+                ),
               ),
             ),
           ),

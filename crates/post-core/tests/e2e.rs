@@ -101,6 +101,7 @@ async fn dm_messages_edits_deletes_and_profiles() {
             note_keep: false,
             arrival: Some("decode".into()),
             bio: Some("Climber, bad photographer.\n\nAsk me about **the spreadsheet**, @bob.".into()),
+            theme: Some(Some([0x4a3a8f, 0x1b4e63])),
             ..Default::default()
         })
         .await
@@ -133,6 +134,7 @@ async fn dm_messages_edits_deletes_and_profiles() {
     assert_eq!(alice_seen_by_bob.note.as_deref(), Some("at the beach"));
     assert_eq!(alice_seen_by_bob.arrival, "decode", "her messages arrive her way on Bob's screen too");
     assert_eq!(alice_seen_by_bob.bio, "Climber, bad photographer.\n\nAsk me about **the spreadsheet**, @bob.", "line breaks and all");
+    assert_eq!(alice_seen_by_bob.theme, Some([0x4a3a8f, 0x1b4e63]), "her card in her colours");
 
     // Bob replies.
     bob.send_text(dm.id, "hi alice").await.expect("reply");

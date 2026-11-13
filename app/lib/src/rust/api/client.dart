@@ -9,15 +9,12 @@ import 'error.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `announcement`, `app_event`, `call_info`, `call_join`, `conversation`, `found_update`, `identity`, `message`, `ms`, `sentence`, `updater`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `from`
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>
 abstract class Client implements RustOpaqueInterface {
   /// As an admin: add people to a group.
-  Future<void> addMembers({
-    required String conversation,
-    required List<String> usernames,
-  });
+  Future<void> addMembers({required String conversation, required List<String> usernames});
 
   /// As a host: post an announcement to everyone on the server.
   Future<void> announce({required String text});
@@ -31,10 +28,7 @@ abstract class Client implements RustOpaqueInterface {
   /// On a new device: offer it for linking to an existing account on
   /// `server`, as `device_name`. Returns the code to show; then call
   /// [`Client::finish_link`].
-  Future<String> beginLink({
-    required String server,
-    required String deviceName,
-  });
+  Future<String> beginLink({required String server, required String deviceName});
 
   /// Longest bio, in characters (Unicode scalar values: Dart's runes),
   /// line breaks included.
@@ -42,10 +36,7 @@ abstract class Client implements RustOpaqueInterface {
 
   /// The keys to install for a call's media now: fetch again on call and
   /// conversation events, and install them at `key_index`.
-  Future<CallKeySet> callKeys({
-    required String conversation,
-    required String call,
-  });
+  Future<CallKeySet> callKeys({required String conversation, required String call});
 
   /// The live calls, in every conversation.
   Future<List<CallInfo>> calls();
@@ -61,25 +52,16 @@ abstract class Client implements RustOpaqueInterface {
   Future<List<ConversationInfo>> conversations();
 
   /// Create a group named `name` with these people, the user as admin.
-  Future<ConversationInfo> createGroup({
-    required String name,
-    required List<String> usernames,
-  });
+  Future<ConversationInfo> createGroup({required String name, required List<String> usernames});
 
   /// As a host: make a single-use invite code, valid for `days`.
   Future<InviteInfo> createInvite({required bool bot, required int days});
 
   /// Decline a ringing call.
-  Future<void> declineCall({
-    required String conversation,
-    required String call,
-  });
+  Future<void> declineCall({required String conversation, required String call});
 
   /// Delete one of the user's messages, with every version, for everyone.
-  Future<void> deleteMessage({
-    required String conversation,
-    required String messageId,
-  });
+  Future<void> deleteMessage({required String conversation, required String messageId});
 
   /// Close the profile and delete it from this device: its database, its
   /// downloads, and its key in the keystore. After `log_out`, or alone to
@@ -95,11 +77,7 @@ abstract class Client implements RustOpaqueInterface {
   Stream<UpdateProgress> downloadUpdate({required String currentVersion});
 
   /// Edit one of the user's messages. Every version stays visible.
-  Future<MessageInfo> editMessage({
-    required String conversation,
-    required String messageId,
-    required String text,
-  });
+  Future<MessageInfo> editMessage({required String conversation, required String messageId, required String text});
 
   /// As a host: cancel the planned maintenance, or announce it is over.
   Future<void> endMaintenance();
@@ -124,10 +102,7 @@ abstract class Client implements RustOpaqueInterface {
   Future<bool> isConnected();
 
   /// Join (or answer) a live call from this device.
-  Future<CallJoinInfo> joinCall({
-    required String conversation,
-    required String call,
-  });
+  Future<CallJoinInfo> joinCall({required String conversation, required String call});
 
   /// Leave a call this device is in; in a DM this ends it.
   Future<void> leaveCall({required String conversation, required String call});
@@ -158,22 +133,13 @@ abstract class Client implements RustOpaqueInterface {
   Future<List<MemberInfo>> members({required String conversation});
 
   /// Who has one of the user's messages: each other member, and how far.
-  Future<MessageReceiptsInfo> messageReceipts({
-    required String conversation,
-    required String message,
-  });
+  Future<MessageReceiptsInfo> messageReceipts({required String conversation, required String message});
 
   /// Every version of a message, the original first.
-  Future<List<MessageVersionInfo>> messageVersions({
-    required String conversation,
-    required String messageId,
-  });
+  Future<List<MessageVersionInfo>> messageVersions({required String conversation, required String messageId});
 
   /// The newest `limit` messages of a conversation, oldest first.
-  Future<List<MessageInfo>> messages({
-    required String conversation,
-    required int limit,
-  });
+  Future<List<MessageInfo>> messages({required String conversation, required int limit});
 
   /// Notices about a conversation, or with `None` about the account, oldest
   /// first.
@@ -184,10 +150,7 @@ abstract class Client implements RustOpaqueInterface {
   /// `key_file`, from that file (as the CLI does), which lets test and
   /// headless profiles stay out of the keystore.
   static Future<Client> open({required String profileDir, String? keyFile}) =>
-      RustLib.instance.api.crateApiClientClientOpen(
-        profileDir: profileDir,
-        keyFile: keyFile,
-      );
+      RustLib.instance.api.crateApiClientClientOpen(profileDir: profileDir, keyFile: keyFile);
 
   /// The presence the user chose.
   Future<PresenceChoice> ownPresence();
@@ -200,26 +163,16 @@ abstract class Client implements RustOpaqueInterface {
   Future<Uint8List?> picture({required String id});
 
   /// How large a picture of `kind` may be.
-  static PictureLimits pictureLimits({required PictureKind kind}) =>
-      RustLib.instance.api.crateApiClientClientPictureLimits(kind: kind);
+  static PictureLimits pictureLimits({required PictureKind kind}) => RustLib.instance.api.crateApiClientClientPictureLimits(kind: kind);
 
   /// A picture this device has, scaled to exactly `width`×`height` pixels
   /// (the device pixels it will fill), cropped from its middle to that
   /// shape: RGBA bytes, row by row. Shrunk well, once, here, so the app
   /// draws it pixel for pixel.
-  Future<Uint8List?> pictureScaled({
-    required String id,
-    required int width,
-    required int height,
-  });
+  Future<Uint8List?> pictureScaled({required String id, required int width, required int height});
 
   /// As a host: plan maintenance. `starts_at_ms` 0 starts it now.
-  Future<void> planMaintenance({
-    required PlatformInt64 startsAtMs,
-    required int minutes,
-    required String reason,
-    required bool quiet,
-  });
+  Future<void> planMaintenance({required PlatformInt64 startsAtMs, required int minutes, required String reason, required bool quiet});
 
   /// Someone's presence, as this device last heard it.
   Future<PresenceState> presence({required String username});
@@ -231,20 +184,13 @@ abstract class Client implements RustOpaqueInterface {
   Future<void> refreshKeys();
 
   /// Create an account with an invite.
-  Future<Identity> register({
-    required String server,
-    required String invite,
-    required String username,
-  });
+  Future<Identity> register({required String server, required String invite, required String username});
 
   /// Remove another of the account's devices from it and every conversation.
   Future<void> removeDevice({required String device});
 
   /// As an admin: remove people from a group.
-  Future<void> removeMembers({
-    required String conversation,
-    required List<String> usernames,
-  });
+  Future<void> removeMembers({required String conversation, required List<String> usernames});
 
   /// Remove the user's profile picture or banner.
   Future<void> removePicture({required PictureKind kind});
@@ -253,17 +199,10 @@ abstract class Client implements RustOpaqueInterface {
   Future<void> renameDevice({required String device, required String name});
 
   /// As an admin: rename a group.
-  Future<void> renameGroup({
-    required String conversation,
-    required String name,
-  });
+  Future<void> renameGroup({required String conversation, required String name});
 
   /// Ring people (usernames) into a live call.
-  Future<void> ringCall({
-    required String conversation,
-    required String call,
-    required List<String> usernames,
-  });
+  Future<void> ringCall({required String conversation, required String call, required List<String> usernames});
 
   /// Stay connected until the app closes: run this once, without awaiting
   /// its end. It reconnects by itself.
@@ -278,52 +217,39 @@ abstract class Client implements RustOpaqueInterface {
   Future<SearchFound> search({required SearchOptions query});
 
   /// Send a text message.
-  Future<MessageInfo> sendText({
-    required String conversation,
-    required String text,
-  });
+  Future<MessageInfo> sendText({required String conversation, required String text});
 
   /// Tell a conversation the user is typing. Call it on every keystroke;
   /// it sends at most every three seconds.
   Future<void> sendTyping({required String conversation});
 
   /// As an admin: make someone an admin, or stop them being one.
-  Future<void> setAdmin({
-    required String conversation,
-    required String username,
-    required bool admin,
-  });
+  Future<void> setAdmin({required String conversation, required String username, required bool admin});
 
   /// Set the banner colour shown when there is no banner image
   /// (`0xRRGGBB`), or with `None` leave it to the app.
   Future<void> setBannerColor({int? color});
 
   /// Set (or clear, with "") the user's name in one conversation.
-  Future<void> setConversationName({
-    required String conversation,
-    required String name,
-  });
+  Future<void> setConversationName({required String conversation, required String name});
 
   /// Set (or clear, with "") a private nickname for someone.
-  Future<void> setNickname({
-    required String username,
-    required String nickname,
-  });
+  Future<void> setNickname({required String username, required String nickname});
 
   /// Set the user's profile picture or banner from an image file: the
   /// `crop` part of it, else its middle. It is shrunk to fit, encrypted,
   /// uploaded and shared. Needs a connection.
-  Future<void> setPicture({
-    required PictureKind kind,
-    required String path,
-    PictureCrop? crop,
-  });
+  Future<void> setPicture({required PictureKind kind, required String path, PictureCrop? crop});
 
   /// Choose the presence others see.
   Future<void> setPresence({required PresenceChoice choice});
 
   /// Change the user's profile and share it with every conversation.
   Future<void> setProfile({required ProfileChange change});
+
+  /// Set the user's profile colours, or with `None` go back to the app's
+  /// own look. Shared at once.
+  Future<void> setProfileColors({ProfileColors? colors});
 
   /// Send read receipts or stop, on all the user's devices. Off, the user
   /// also stops seeing when others read theirs.
@@ -341,11 +267,7 @@ abstract class Client implements RustOpaqueInterface {
 
   /// Start a call in a conversation, with this device in it, ringing
   /// `ring` (usernames), or with none named everyone in a DM or small group.
-  Future<CallJoinInfo> startCall({
-    required String conversation,
-    required bool video,
-    required List<String> ring,
-  });
+  Future<CallJoinInfo> startCall({required String conversation, required bool video, required List<String> ring});
 
   /// Open a DM with `username`, creating it if needed.
   Future<ConversationInfo> startDm({required String username});
@@ -375,23 +297,10 @@ class AnnouncementInfo {
   /// Maintenance: how long it should take.
   final int minutes;
 
-  const AnnouncementInfo({
-    required this.id,
-    required this.atMs,
-    required this.kind,
-    required this.text,
-    required this.startsAtMs,
-    required this.minutes,
-  });
+  const AnnouncementInfo({required this.id, required this.atMs, required this.kind, required this.text, required this.startsAtMs, required this.minutes});
 
   @override
-  int get hashCode =>
-      id.hashCode ^
-      atMs.hashCode ^
-      kind.hashCode ^
-      text.hashCode ^
-      startsAtMs.hashCode ^
-      minutes.hashCode;
+  int get hashCode => id.hashCode ^ atMs.hashCode ^ kind.hashCode ^ text.hashCode ^ startsAtMs.hashCode ^ minutes.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -447,21 +356,10 @@ class AnnouncementSummary {
   /// Maintenance planned or underway.
   final MaintenanceInfo? maintenance;
 
-  const AnnouncementSummary({
-    required this.server,
-    required this.unread,
-    this.latest,
-    required this.host,
-    this.maintenance,
-  });
+  const AnnouncementSummary({required this.server, required this.unread, this.latest, required this.host, this.maintenance});
 
   @override
-  int get hashCode =>
-      server.hashCode ^
-      unread.hashCode ^
-      latest.hashCode ^
-      host.hashCode ^
-      maintenance.hashCode;
+  int get hashCode => server.hashCode ^ unread.hashCode ^ latest.hashCode ^ host.hashCode ^ maintenance.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -489,16 +387,10 @@ class AppEvent {
   /// Text to show, if any.
   final String? text;
 
-  const AppEvent({
-    required this.kind,
-    this.conversation,
-    this.username,
-    this.text,
-  });
+  const AppEvent({required this.kind, this.conversation, this.username, this.text});
 
   @override
-  int get hashCode =>
-      kind.hashCode ^ conversation.hashCode ^ username.hashCode ^ text.hashCode;
+  int get hashCode => kind.hashCode ^ conversation.hashCode ^ username.hashCode ^ text.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -610,13 +502,7 @@ class CallJoinInfo {
   });
 
   @override
-  int get hashCode =>
-      call.hashCode ^
-      participantId.hashCode ^
-      url.hashCode ^
-      token.hashCode ^
-      maxBitrateKbps.hashCode ^
-      maxParticipants.hashCode;
+  int get hashCode => call.hashCode ^ participantId.hashCode ^ url.hashCode ^ token.hashCode ^ maxBitrateKbps.hashCode ^ maxParticipants.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -646,11 +532,7 @@ class CallKey {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is CallKey &&
-          runtimeType == other.runtimeType &&
-          participantId == other.participantId &&
-          key == other.key;
+      identical(this, other) || other is CallKey && runtimeType == other.runtimeType && participantId == other.participantId && key == other.key;
 }
 
 /// A call's media keys now.
@@ -668,11 +550,7 @@ class CallKeySet {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is CallKeySet &&
-          runtimeType == other.runtimeType &&
-          keyIndex == other.keyIndex &&
-          keys == other.keys;
+      identical(this, other) || other is CallKeySet && runtimeType == other.runtimeType && keyIndex == other.keyIndex && keys == other.keys;
 }
 
 /// Someone in a call.
@@ -689,19 +567,10 @@ class CallParticipantInfo {
   /// This device.
   final bool thisDevice;
 
-  const CallParticipantInfo({
-    required this.participantId,
-    required this.username,
-    required this.you,
-    required this.thisDevice,
-  });
+  const CallParticipantInfo({required this.participantId, required this.username, required this.you, required this.thisDevice});
 
   @override
-  int get hashCode =>
-      participantId.hashCode ^
-      username.hashCode ^
-      you.hashCode ^
-      thisDevice.hashCode;
+  int get hashCode => participantId.hashCode ^ username.hashCode ^ you.hashCode ^ thisDevice.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -794,11 +663,7 @@ class DeviceInfo {
   /// The device this app runs on.
   final bool thisDevice;
 
-  const DeviceInfo({
-    required this.id,
-    required this.name,
-    required this.thisDevice,
-  });
+  const DeviceInfo({required this.id, required this.name, required this.thisDevice});
 
   @override
   int get hashCode => id.hashCode ^ name.hashCode ^ thisDevice.hashCode;
@@ -806,11 +671,7 @@ class DeviceInfo {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is DeviceInfo &&
-          runtimeType == other.runtimeType &&
-          id == other.id &&
-          name == other.name &&
-          thisDevice == other.thisDevice;
+      other is DeviceInfo && runtimeType == other.runtimeType && id == other.id && name == other.name && thisDevice == other.thisDevice;
 }
 
 /// What changed. The app re-reads what it shows for that kind.
@@ -865,21 +726,10 @@ class Identity {
   /// Whether it is a bot account.
   final bool bot;
 
-  const Identity({
-    required this.username,
-    required this.accountId,
-    required this.deviceId,
-    required this.server,
-    required this.bot,
-  });
+  const Identity({required this.username, required this.accountId, required this.deviceId, required this.server, required this.bot});
 
   @override
-  int get hashCode =>
-      username.hashCode ^
-      accountId.hashCode ^
-      deviceId.hashCode ^
-      server.hashCode ^
-      bot.hashCode;
+  int get hashCode => username.hashCode ^ accountId.hashCode ^ deviceId.hashCode ^ server.hashCode ^ bot.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -907,16 +757,10 @@ class InviteInfo {
   /// It registers a bot account.
   final bool bot;
 
-  const InviteInfo({
-    required this.code,
-    required this.server,
-    required this.expiresAtMs,
-    required this.bot,
-  });
+  const InviteInfo({required this.code, required this.server, required this.expiresAtMs, required this.bot});
 
   @override
-  int get hashCode =>
-      code.hashCode ^ server.hashCode ^ expiresAtMs.hashCode ^ bot.hashCode;
+  int get hashCode => code.hashCode ^ server.hashCode ^ expiresAtMs.hashCode ^ bot.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -944,11 +788,7 @@ class LinkRequestInfo {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is LinkRequestInfo &&
-          runtimeType == other.runtimeType &&
-          deviceId == other.deviceId &&
-          name == other.name;
+      identical(this, other) || other is LinkRequestInfo && runtimeType == other.runtimeType && deviceId == other.deviceId && name == other.name;
 }
 
 /// Maintenance planned or underway.
@@ -965,19 +805,10 @@ class MaintenanceInfo {
   /// It has started.
   final bool underway;
 
-  const MaintenanceInfo({
-    required this.startsAtMs,
-    required this.minutes,
-    required this.reason,
-    required this.underway,
-  });
+  const MaintenanceInfo({required this.startsAtMs, required this.minutes, required this.reason, required this.underway});
 
   @override
-  int get hashCode =>
-      startsAtMs.hashCode ^
-      minutes.hashCode ^
-      reason.hashCode ^
-      underway.hashCode;
+  int get hashCode => startsAtMs.hashCode ^ minutes.hashCode ^ reason.hashCode ^ underway.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1007,21 +838,10 @@ class MemberInfo {
   /// It is the viewer.
   final bool you;
 
-  const MemberInfo({
-    required this.username,
-    required this.shownName,
-    required this.admin,
-    required this.devices,
-    required this.you,
-  });
+  const MemberInfo({required this.username, required this.shownName, required this.admin, required this.devices, required this.you});
 
   @override
-  int get hashCode =>
-      username.hashCode ^
-      shownName.hashCode ^
-      admin.hashCode ^
-      devices.hashCode ^
-      you.hashCode;
+  int get hashCode => username.hashCode ^ shownName.hashCode ^ admin.hashCode ^ devices.hashCode ^ you.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1151,15 +971,10 @@ class MessageReceiptsInfo {
   /// The user's own read receipts are off: deliveries only.
   final bool readReceiptsOff;
 
-  const MessageReceiptsInfo({
-    required this.people,
-    required this.tooLarge,
-    required this.readReceiptsOff,
-  });
+  const MessageReceiptsInfo({required this.people, required this.tooLarge, required this.readReceiptsOff});
 
   @override
-  int get hashCode =>
-      people.hashCode ^ tooLarge.hashCode ^ readReceiptsOff.hashCode;
+  int get hashCode => people.hashCode ^ tooLarge.hashCode ^ readReceiptsOff.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1185,16 +1000,10 @@ class MessageVersionInfo {
   /// Not yet accepted by the server (own edits only).
   final bool pending;
 
-  const MessageVersionInfo({
-    required this.version,
-    required this.body,
-    required this.atMs,
-    required this.pending,
-  });
+  const MessageVersionInfo({required this.version, required this.body, required this.atMs, required this.pending});
 
   @override
-  int get hashCode =>
-      version.hashCode ^ body.hashCode ^ atMs.hashCode ^ pending.hashCode;
+  int get hashCode => version.hashCode ^ body.hashCode ^ atMs.hashCode ^ pending.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1218,23 +1027,14 @@ class NoticeInfo {
   /// What it is about, for its icon.
   final NoticeKind kind;
 
-  const NoticeInfo({
-    required this.atMs,
-    required this.text,
-    required this.kind,
-  });
+  const NoticeInfo({required this.atMs, required this.text, required this.kind});
 
   @override
   int get hashCode => atMs.hashCode ^ text.hashCode ^ kind.hashCode;
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is NoticeInfo &&
-          runtimeType == other.runtimeType &&
-          atMs == other.atMs &&
-          text == other.text &&
-          kind == other.kind;
+      identical(this, other) || other is NoticeInfo && runtimeType == other.runtimeType && atMs == other.atMs && text == other.text && kind == other.kind;
 }
 
 /// What a notice is about.
@@ -1289,6 +1089,9 @@ class PersonInfo {
   /// Their bio (about me), formatted like a message; empty if none.
   final String bio;
 
+  /// Their profile colours, if they chose them.
+  final ProfileColors? colors;
+
   const PersonInfo({
     required this.username,
     required this.shownName,
@@ -1302,6 +1105,7 @@ class PersonInfo {
     this.banner,
     this.bannerColor,
     required this.bio,
+    this.colors,
   });
 
   @override
@@ -1317,7 +1121,8 @@ class PersonInfo {
       avatar.hashCode ^
       banner.hashCode ^
       bannerColor.hashCode ^
-      bio.hashCode;
+      bio.hashCode ^
+      colors.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1335,7 +1140,8 @@ class PersonInfo {
           avatar == other.avatar &&
           banner == other.banner &&
           bannerColor == other.bannerColor &&
-          bio == other.bio;
+          bio == other.bio &&
+          colors == other.colors;
 }
 
 /// How far one person has got with the user's message.
@@ -1349,11 +1155,7 @@ class PersonReceiptInfo {
   /// How far they have got.
   final ReceiptState state;
 
-  const PersonReceiptInfo({
-    required this.username,
-    required this.shownName,
-    required this.state,
-  });
+  const PersonReceiptInfo({required this.username, required this.shownName, required this.state});
 
   @override
   int get hashCode => username.hashCode ^ shownName.hashCode ^ state.hashCode;
@@ -1361,11 +1163,7 @@ class PersonReceiptInfo {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is PersonReceiptInfo &&
-          runtimeType == other.runtimeType &&
-          username == other.username &&
-          shownName == other.shownName &&
-          state == other.state;
+      other is PersonReceiptInfo && runtimeType == other.runtimeType && username == other.username && shownName == other.shownName && state == other.state;
 }
 
 /// The part of an image to use, as fractions of its width and height (of
@@ -1383,26 +1181,15 @@ class PictureCrop {
   /// Height.
   final double height;
 
-  const PictureCrop({
-    required this.x,
-    required this.y,
-    required this.width,
-    required this.height,
-  });
+  const PictureCrop({required this.x, required this.y, required this.width, required this.height});
 
   @override
-  int get hashCode =>
-      x.hashCode ^ y.hashCode ^ width.hashCode ^ height.hashCode;
+  int get hashCode => x.hashCode ^ y.hashCode ^ width.hashCode ^ height.hashCode;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is PictureCrop &&
-          runtimeType == other.runtimeType &&
-          x == other.x &&
-          y == other.y &&
-          width == other.width &&
-          height == other.height;
+      other is PictureCrop && runtimeType == other.runtimeType && x == other.x && y == other.y && width == other.width && height == other.height;
 }
 
 /// Which profile picture.
@@ -1428,19 +1215,10 @@ class PictureLimits {
   /// Largest image file one may be made from, in bytes.
   final int maxSourceBytes;
 
-  const PictureLimits({
-    required this.maxWidth,
-    required this.maxHeight,
-    required this.maxBytes,
-    required this.maxSourceBytes,
-  });
+  const PictureLimits({required this.maxWidth, required this.maxHeight, required this.maxBytes, required this.maxSourceBytes});
 
   @override
-  int get hashCode =>
-      maxWidth.hashCode ^
-      maxHeight.hashCode ^
-      maxBytes.hashCode ^
-      maxSourceBytes.hashCode;
+  int get hashCode => maxWidth.hashCode ^ maxHeight.hashCode ^ maxBytes.hashCode ^ maxSourceBytes.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1505,23 +1283,10 @@ class ProfileChange {
   /// included, formatted like a message.
   final String? bio;
 
-  const ProfileChange({
-    this.displayName,
-    this.typingTemplate,
-    this.note,
-    required this.noteKeep,
-    this.arrival,
-    this.bio,
-  });
+  const ProfileChange({this.displayName, this.typingTemplate, this.note, required this.noteKeep, this.arrival, this.bio});
 
   @override
-  int get hashCode =>
-      displayName.hashCode ^
-      typingTemplate.hashCode ^
-      note.hashCode ^
-      noteKeep.hashCode ^
-      arrival.hashCode ^
-      bio.hashCode;
+  int get hashCode => displayName.hashCode ^ typingTemplate.hashCode ^ note.hashCode ^ noteKeep.hashCode ^ arrival.hashCode ^ bio.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1534,6 +1299,25 @@ class ProfileChange {
           noteKeep == other.noteKeep &&
           arrival == other.arrival &&
           bio == other.bio;
+}
+
+/// Profile colours: the main colour of someone's profile card and its
+/// accent, `0xRRGGBB` each.
+class ProfileColors {
+  /// The main colour, at the top of the card.
+  final int primary;
+
+  /// The accent, at the bottom.
+  final int accent;
+
+  const ProfileColors({required this.primary, required this.accent});
+
+  @override
+  int get hashCode => primary.hashCode ^ accent.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is ProfileColors && runtimeType == other.runtimeType && primary == other.primary && accent == other.accent;
 }
 
 /// How far one person has got.
@@ -1563,11 +1347,7 @@ class SearchFound {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is SearchFound &&
-          runtimeType == other.runtimeType &&
-          total == other.total &&
-          messages == other.messages;
+      identical(this, other) || other is SearchFound && runtimeType == other.runtimeType && total == other.total && messages == other.messages;
 }
 
 /// A search: words (each the start of a word, any case or accents) and
@@ -1679,13 +1459,7 @@ class UpdateInfo {
   });
 
   @override
-  int get hashCode =>
-      version.hashCode ^
-      notes.hashCode ^
-      releasedAtMs.hashCode ^
-      size.hashCode ^
-      mandatory.hashCode ^
-      canInstall.hashCode;
+  int get hashCode => version.hashCode ^ notes.hashCode ^ releasedAtMs.hashCode ^ size.hashCode ^ mandatory.hashCode ^ canInstall.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1715,9 +1489,5 @@ class UpdateProgress {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is UpdateProgress &&
-          runtimeType == other.runtimeType &&
-          done == other.done &&
-          total == other.total;
+      identical(this, other) || other is UpdateProgress && runtimeType == other.runtimeType && done == other.done && total == other.total;
 }

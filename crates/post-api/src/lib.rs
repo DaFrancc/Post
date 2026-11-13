@@ -128,6 +128,9 @@ pub struct Person {
     pub banner_color: Option<String>,
     /// Their bio (about me), formatted like a message; empty if none.
     pub bio: String,
+    /// Their profile colours, main then accent, `#rrggbb` each; empty if
+    /// they chose none.
+    pub colors: Vec<String>,
 }
 
 /// A safety number.
@@ -819,6 +822,10 @@ pub struct ProfileParams {
     /// formatted like a message; empty clears it.
     #[serde(default)]
     pub bio: Option<String>,
+    /// Profile colours: the main colour of your profile card and its
+    /// accent, `#rrggbb` each; empty restores the app's own look.
+    #[serde(default)]
+    pub colors: Option<Vec<String>>,
 }
 
 /// `set_picture`: your profile picture or banner.
@@ -1036,7 +1043,7 @@ methods! {
     "edit", Connection, EditParams, Message, "Edit one of your messages; earlier versions stay visible.";
     "delete", Connection, MessageParams, Done, "Delete one of your messages, with every version, for everyone.";
     "versions", Local, MessageParams, Vec<MessageVersion>, "Every version of a message, the original first.";
-    "set_profile", Connection, ProfileParams, Done, "Change your display name, typing template, note, arrival style, banner colour or bio.";
+    "set_profile", Connection, ProfileParams, Done, "Change your display name, typing template, note, arrival style, banner colour, bio or profile colours.";
     "set_picture", Connection, SetPictureParams, Done, "Set your profile picture or banner from an image file, or remove it.";
     "save_picture", Local, SavePictureParams, Done, "Write a profile picture or banner this device has to a file.";
     "set_conversation_name", Connection, ConversationNameParams, Done, "Set your display name in one conversation.";
@@ -1292,6 +1299,12 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 Some("") => Some(None),
                 Some(c) => Some(Some(parse_color(c)?)),
             };
+            let theme = match p.colors.as_deref() {
+                None => None,
+                Some([]) => Some(None),
+                Some([main, accent]) => Some(Some([parse_color(main)?, parse_color(accent)?])),
+                Some(_) => return Err(ApiError { code: -32602, message: "profile colours are two colours (main, accent), or none".into() }),
+            };
             core.set_profile(core::ProfileUpdate {
                 display_name: p.display_name,
                 typing_template: p.typing_template,
@@ -1300,6 +1313,7 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 arrival: p.arrival,
                 banner_color,
                 bio: p.bio,
+                theme,
             })
             .await?;
             ok(Done {})
@@ -1355,6 +1369,7 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 banner: x.banner,
                 banner_color: x.banner_color.map(|c| format!("#{c:06x}")),
                 bio: x.bio,
+                colors: x.theme.into_iter().flatten().map(|c| format!("#{c:06x}")).collect(),
             })
         }
         "set_verified" => {

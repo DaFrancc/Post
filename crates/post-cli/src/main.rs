@@ -153,6 +153,10 @@ enum Command {
         /// like a message ("" clears it).
         #[arg(long)]
         bio: Option<String>,
+        /// Profile colours: your card's main colour and its accent, like
+        /// "#4a3a8f,#1b4e63" ("" restores the app's own look).
+        #[arg(long)]
+        colors: Option<String>,
     },
     /// Your profile picture: set it from an image file (its middle is
     /// used, square), remove it, or save someone's to a file.
@@ -506,7 +510,7 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         Command::Delete { conversation, message } => ("delete", json!({ "conversation": conversation, "message": message })),
         Command::Versions { conversation, message } => ("versions", json!({ "conversation": conversation, "message": message })),
         Command::Receipts { conversation, message } => ("message_receipts", json!({ "conversation": conversation, "message": message })),
-        Command::Profile { display_name, typing_template, note, keep_note, arrival, banner_color, bio } => (
+        Command::Profile { display_name, typing_template, note, keep_note, arrival, banner_color, bio, colors } => (
             "set_profile",
             json!({
                 "display_name": display_name,
@@ -516,6 +520,7 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
                 "arrival": arrival,
                 "banner_color": banner_color,
                 "bio": bio,
+                "colors": colors.as_ref().map(|c| c.split(',').map(str::trim).filter(|c| !c.is_empty()).map(String::from).collect::<Vec<_>>()),
             }),
         ),
         Command::Picture { cmd } => picture_call("picture", cmd),
@@ -707,6 +712,10 @@ fn print_human(method: &str, v: &Value) {
                 if let Some(x) = v[k].as_str() {
                     println!("{label}: {x}");
                 }
+            }
+            if let Some(colors) = v["colors"].as_array().filter(|c| !c.is_empty()) {
+                let colors: Vec<&str> = colors.iter().filter_map(|c| c.as_str()).collect();
+                println!("profile colours: {}", colors.join(", "));
             }
             if !s(v, "bio").is_empty() {
                 println!("about me:");

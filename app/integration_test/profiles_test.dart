@@ -13,6 +13,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:post/main.dart';
 import 'package:post/src/rust/frb_generated.dart';
 import 'package:post/ui/controls.dart';
+import 'package:post/ui/profile_theme.dart';
 
 import 'harness.dart';
 
@@ -77,6 +78,9 @@ void main() {
       '--bio',
       'Climber, bad photographer, **worse cook**.\nAsk @sam about the hut.\n\n'
           'Routes this year:\n- the north ridge\n- the long traverse\n- the slab, again\n\n_Back on Sunday._',
+      // Dusk.
+      '--colors',
+      '#6a55c8,#2a7a96',
     ]);
 
     await _open(t, 'sam');
@@ -111,7 +115,11 @@ void main() {
 
     // She writes a bio over two lines, and it is saved as typed.
     final bio = find.byWidgetPredicate((w) => w is TextField && w.minLines == 3);
-    await t.ensureVisible(bio);
+    // The page builds as it scrolls. Its list is the dialog's first
+    // scrollable (the menu beside it does not scroll; fields' own
+    // scrollables are inside the list).
+    final page = find.descendant(of: find.byType(Dialog), matching: find.byType(Scrollable)).first;
+    await t.scrollUntilVisible(bio, 200, scrollable: page);
     await t.enterText(bio, 'Mostly **reading**.\nSometimes climbing.');
     await settle(t);
     await _shot(t, 'profiles-04-bio');
@@ -119,5 +127,13 @@ void main() {
     await waitFor(t, find.text('Profile saved and shared with your conversations.'));
     // The page reloads her profile from the core after saving.
     expect(t.widget<TextField>(bio).controller!.text, 'Mostly **reading**.\nSometimes climbing.');
+
+    // She picks profile colours: the preview at the top turns to them.
+    final rose = find.byTooltip('Rose');
+    await t.scrollUntilVisible(rose, -200, scrollable: page);
+    await tap(t, rose);
+    await waitFor(t, find.byWidgetPredicate((w) => w is ProfileFrame && w.theme == ThemePreset.all[1].theme));
+    await t.scrollUntilVisible(find.text('Add a picture'), -200, scrollable: page);
+    await _shot(t, 'profiles-05-colours');
   });
 }

@@ -210,12 +210,7 @@ class _FrameDialogState extends State<_FrameDialog> {
             children: [
               const Icon(Icons.photo_size_select_small_rounded, size: 18, color: PColors.textFaint),
               Expanded(
-                child: Slider(
-                  value: _zoom,
-                  min: 1,
-                  max: _maxZoom,
-                  onChanged: _busy ? null : (z) => _zoomTo(z, _frame.center(Offset.zero)),
-                ),
+                child: Slider(value: _zoom, min: 1, max: _maxZoom, onChanged: _busy ? null : (z) => _zoomTo(z, _frame.center(Offset.zero))),
               ),
               const Icon(Icons.photo_size_select_large_rounded, size: 22, color: PColors.textFaint),
             ],

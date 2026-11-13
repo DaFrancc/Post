@@ -239,12 +239,8 @@ abstract final class PButtons {
   static ButtonStyle tactile({required Color face, required Color onFace, Color? border, bool fadeDisabled = true}) {
     return ButtonStyle(
       backgroundColor: const WidgetStatePropertyAll(Colors.transparent),
-      foregroundColor: WidgetStateProperty.resolveWith(
-        (s) => s.contains(WidgetState.disabled) && fadeDisabled ? onFace.withValues(alpha: 0.55) : onFace,
-      ),
-      iconColor: WidgetStateProperty.resolveWith(
-        (s) => s.contains(WidgetState.disabled) && fadeDisabled ? onFace.withValues(alpha: 0.55) : onFace,
-      ),
+      foregroundColor: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.disabled) && fadeDisabled ? onFace.withValues(alpha: 0.55) : onFace),
+      iconColor: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.disabled) && fadeDisabled ? onFace.withValues(alpha: 0.55) : onFace),
       // The press is the feedback: no ink.
       overlayColor: const WidgetStatePropertyAll(Colors.transparent),
       splashFactory: NoSplash.splashFactory,
@@ -252,8 +248,7 @@ abstract final class PButtons {
       elevation: const WidgetStatePropertyAll(0),
       side: const WidgetStatePropertyAll(BorderSide.none),
       mouseCursor: pClickable,
-      backgroundBuilder: (context, states, child) =>
-          _TactileFace(states: states, face: face, border: border, fadeDisabled: fadeDisabled, child: child),
+      backgroundBuilder: (context, states, child) => _TactileFace(states: states, face: face, border: border, fadeDisabled: fadeDisabled, child: child),
     );
   }
 }
@@ -303,14 +298,7 @@ class _TactileFace extends StatelessWidget {
         // paint time, from the button's size, so the label follows by the
         // same rule there.
         return CustomPaint(
-          painter: _TactilePainter(
-            face: face,
-            border: border,
-            travel: travel,
-            disabled: disabled,
-            fadeDisabled: fadeDisabled,
-            focused: focused,
-          ),
+          painter: _TactilePainter(face: face, border: border, travel: travel, disabled: disabled, fadeDisabled: fadeDisabled, focused: focused),
           child: _Lifted(travel: travel, child: child),
         );
       },

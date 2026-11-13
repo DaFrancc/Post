@@ -741,6 +741,11 @@ member lists and details whatever name is shown.
   No control characters other than `\n`, and none that reorder text. A received bio
   is cut to fit, never refused. A profile card shows its first few lines, fading
   out, with "Show more"; opened, a very tall one scrolls inside the card.
+- **Profile colours.** `theme_primary` and `theme_accent`, tags 10 and 11:
+  `0x01RRGGBB` like `banner_color`, both or neither. Any colours may be sent; the app
+  offers named pairs. The card's edge shows the colours themselves; behind the text
+  they are deepened towards the app's panel (less for pale colours) so its light
+  text stays readable. An invalid pair is dropped, never refusing the profile.
 
 ### Typing indicators
 

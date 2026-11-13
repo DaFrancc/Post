@@ -2977,6 +2977,9 @@ impl Engine {
         content::check_note(&row.note_text).map_err(invalid)?;
         content::check_arrival(&row.arrival).map_err(invalid)?;
         content::check_bio(&row.bio).map_err(invalid)?;
+        if !content::valid_color(row.banner_color) || !content::valid_theme(row.theme[0], row.theme[1]) {
+            return Err(Error::InvalidInput("profile colours are two colours, or none".into()));
+        }
         let mine = self.me()?.account;
         row.version = store::profile(&self.conn, &mine.0)?.map_or(0, |p| p.version) + 1;
         store::upsert_profile(&self.conn, &mine.0, &row)?;
@@ -3446,6 +3449,8 @@ fn profile_body(p: &store::ProfileRow) -> content::Profile {
         banner: p.banner.clone(),
         banner_color: p.banner_color,
         bio: p.bio.clone(),
+        theme_primary: p.theme[0],
+        theme_accent: p.theme[1],
     }
 }
 
@@ -3823,8 +3828,9 @@ fn handle_content(
                 // Likewise a picture that is not well formed, or a colour.
                 avatar: p.avatar.clone().filter(|i| i.valid(PictureKind::Avatar)),
                 banner: p.banner.clone().filter(|i| i.valid(PictureKind::Banner)),
-                banner_color: if content::valid_banner_color(p.banner_color) { p.banner_color } else { 0 },
+                banner_color: if content::valid_color(p.banner_color) { p.banner_color } else { 0 },
                 bio: content::fit_bio(&p.bio),
+                theme: if content::valid_theme(p.theme_primary, p.theme_accent) { [p.theme_primary, p.theme_accent] } else { [0, 0] },
             };
             Ok(if store::upsert_profile(tx, &sender.0, &row)? { Outcome::Profile(*sender) } else { Outcome::Nothing })
         }

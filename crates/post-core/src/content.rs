@@ -260,6 +260,13 @@ pub struct Profile {
     /// mentions); empty for none.
     #[prost(string, tag = "9")]
     pub bio: String,
+    /// Profile colours: the main colour of their profile card and its
+    /// accent, `0x01RRGGBB` like `banner_color`. Both or neither (0 and 0,
+    /// the app's own look).
+    #[prost(uint32, tag = "10")]
+    pub theme_primary: u32,
+    #[prost(uint32, tag = "11")]
+    pub theme_accent: u32,
 }
 
 /// A profile picture or banner: an encrypted small blob on the server, and
@@ -303,10 +310,16 @@ impl ProfileImage {
     }
 }
 
-/// Whether a banner colour is one a profile may carry (see
-/// [`Profile::banner_color`]).
-pub fn valid_banner_color(c: u32) -> bool {
+/// Whether a colour is one a profile may carry: none (0) or `0x01RRGGBB`
+/// (see [`Profile::banner_color`]).
+pub fn valid_color(c: u32) -> bool {
     c == 0 || c >> 24 == 1
+}
+
+/// Whether profile colours are a pair a profile may carry: two colours, or
+/// none.
+pub fn valid_theme(primary: u32, accent: u32) -> bool {
+    valid_color(primary) && valid_color(accent) && (primary == 0) == (accent == 0)
 }
 
 #[derive(Clone, PartialEq, Message)]

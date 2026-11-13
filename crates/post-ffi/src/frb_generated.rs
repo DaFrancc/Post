@@ -41,7 +41,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -604887131;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 280672928;
 
 // Section: executor
 
@@ -3967,6 +3967,67 @@ fn wire__crate__api__client__Client_set_profile_impl(
         },
     )
 }
+fn wire__crate__api__client__Client_set_profile_colors_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_async::<flutter_rust_bridge::for_generated::SseCodec, _, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "Client_set_profile_colors",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<
+                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
+            >>::sse_decode(&mut deserializer);
+            let api_colors =
+                <Option<crate::api::client::ProfileColors>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| async move {
+                transform_result_sse::<_, crate::api::error::PostError>(
+                    (move || async move {
+                        let mut api_that_guard = None;
+                        let decode_indices_ =
+                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
+                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
+                                    &api_that, 0, false,
+                                )],
+                            );
+                        for i in decode_indices_ {
+                            match i {
+                                0 => {
+                                    api_that_guard =
+                                        Some(api_that.lockable_decode_async_ref().await)
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                        let api_that_guard = api_that_guard.unwrap();
+                        let output_ok = crate::api::client::Client::set_profile_colors(
+                            &*api_that_guard,
+                            api_colors,
+                        )
+                        .await?;
+                        std::result::Result::Ok(output_ok)
+                    })()
+                    .await,
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__client__Client_set_read_receipts_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -5659,6 +5720,19 @@ impl SseDecode for Option<crate::api::client::PictureCrop> {
     }
 }
 
+impl SseDecode for Option<crate::api::client::ProfileColors> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::client::ProfileColors>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<u32> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -5718,6 +5792,7 @@ impl SseDecode for crate::api::client::PersonInfo {
         let mut var_banner = <Option<String>>::sse_decode(deserializer);
         let mut var_bannerColor = <Option<u32>>::sse_decode(deserializer);
         let mut var_bio = <String>::sse_decode(deserializer);
+        let mut var_colors = <Option<crate::api::client::ProfileColors>>::sse_decode(deserializer);
         return crate::api::client::PersonInfo {
             username: var_username,
             shown_name: var_shownName,
@@ -5731,6 +5806,7 @@ impl SseDecode for crate::api::client::PersonInfo {
             banner: var_banner,
             banner_color: var_bannerColor,
             bio: var_bio,
+            colors: var_colors,
         };
     }
 }
@@ -5849,6 +5925,18 @@ impl SseDecode for crate::api::client::ProfileChange {
             note_keep: var_noteKeep,
             arrival: var_arrival,
             bio: var_bio,
+        };
+    }
+}
+
+impl SseDecode for crate::api::client::ProfileColors {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_primary = <u32>::sse_decode(deserializer);
+        let mut var_accent = <u32>::sse_decode(deserializer);
+        return crate::api::client::ProfileColors {
+            primary: var_primary,
+            accent: var_accent,
         };
     }
 }
@@ -6124,29 +6212,35 @@ fn pde_ffi_dispatcher_primary_impl(
         65 => wire__crate__api__client__Client_set_picture_impl(port, ptr, rust_vec_len, data_len),
         66 => wire__crate__api__client__Client_set_presence_impl(port, ptr, rust_vec_len, data_len),
         67 => wire__crate__api__client__Client_set_profile_impl(port, ptr, rust_vec_len, data_len),
-        68 => wire__crate__api__client__Client_set_read_receipts_impl(
+        68 => wire__crate__api__client__Client_set_profile_colors_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        69 => wire__crate__api__client__Client_set_setting_impl(port, ptr, rust_vec_len, data_len),
-        70 => wire__crate__api__client__Client_set_verified_impl(port, ptr, rust_vec_len, data_len),
-        71 => wire__crate__api__client__Client_setting_impl(port, ptr, rust_vec_len, data_len),
-        72 => wire__crate__api__client__Client_start_call_impl(port, ptr, rust_vec_len, data_len),
-        73 => wire__crate__api__client__Client_start_dm_impl(port, ptr, rust_vec_len, data_len),
-        74 => wire__crate__api__client__Client_sync_impl(port, ptr, rust_vec_len, data_len),
-        75 => wire__crate__api__spell__Speller_add_word_impl(port, ptr, rust_vec_len, data_len),
-        76 => wire__crate__api__spell__Speller_check_impl(port, ptr, rust_vec_len, data_len),
-        77 => wire__crate__api__spell__Speller_languages_impl(port, ptr, rust_vec_len, data_len),
-        78 => wire__crate__api__spell__Speller_load_impl(port, ptr, rust_vec_len, data_len),
-        79 => wire__crate__api__spell__Speller_remove_word_impl(port, ptr, rust_vec_len, data_len),
-        80 => wire__crate__api__spell__Speller_suggest_impl(port, ptr, rust_vec_len, data_len),
-        81 => wire__crate__api__client__init_app_impl(port, ptr, rust_vec_len, data_len),
-        82 => wire__crate__api__spell__spell_install_impl(port, ptr, rust_vec_len, data_len),
-        83 => wire__crate__api__spell__spell_languages_impl(port, ptr, rust_vec_len, data_len),
-        84 => wire__crate__api__spell__spell_remove_impl(port, ptr, rust_vec_len, data_len),
-        85 => wire__crate__api__spell__spell_urls_impl(port, ptr, rust_vec_len, data_len),
+        69 => wire__crate__api__client__Client_set_read_receipts_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        70 => wire__crate__api__client__Client_set_setting_impl(port, ptr, rust_vec_len, data_len),
+        71 => wire__crate__api__client__Client_set_verified_impl(port, ptr, rust_vec_len, data_len),
+        72 => wire__crate__api__client__Client_setting_impl(port, ptr, rust_vec_len, data_len),
+        73 => wire__crate__api__client__Client_start_call_impl(port, ptr, rust_vec_len, data_len),
+        74 => wire__crate__api__client__Client_start_dm_impl(port, ptr, rust_vec_len, data_len),
+        75 => wire__crate__api__client__Client_sync_impl(port, ptr, rust_vec_len, data_len),
+        76 => wire__crate__api__spell__Speller_add_word_impl(port, ptr, rust_vec_len, data_len),
+        77 => wire__crate__api__spell__Speller_check_impl(port, ptr, rust_vec_len, data_len),
+        78 => wire__crate__api__spell__Speller_languages_impl(port, ptr, rust_vec_len, data_len),
+        79 => wire__crate__api__spell__Speller_load_impl(port, ptr, rust_vec_len, data_len),
+        80 => wire__crate__api__spell__Speller_remove_word_impl(port, ptr, rust_vec_len, data_len),
+        81 => wire__crate__api__spell__Speller_suggest_impl(port, ptr, rust_vec_len, data_len),
+        82 => wire__crate__api__client__init_app_impl(port, ptr, rust_vec_len, data_len),
+        83 => wire__crate__api__spell__spell_install_impl(port, ptr, rust_vec_len, data_len),
+        84 => wire__crate__api__spell__spell_languages_impl(port, ptr, rust_vec_len, data_len),
+        85 => wire__crate__api__spell__spell_remove_impl(port, ptr, rust_vec_len, data_len),
+        86 => wire__crate__api__spell__spell_urls_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -6777,6 +6871,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::PersonInfo {
             self.banner.into_into_dart().into_dart(),
             self.banner_color.into_into_dart().into_dart(),
             self.bio.into_into_dart().into_dart(),
+            self.colors.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -6967,6 +7062,27 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::client::ProfileChange>
     for crate::api::client::ProfileChange
 {
     fn into_into_dart(self) -> crate::api::client::ProfileChange {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::client::ProfileColors {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.primary.into_into_dart().into_dart(),
+            self.accent.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::client::ProfileColors
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::ProfileColors>
+    for crate::api::client::ProfileColors
+{
+    fn into_into_dart(self) -> crate::api::client::ProfileColors {
         self
     }
 }
@@ -7716,6 +7832,16 @@ impl SseEncode for Option<crate::api::client::PictureCrop> {
     }
 }
 
+impl SseEncode for Option<crate::api::client::ProfileColors> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::client::ProfileColors>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<u32> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -7771,6 +7897,7 @@ impl SseEncode for crate::api::client::PersonInfo {
         <Option<String>>::sse_encode(self.banner, serializer);
         <Option<u32>>::sse_encode(self.banner_color, serializer);
         <String>::sse_encode(self.bio, serializer);
+        <Option<crate::api::client::ProfileColors>>::sse_encode(self.colors, serializer);
     }
 }
 
@@ -7872,6 +7999,14 @@ impl SseEncode for crate::api::client::ProfileChange {
         <bool>::sse_encode(self.note_keep, serializer);
         <Option<String>>::sse_encode(self.arrival, serializer);
         <Option<String>>::sse_encode(self.bio, serializer);
+    }
+}
+
+impl SseEncode for crate::api::client::ProfileColors {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u32>::sse_encode(self.primary, serializer);
+        <u32>::sse_encode(self.accent, serializer);
     }
 }
 

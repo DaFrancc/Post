@@ -13,31 +13,19 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 /// Every dictionary the app offers, by name, and whether each is already
 /// downloaded into `dir`.
-Future<List<SpellLanguage>> spellLanguages({required String dir}) =>
-    RustLib.instance.api.crateApiSpellSpellLanguages(dir: dir);
+Future<List<SpellLanguage>> spellLanguages({required String dir}) => RustLib.instance.api.crateApiSpellSpellLanguages(dir: dir);
 
 /// Where to download a dictionary: the .aff file's URL, then the .dic's.
-Future<List<String>> spellUrls({required String code}) =>
-    RustLib.instance.api.crateApiSpellSpellUrls(code: code);
+Future<List<String>> spellUrls({required String code}) => RustLib.instance.api.crateApiSpellSpellUrls(code: code);
 
 /// Check and install a downloaded dictionary into `dir`. `aff` and `dic` are
 /// the response bodies exactly as served (base64). They must match the
 /// pinned hashes; they are converted to UTF-8 before being saved.
-Future<void> spellInstall({
-  required String dir,
-  required String code,
-  required List<int> aff,
-  required List<int> dic,
-}) => RustLib.instance.api.crateApiSpellSpellInstall(
-  dir: dir,
-  code: code,
-  aff: aff,
-  dic: dic,
-);
+Future<void> spellInstall({required String dir, required String code, required List<int> aff, required List<int> dic}) =>
+    RustLib.instance.api.crateApiSpellSpellInstall(dir: dir, code: code, aff: aff, dic: dic);
 
 /// Delete a downloaded dictionary.
-Future<void> spellRemove({required String dir, required String code}) =>
-    RustLib.instance.api.crateApiSpellSpellRemove(dir: dir, code: code);
+Future<void> spellRemove({required String dir, required String code}) => RustLib.instance.api.crateApiSpellSpellRemove(dir: dir, code: code);
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Speller>>
 abstract class Speller implements RustOpaqueInterface {
@@ -56,15 +44,8 @@ abstract class Speller implements RustOpaqueInterface {
 
   /// Load the dictionaries `languages` from `dir` (those not downloaded
   /// are skipped), with the user's own `words`.
-  static Future<Speller> load({
-    required String dir,
-    required List<String> languages,
-    required List<String> words,
-  }) => RustLib.instance.api.crateApiSpellSpellerLoad(
-    dir: dir,
-    languages: languages,
-    words: words,
-  );
+  static Future<Speller> load({required String dir, required List<String> languages, required List<String> words}) =>
+      RustLib.instance.api.crateApiSpellSpellerLoad(dir: dir, languages: languages, words: words);
 
   /// Stop accepting a word added earlier.
   Future<void> removeWord({required String word});
@@ -88,11 +69,7 @@ class Misspelling {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is Misspelling &&
-          runtimeType == other.runtimeType &&
-          start == other.start &&
-          end == other.end;
+      identical(this, other) || other is Misspelling && runtimeType == other.runtimeType && start == other.start && end == other.end;
 }
 
 /// A dictionary the app offers.
@@ -109,16 +86,10 @@ class SpellLanguage {
   /// Downloaded and ready on this device.
   final bool installed;
 
-  const SpellLanguage({
-    required this.code,
-    required this.name,
-    required this.bytes,
-    required this.installed,
-  });
+  const SpellLanguage({required this.code, required this.name, required this.bytes, required this.installed});
 
   @override
-  int get hashCode =>
-      code.hashCode ^ name.hashCode ^ bytes.hashCode ^ installed.hashCode;
+  int get hashCode => code.hashCode ^ name.hashCode ^ bytes.hashCode ^ installed.hashCode;
 
   @override
   bool operator ==(Object other) =>

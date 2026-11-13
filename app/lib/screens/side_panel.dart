@@ -364,7 +364,9 @@ class _ProfileState extends State<_Profile> {
         final presence = _state.presenceOf(widget.username);
         final verified = p?.verified ?? false;
         final banner = _state.bannerOf(widget.username);
-        return ListView(
+        final theme = _state.themeOf(widget.username);
+        final face = theme?.top ?? PColors.panel;
+        final list = ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
           children: [
             // Their banner (3 : 1, a rounded shape filled with it), the
@@ -386,8 +388,15 @@ class _ProfileState extends State<_Profile> {
                         top: height - 40,
                         child: Container(
                           padding: const EdgeInsets.all(4),
-                          decoration: const BoxDecoration(color: PColors.panel, shape: BoxShape.circle),
-                          child: PAvatar(name: name, colorKey: widget.username, size: 80, presence: presence, image: _state.avatarOf(widget.username)),
+                          decoration: BoxDecoration(color: face, shape: BoxShape.circle),
+                          child: PAvatar(
+                            name: name,
+                            colorKey: widget.username,
+                            size: 80,
+                            presence: presence,
+                            ringColor: face,
+                            image: _state.avatarOf(widget.username),
+                          ),
                         ),
                       ),
                     ],
@@ -431,6 +440,7 @@ class _ProfileState extends State<_Profile> {
               ProfileBio(
                 state: _state,
                 bio: p.bio,
+                background: theme == null ? PColors.sunken : Colors.black.withValues(alpha: 0.28),
                 onMention: (u, at) => unawaited(showProfileCard(context, _state, u, at: at)),
               ),
             ],
@@ -453,6 +463,24 @@ class _ProfileState extends State<_Profile> {
               onSetVerified: _setVerified,
             ),
           ],
+        );
+        if (theme == null) return list;
+        // In their colours: the top colour for the first stretch, where the
+        // picture is (its ring matching, however far the list scrolls up
+        // into it), deepening to the bottom colour by the panel's foot.
+        return LayoutBuilder(
+          builder: (context, box) => DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [theme.top, theme.top, theme.bottom],
+                // The list's padding, the banner (3 : 1), the picture below it.
+                stops: [0, ((16 + (box.maxWidth - 32) / 3 + 48) / box.maxHeight).clamp(0.0, 1.0), 1],
+              ),
+            ),
+            child: list,
+          ),
         );
       },
     );

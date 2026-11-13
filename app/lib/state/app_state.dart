@@ -11,6 +11,7 @@ import 'package:post/src/rust/api/error.dart';
 import '../theme.dart';
 import '../ui/arrival.dart';
 import '../ui/picture_view.dart';
+import '../ui/profile_theme.dart';
 import '../version.dart';
 import 'calls.dart';
 import 'search_spec.dart';
@@ -543,6 +544,12 @@ class AppState extends ChangeNotifier {
   Color bannerColorOf(String username) {
     final c = personNow(username)?.bannerColor;
     return c == null ? PColors.avatarFor(username).withValues(alpha: 0.55) : Color(0xFF000000 | c);
+  }
+
+  /// Someone's profile colours, or null for the app's own look.
+  ProfileTheme? themeOf(String username) {
+    final c = personNow(username)?.colors;
+    return c == null ? null : ProfileTheme.rgb(c.primary, c.accent);
   }
 
   /// The name this user shows as.

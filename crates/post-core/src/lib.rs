@@ -565,6 +565,9 @@ pub struct Person {
     pub banner_color: Option<u32>,
     /// Their bio (about me), formatted like a message; empty if none.
     pub bio: String,
+    /// Their profile colours (`0xRRGGBB`), main then accent, if they chose
+    /// them.
+    pub theme: Option<[u32; 2]>,
 }
 
 /// A device asking to join this account, as shown before approving it.
@@ -693,6 +696,9 @@ pub struct ProfileUpdate {
     pub banner_color: Option<Option<u32>>,
     /// New bio (about me); empty clears it.
     pub bio: Option<String>,
+    /// New profile colours (`0xRRGGBB`), main then accent, or `Some(None)`
+    /// for the app's own look.
+    pub theme: Option<Option<[u32; 2]>>,
 }
 
 /// Something that happened, for live views.
@@ -1551,10 +1557,16 @@ impl Core {
             Some(n) => (n, now, if update.note_keep { 0 } else { now + content::NOTE_DEFAULT_MS }),
             None => (current.note_text.clone(), current.note_set_at, current.note_expires_at),
         };
+        let color = |rgb: u32| 0x0100_0000 | (rgb & 0x00ff_ffff);
         let banner_color = match update.banner_color {
-            Some(Some(rgb)) => 0x0100_0000 | (rgb & 0x00ff_ffff),
+            Some(Some(rgb)) => color(rgb),
             Some(None) => 0,
             None => current.banner_color,
+        };
+        let theme = match update.theme {
+            Some(Some([main, accent])) => [color(main), color(accent)],
+            Some(None) => [0, 0],
+            None => current.theme,
         };
         engine
             .set_profile(store::ProfileRow {
@@ -1567,6 +1579,7 @@ impl Core {
                 arrival: update.arrival.unwrap_or_else(|| current.arrival.clone()),
                 bio: update.bio.unwrap_or_else(|| current.bio.clone()),
                 banner_color,
+                theme,
                 ..current
             })
             .await
@@ -1645,6 +1658,7 @@ impl Core {
                 banner: held(picture::PictureKind::Banner)?,
                 banner_color: p.as_ref().filter(|p| p.banner_color != 0).map(|p| p.banner_color & 0x00ff_ffff),
                 bio: p.as_ref().map(|p| p.bio.clone()).unwrap_or_default(),
+                theme: p.as_ref().filter(|p| p.theme != [0, 0]).map(|p| p.theme.map(|c| c & 0x00ff_ffff)),
                 note: p.filter(|p| !p.note_text.is_empty() && (p.note_expires_at == 0 || p.note_expires_at > now)).map(|p| p.note_text),
             })
         })

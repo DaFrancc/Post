@@ -2,7 +2,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:post/screens/settings.dart';
 
-TextEditingValue _typed(String text) => TextEditingValue(text: text, selection: TextSelection.collapsed(offset: text.length));
+TextEditingValue _typed(String text) => TextEditingValue(
+  text: text,
+  selection: TextSelection.collapsed(offset: text.length),
+);
 
 void main() {
   final f = BioFormatter(10);
@@ -14,7 +17,10 @@ void main() {
   });
 
   test('characters that reorder text are dropped', () {
-    expect(BioFormatter.clean('ab‮cd⁦e'), 'abcde');
+    // A right-to-left override and an isolate, by code: never literally in
+    // source, where they would hide what the code says.
+    final override = String.fromCharCode(0x202E), isolate = String.fromCharCode(0x2066);
+    expect(BioFormatter.clean('ab${override}cd${isolate}e'), 'abcde');
   });
 
   test('characters count as runes, as the core counts them', () {

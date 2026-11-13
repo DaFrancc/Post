@@ -395,6 +395,10 @@ const MIGRATIONS: &[&str] = &[
      );",
     // 14: each profile's bio (about me); empty for none.
     "ALTER TABLE profiles ADD COLUMN bio TEXT NOT NULL DEFAULT '';",
+    // 15: each profile's two colours (main and accent, `0x01RRGGBB`); 0
+    // and 0 for none.
+    "ALTER TABLE profiles ADD COLUMN theme_primary INTEGER NOT NULL DEFAULT 0;
+     ALTER TABLE profiles ADD COLUMN theme_accent INTEGER NOT NULL DEFAULT 0;",
 ];
 
 /// Create tables, both ours and OpenMLS's, and bring old databases up to date.
@@ -1211,6 +1215,8 @@ pub struct ProfileRow {
     /// `0x01RRGGBB`, or 0 for none.
     pub banner_color: u32,
     pub bio: String,
+    /// Profile colours, main then accent: `0x01RRGGBB` each, or both 0.
+    pub theme: [u32; 2],
 }
 
 impl ProfileRow {
@@ -1242,13 +1248,13 @@ fn decode_image(b: Option<Vec<u8>>) -> Option<content::ProfileImage> {
 pub fn upsert_profile(conn: &Connection, account: &[u8], p: &ProfileRow) -> Result<bool> {
     let n = conn.execute(
         "INSERT INTO profiles (account_id, version, display_name, typing_template, note_text, note_set_at, note_expires_at, arrival,
-                               avatar, banner, banner_color, bio)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                               avatar, banner, banner_color, bio, theme_primary, theme_accent)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
          ON CONFLICT (account_id) DO UPDATE SET
            version = excluded.version, display_name = excluded.display_name, typing_template = excluded.typing_template,
            note_text = excluded.note_text, note_set_at = excluded.note_set_at, note_expires_at = excluded.note_expires_at,
            arrival = excluded.arrival, avatar = excluded.avatar, banner = excluded.banner, banner_color = excluded.banner_color,
-           bio = excluded.bio
+           bio = excluded.bio, theme_primary = excluded.theme_primary, theme_accent = excluded.theme_accent
          WHERE excluded.version > profiles.version",
         params![
             account,
@@ -1262,14 +1268,16 @@ pub fn upsert_profile(conn: &Connection, account: &[u8], p: &ProfileRow) -> Resu
             encode_image(p.avatar.as_ref()),
             encode_image(p.banner.as_ref()),
             p.banner_color,
-            p.bio
+            p.bio,
+            p.theme[0],
+            p.theme[1]
         ],
     )?;
     Ok(n > 0)
 }
 
 const PROFILE_COLUMNS: &str =
-    "version, display_name, typing_template, note_text, note_set_at, note_expires_at, arrival, avatar, banner, banner_color, bio";
+    "version, display_name, typing_template, note_text, note_set_at, note_expires_at, arrival, avatar, banner, banner_color, bio, theme_primary, theme_accent";
 
 fn profile_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ProfileRow> {
     profile_row_at(r, 0)
@@ -1303,6 +1311,7 @@ fn profile_row_at(r: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<ProfileR
         banner: decode_image(r.get(at + 8)?),
         banner_color: r.get(at + 9)?,
         bio: r.get(at + 10)?,
+        theme: [r.get(at + 11)?, r.get(at + 12)?],
     })
 }
 

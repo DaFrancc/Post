@@ -30,12 +30,10 @@ String announcementText(AnnouncementInfo a) {
   const waits = 'Anything you send meanwhile waits in your app and goes out once the server is back.';
   return switch (a.kind) {
     AnnouncementKind.text => a.text,
-    AnnouncementKind.maintenancePlanned =>
-      'Maintenance is planned for $when, for about $long$why. $waits You’ll be reminded before it starts.\n\n$_automatic',
+    AnnouncementKind.maintenancePlanned => 'Maintenance is planned for $when, for about $long$why. $waits You’ll be reminded before it starts.\n\n$_automatic',
     AnnouncementKind.maintenanceReminder =>
       'Reminder: maintenance starts in about ${_untilText(a.startsAtMs - a.atMs)}, $when, for about $long$why. $waits\n\n$_automatic',
-    AnnouncementKind.maintenanceStarted =>
-      'Maintenance has started$why. The server should be back in about $long. $waits\n\n$_automatic',
+    AnnouncementKind.maintenanceStarted => 'Maintenance has started$why. The server should be back in about $long. $waits\n\n$_automatic',
     AnnouncementKind.maintenanceOver => 'Maintenance is over, and the server is back.\n\n$_automatic',
     AnnouncementKind.maintenanceCancelled => 'The maintenance planned for $when is cancelled.\n\n$_automatic',
     AnnouncementKind.unsupported => 'An announcement this version of Post cannot show. Update Post to read it.',
@@ -223,7 +221,9 @@ class _Header extends StatelessWidget {
     return Container(
       constraints: const BoxConstraints(minHeight: PShape.header),
       padding: const EdgeInsets.fromLTRB(22, 8, 16, 8),
-      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: PColors.border))),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: PColors.border)),
+      ),
       child: Row(
         children: [
           Flexible(
@@ -302,7 +302,9 @@ class _Card extends StatelessWidget {
             children: [
               const ServerMark(),
               const SizedBox(width: 10),
-              Flexible(child: Text(server, maxLines: 1, overflow: TextOverflow.ellipsis, style: PType.name)),
+              Flexible(
+                child: Text(server, maxLines: 1, overflow: TextOverflow.ellipsis, style: PType.name),
+              ),
               const SizedBox(width: 10),
               Text(messageTime(a.atMs), style: PType.small),
             ],
@@ -367,7 +369,9 @@ class _MaintenanceBarState extends State<_MaintenanceBar> {
         children: [
           Icon(m.underway ? Icons.construction_rounded : Icons.event_outlined, size: 16, color: PColors.accentText),
           const SizedBox(width: 10),
-          Expanded(child: Text(text, style: const TextStyle(fontSize: 13, color: PColors.accentText))),
+          Expanded(
+            child: Text(text, style: const TextStyle(fontSize: 13, color: PColors.accentText)),
+          ),
           if (widget.host)
             OutlinedButton(
               onPressed: _busy ? null : _end,
@@ -476,10 +480,7 @@ class _Composer extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            'Posted as $server to everyone on the server, with Ctrl+Enter or Announce. It can’t be deleted afterwards.',
-            style: PType.small,
-          ),
+          Text('Posted as $server to everyone on the server, with Ctrl+Enter or Announce. It can’t be deleted afterwards.', style: PType.small),
         ],
       ),
     );
@@ -491,7 +492,10 @@ class _Composer extends StatelessWidget {
 /// Ask when maintenance is, and plan it: everyone is told in their own time
 /// zone, and reminded.
 Future<void> planMaintenance(BuildContext context, AppState state) {
-  return showDialog(context: context, builder: (_) => _PlanDialog(state: state));
+  return showDialog(
+    context: context,
+    builder: (_) => _PlanDialog(state: state),
+  );
 }
 
 class _PlanDialog extends StatefulWidget {
@@ -528,7 +532,12 @@ class _PlanDialogState extends State<_PlanDialog> {
 
   Future<void> _pickDay() async {
     final now = DateTime.now();
-    final d = await showDatePicker(context: context, initialDate: _starts, firstDate: DateTime(now.year, now.month, now.day), lastDate: now.add(const Duration(days: 365)));
+    final d = await showDatePicker(
+      context: context,
+      initialDate: _starts,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: now.add(const Duration(days: 365)),
+    );
     if (d != null) setState(() => _starts = DateTime(d.year, d.month, d.day, _starts.hour, _starts.minute));
   }
 
@@ -658,7 +667,10 @@ class _PlanDialogState extends State<_PlanDialog> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Padding(padding: EdgeInsets.only(left: 4), child: Text('ANNOUNCED', style: PType.label)),
+                  const Padding(
+                    padding: EdgeInsets.only(left: 4),
+                    child: Text('ANNOUNCED', style: PType.label),
+                  ),
                   const SizedBox(height: 4),
                   MouseRegion(
                     cursor: SystemMouseCursors.click,
@@ -726,7 +738,10 @@ class _Choice extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: Padding(padding: const EdgeInsets.only(left: 8), child: Text(value, style: const TextStyle(fontSize: 14, color: PColors.text))),
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: Text(value, style: const TextStyle(fontSize: 14, color: PColors.text)),
+                ),
               ),
               PIconButton(icon: Icons.calendar_today_outlined, tooltip: 'Choose the day', size: 34, iconSize: 16, onPressed: onDay),
               PIconButton(icon: Icons.schedule_rounded, tooltip: 'Choose the time', size: 34, iconSize: 16, onPressed: onTime),
