@@ -288,6 +288,10 @@ pub struct Delete {
 
 /// Longest message text accepted, in bytes.
 pub const MAX_TEXT: usize = 64 * 1024;
+/// Largest encoded [`Content`] sent. Encrypted, with MLS's signature and
+/// padding, it stays under the server's
+/// [`post_proto::MAX_APPLICATION_MESSAGE_BYTES`].
+pub const MAX_CONTENT_BYTES: usize = 96 * 1024;
 /// Longest display name, in characters.
 pub const MAX_DISPLAY_NAME: usize = 64;
 /// Longest typing template, in characters.

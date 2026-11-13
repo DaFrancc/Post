@@ -180,6 +180,22 @@ async fn dm_messages_edits_deletes_and_profiles() {
     assert_eq!(alice.safety_number("bob").await.expect("sn"), bob.safety_number("alice").await.expect("sn"));
 }
 
+/// The longest text an app allows (64 KiB) still fits under the server's
+/// cap on a message once encrypted, signed and padded.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_longest_text_fits_the_servers_cap() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let dm = alice.start_dm("bob").await.expect("start dm");
+    let longest = "é".repeat(64 * 1024 / 2);
+    let sent = alice.send_text(dm.id, &longest).await.expect("longest text");
+    assert_eq!(sent.state, MessageState::Sent);
+    bob.sync().await.expect("bob sync");
+    assert_eq!(bob.messages(dm.id, 5).expect("messages")[0].body.as_deref(), Some(longest.as_str()));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn search_finds_messages() {
     use post_core::SearchQuery;

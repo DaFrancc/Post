@@ -154,6 +154,22 @@ async fn group_access_needs_the_epoch_key() {
 }
 
 #[tokio::test]
+async fn messages_too_big_to_be_real_are_refused() {
+    let server = Server::start().await;
+    let mut anon = Client::connect(&server.running.url()).await;
+    // Refused on size alone, before anything is looked up.
+    let send = proto::Send {
+        group_id: vec![7; 16],
+        access_key: vec![0; 32],
+        client_msg_id: vec![1; 16],
+        message: vec![0; proto::MAX_APPLICATION_MESSAGE_BYTES + 1],
+    };
+    let Reply::Error(e) = anon.call(Request::Send(send)).await else { panic!("refused") };
+    assert_eq!(e.code(), ErrorCode::BadRequest);
+    assert!(e.message.contains("at most"), "{}", e.message);
+}
+
+#[tokio::test]
 async fn tokens_are_required_unforgeable_and_single_use() {
     use blind_rsa_signatures::{BlindSignature, DefaultRng, PublicKeySha384PSSRandomized as Pk};
 

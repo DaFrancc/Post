@@ -800,6 +800,9 @@ fn append_log(tx: &Connection, group: &[u8], seq: u64, epoch: u64, kind: proto::
 /// appended).
 pub fn send(conn: &mut Connection, req: &proto::Send) -> Result<(u64, u64, bool)> {
     check_len(&req.client_msg_id, 16, "client_msg_id")?;
+    if req.message.len() > proto::MAX_APPLICATION_MESSAGE_BYTES {
+        return Err(err(ErrorCode::BadRequest, format!("a message is at most {} bytes", proto::MAX_APPLICATION_MESSAGE_BYTES)));
+    }
     let header = post_mls::parse_header(&req.message).map_err(|e| err(ErrorCode::BadRequest, e.to_string()))?;
     let (content_type, kind) = match header.content_type {
         ContentType::Proposal => (ContentType::Proposal, proto::EntryKind::Proposal),

@@ -1856,6 +1856,11 @@ impl Engine {
             body: Some(body.clone()),
         };
         let bytes = c.encode_to_vec();
+        // Servers refuse larger messages; every body is checked smaller
+        // above, so this only catches a mistake here.
+        if bytes.len() > content::MAX_CONTENT_BYTES {
+            return Err(Error::InvalidInput("this is too large to send".into()));
+        }
         let tx = self.conn.transaction()?;
         // Queued unencrypted: it is encrypted when it reaches the front of
         // the outbox (`flush_outbox`), so generations follow send order.
@@ -2269,8 +2274,9 @@ impl Engine {
                 // A new device of ours joined: give it our profile and
                 // everything the self group keeps in step.
                 self.share_profile(gid)?;
-                let snapshot = self_snapshot(&self.conn)?;
-                self.queue_body(gid, Body::SelfSync(snapshot))?;
+                for part in split_snapshot(self_snapshot(&self.conn)?) {
+                    self.queue_body(gid, Body::SelfSync(part))?;
+                }
             } else if self.welcomes_another_account(&req)? {
                 self.share_profile(gid)?;
             }
@@ -3161,6 +3167,41 @@ fn apply_self_sync(tx: &Connection, s: &content::SelfSync, from: SyncSource<'_>)
     Ok(changes)
 }
 
+/// The most a part of a self-group snapshot holds, encoded: well inside the
+/// largest message a server accepts.
+const SNAPSHOT_PART_BYTES: usize = 32 * 1024;
+
+/// A snapshot as parts that each fit in one message. Every entry in a
+/// snapshot stands alone, so the parts apply in any order.
+fn split_snapshot(s: content::SelfSync) -> Vec<content::SelfSync> {
+    use prost::Message as _;
+    let fresh = || content::SelfSync { snapshot: true, ..Default::default() };
+    let mut parts = vec![content::SelfSync { announcements_read: s.announcements_read, ..fresh() }];
+    let mut size = 0usize;
+    macro_rules! spread {
+        ($field:ident) => {
+            for e in s.$field {
+                // The entry, and its tag and length.
+                let n = e.encoded_len() + 4;
+                if size > 0 && size + n > SNAPSHOT_PART_BYTES {
+                    parts.push(fresh());
+                    size = 0;
+                }
+                size += n;
+                if let Some(p) = parts.last_mut() {
+                    p.$field.push(e);
+                }
+            }
+        };
+    }
+    spread!(nicknames);
+    spread!(device_names);
+    spread!(verified);
+    spread!(read);
+    spread!(settings);
+    parts
+}
+
 /// The full self-group snapshot for a device joining it.
 fn self_snapshot(conn: &Connection) -> Result<content::SelfSync> {
     Ok(content::SelfSync {
@@ -3611,6 +3652,27 @@ mod adversarial_tests;
 mod tests {
     use super::*;
     use post_identity::chain::seal;
+
+    #[test]
+    fn large_snapshots_split_into_messages_that_fit() {
+        let s = content::SelfSync {
+            nicknames: (0..2000u32)
+                .map(|i| content::NicknameEntry { account: [(i % 256) as u8; 32].to_vec(), name: "a long nickname, sixty-four characters or so, well, nearly".into() })
+                .collect(),
+            read: (0..3000u32).map(|i| content::ReadEntry { group: [(i % 256) as u8; 16].to_vec(), seq: u64::from(i) }).collect(),
+            announcements_read: 7,
+            snapshot: true,
+            ..Default::default()
+        };
+        let parts = split_snapshot(s);
+        assert!(parts.len() > 1);
+        assert!(parts.iter().all(|p| p.snapshot && p.encoded_len() <= SNAPSHOT_PART_BYTES));
+        assert_eq!(parts.iter().map(|p| p.nicknames.len()).sum::<usize>(), 2000);
+        assert_eq!(parts.iter().map(|p| p.read.len()).sum::<usize>(), 3000);
+        assert_eq!(parts[0].announcements_read, 7);
+        // A small one stays whole.
+        assert_eq!(split_snapshot(content::SelfSync { snapshot: true, ..Default::default() }).len(), 1);
+    }
 
     #[test]
     fn refreshes_fall_due_weekly_spread_by_group() {

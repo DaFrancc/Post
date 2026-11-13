@@ -29,6 +29,13 @@ use prost::{Message, Oneof};
 /// Bumped on any incompatible change to this protocol.
 pub const PROTOCOL_VERSION: u32 = 4;
 
+/// Largest application message or proposal a group accepts, in bytes of
+/// ciphertext. The server cannot read a message, but it can refuse one too
+/// big to be real: the largest, a 64 KiB text, is about 70 KiB encrypted.
+/// Commits and Welcomes, which grow with the group, are bounded by the frame
+/// size instead.
+pub const MAX_APPLICATION_MESSAGE_BYTES: usize = 128 * 1024;
+
 /// Largest frame either side accepts. A Welcome for a 250-device group is
 /// about 700 KB (spike 1); this leaves headroom.
 pub const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
