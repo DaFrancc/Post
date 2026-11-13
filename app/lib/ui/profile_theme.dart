@@ -1,32 +1,77 @@
-// Profile colours: someone's two colours, and the card drawn in them. The
-// edge shows the colours themselves; behind the text they are deepened
-// towards the app's panel, so text stays readable on any colour chosen.
+// Colour fills (a colour, or a gradient between two at an angle) for
+// banners and profile colours; someone's card drawn in their profile
+// colours; and holes cut out of what is drawn, so whatever lies behind
+// shows through (the gap around a picture on a banner, around a presence
+// dot on a picture), on any background, gradients included.
 
+import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
+import 'package:post/src/rust/api/client.dart' show ColorFill;
 
 import '../theme.dart';
 
-/// Someone's profile colours, as their card is drawn.
+/// A colour, or a gradient from the first colour to the second at
+/// [angle] degrees, as in CSS: 0 runs from the bottom up, 90 left to
+/// right, 180 top to bottom.
+@immutable
+class Fill {
+  const Fill(this.colors, [this.angle = 0]);
+
+  Fill.solid(Color c) : this([c]);
+
+  /// As a profile carries it.
+  Fill.of(ColorFill f) : this([for (final c in f.colors) Color(0xFF000000 | c)], f.angle);
+
+  final List<Color> colors;
+  final int angle;
+
+  bool get solid => colors.length == 1;
+
+  /// As a profile carries it.
+  ColorFill get carried => ColorFill(colors: Uint32List.fromList([for (final c in colors) c.toARGB32() & 0xFFFFFF]), angle: solid ? 0 : angle);
+
+  /// To paint with (a solid colour as a gradient of one colour).
+  LinearGradient get gradient => fillGradient(colors, angle);
+
+  /// The same fill in other colours.
+  Fill map(Color Function(Color) f) => Fill([for (final c in colors) f(c)], angle);
+
+  @override
+  bool operator ==(Object other) => other is Fill && other.angle == angle && listEquals(other.colors, colors);
+
+  @override
+  int get hashCode => Object.hash(angle, Object.hashAll(colors));
+}
+
+/// [colors] running at [angle] degrees (as CSS: 0 up, 90 right, 180 down)
+/// across whatever box it fills.
+LinearGradient fillGradient(List<Color> colors, int angle) {
+  final a = angle * math.pi / 180;
+  final to = Alignment(math.sin(a), -math.cos(a));
+  return LinearGradient(begin: -to, end: to, colors: colors.length == 1 ? [colors[0], colors[0]] : colors);
+}
+
+/// Someone's profile colours, as their card is drawn: an edge in the
+/// colours themselves, and behind the text the same fill deepened towards
+/// the app's panel, so the app's light text stays readable on any colour.
 @immutable
 class ProfileTheme {
-  const ProfileTheme(this.primary, this.accent);
+  const ProfileTheme(this.chosen);
 
-  /// From `0xRRGGBB` values.
-  ProfileTheme.rgb(int primary, int accent) : this(Color(0xFF000000 | primary), Color(0xFF000000 | accent));
-
-  /// The colours chosen: the card's edge, top (main) to bottom (accent).
-  final Color primary;
-  final Color accent;
-
-  /// The card behind the text at the top, and at the bottom.
-  Color get top => _deep(primary);
-  Color get bottom => _deep(accent);
+  final Fill chosen;
 
   /// The edge around the card.
-  LinearGradient get edge => LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [primary, accent]);
+  LinearGradient get edge => chosen.gradient;
 
-  /// The card behind the text, top to bottom.
-  LinearGradient get fill => LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [top, bottom]);
+  /// The card behind the text.
+  LinearGradient get fill => chosen.map(_deep).gradient;
+
+  /// The card's colour where it is a single colour is wanted (its first).
+  Color get base => _deep(chosen.colors.first);
 
   /// [c] mixed into the panel colour, no more than dark enough for the
   /// app's light text: a pale colour is mixed in less.
@@ -41,14 +86,13 @@ class ProfileTheme {
   }
 
   @override
-  bool operator ==(Object other) => other is ProfileTheme && other.primary == primary && other.accent == accent;
+  bool operator ==(Object other) => other is ProfileTheme && other.chosen == chosen;
 
   @override
-  int get hashCode => Object.hash(primary, accent);
+  int get hashCode => chosen.hashCode;
 }
 
-/// A profile card's frame: in someone's profile colours (an edge in the
-/// colours themselves around a fill deepened from them), else the app's
+/// A profile card's frame: in someone's profile colours, else the app's
 /// raised panel. [header] is told the radius of its top corners.
 class ProfileFrame extends StatelessWidget {
   const ProfileFrame({super.key, required this.theme, required this.header, required this.body});
@@ -75,37 +119,21 @@ class ProfileFrame extends StatelessWidget {
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [header(_radius - 1), body]),
       );
     }
-    // Shapes, not clips: smooth corners on every renderer. The header sits
-    // on the top colour, so the ring around the picture matches it; the
-    // body's fill runs from there to the bottom colour.
+    // Shapes, not clips: smooth corners on every renderer. One fill behind
+    // header and body alike; the gap around the picture is cut out of the
+    // banner, so it shows this fill whatever its angle.
     const inner = _radius - _edge;
     return Material(
-      color: t.top,
+      color: t.base,
       elevation: 12,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_radius)),
       child: DecoratedBox(
         decoration: BoxDecoration(gradient: t.edge, borderRadius: BorderRadius.circular(_radius)),
         child: Padding(
           padding: const EdgeInsets.all(_edge),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: t.top,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(inner)),
-                ),
-                child: header(inner),
-              ),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: t.fill,
-                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(inner)),
-                ),
-                child: body,
-              ),
-            ],
+          child: DecoratedBox(
+            decoration: BoxDecoration(gradient: t.fill, borderRadius: BorderRadius.circular(inner)),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [header(inner), body]),
           ),
         ),
       ),
@@ -113,21 +141,25 @@ class ProfileFrame extends StatelessWidget {
   }
 }
 
-/// A named pair of profile colours to choose from.
-class ThemePreset {
-  const ThemePreset(this.name, this.theme);
+/// [child] with a round hole cut out of it, centred at [centre] (in its
+/// own coordinates) with [radius]: whatever lies behind shows through.
+/// The hole's edge is smoothed over a pixel, like a drawn shape's.
+class Punch extends StatelessWidget {
+  const Punch({super.key, required this.centre, required this.radius, required this.child});
 
-  final String name;
-  final ProfileTheme theme;
+  final Offset centre;
+  final double radius;
+  final Widget child;
 
-  static const all = [
-    ThemePreset('Dusk', ProfileTheme(Color(0xFF6A55C8), Color(0xFF2A7A96))),
-    ThemePreset('Rose', ProfileTheme(Color(0xFFC2588E), Color(0xFF5C2E8A))),
-    ThemePreset('Forest', ProfileTheme(Color(0xFF2E8A66), Color(0xFF55702E))),
-    ThemePreset('Ember', ProfileTheme(Color(0xFFD0632E), Color(0xFF8A2E46))),
-    ThemePreset('Ocean', ProfileTheme(Color(0xFF2B6CB0), Color(0xFF3DB8AE))),
-    ThemePreset('Sunset', ProfileTheme(Color(0xFFF2937C), Color(0xFF9B5BD6))),
-    ThemePreset('Gold', ProfileTheme(Color(0xFFE0B04A), Color(0xFF8A5A1F))),
-    ThemePreset('Slate', ProfileTheme(Color(0xFF6B7088), Color(0xFF2A2D44))),
-  ];
+  @override
+  Widget build(BuildContext context) {
+    final soft = 0.5 / MediaQuery.devicePixelRatioOf(context);
+    final outer = radius + soft;
+    return ShaderMask(
+      // Keeps the child only where the mask is clear: out of the circle.
+      blendMode: BlendMode.dstOut,
+      shaderCallback: (_) => ui.Gradient.radial(centre, outer, const [Colors.black, Colors.black, Colors.transparent], [0, (radius - soft) / outer, 1]),
+      child: child,
+    );
+  }
 }

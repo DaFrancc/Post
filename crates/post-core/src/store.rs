@@ -399,6 +399,14 @@ const MIGRATIONS: &[&str] = &[
     // and 0 for none.
     "ALTER TABLE profiles ADD COLUMN theme_primary INTEGER NOT NULL DEFAULT 0;
      ALTER TABLE profiles ADD COLUMN theme_accent INTEGER NOT NULL DEFAULT 0;",
+    // 16: the banner colour and profile colours as encoded `Fill`s, a
+    // colour or a gradient, in place of plain numbers. Never released as
+    // numbers, so what they held is not carried over.
+    "ALTER TABLE profiles DROP COLUMN banner_color;
+     ALTER TABLE profiles DROP COLUMN theme_primary;
+     ALTER TABLE profiles DROP COLUMN theme_accent;
+     ALTER TABLE profiles ADD COLUMN banner_fill BLOB;
+     ALTER TABLE profiles ADD COLUMN theme BLOB;",
 ];
 
 /// Create tables, both ours and OpenMLS's, and bring old databases up to date.
@@ -1212,11 +1220,11 @@ pub struct ProfileRow {
     pub arrival: String,
     pub avatar: Option<content::ProfileImage>,
     pub banner: Option<content::ProfileImage>,
-    /// `0x01RRGGBB`, or 0 for none.
-    pub banner_color: u32,
     pub bio: String,
-    /// Profile colours, main then accent: `0x01RRGGBB` each, or both 0.
-    pub theme: [u32; 2],
+    /// The banner without an image; none for the app's choice.
+    pub banner_fill: Option<content::Fill>,
+    /// Profile colours; none for the app's own look.
+    pub theme: Option<content::Fill>,
 }
 
 impl ProfileRow {
@@ -1236,25 +1244,26 @@ impl ProfileRow {
     }
 }
 
-fn encode_image(i: Option<&content::ProfileImage>) -> Option<Vec<u8>> {
-    i.map(prost::Message::encode_to_vec)
+/// A part of a profile kept as its encoded message (a picture, a fill).
+fn encode_part<M: prost::Message>(m: Option<&M>) -> Option<Vec<u8>> {
+    m.map(prost::Message::encode_to_vec)
 }
 
-fn decode_image(b: Option<Vec<u8>>) -> Option<content::ProfileImage> {
-    b.and_then(|b| <content::ProfileImage as prost::Message>::decode(b.as_slice()).ok())
+fn decode_part<M: prost::Message + Default>(b: Option<Vec<u8>>) -> Option<M> {
+    b.and_then(|b| M::decode(b.as_slice()).ok())
 }
 
 /// Store a profile if it is newer than the one held. Returns whether it was.
 pub fn upsert_profile(conn: &Connection, account: &[u8], p: &ProfileRow) -> Result<bool> {
     let n = conn.execute(
         "INSERT INTO profiles (account_id, version, display_name, typing_template, note_text, note_set_at, note_expires_at, arrival,
-                               avatar, banner, banner_color, bio, theme_primary, theme_accent)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                               avatar, banner, bio, banner_fill, theme)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT (account_id) DO UPDATE SET
            version = excluded.version, display_name = excluded.display_name, typing_template = excluded.typing_template,
            note_text = excluded.note_text, note_set_at = excluded.note_set_at, note_expires_at = excluded.note_expires_at,
-           arrival = excluded.arrival, avatar = excluded.avatar, banner = excluded.banner, banner_color = excluded.banner_color,
-           bio = excluded.bio, theme_primary = excluded.theme_primary, theme_accent = excluded.theme_accent
+           arrival = excluded.arrival, avatar = excluded.avatar, banner = excluded.banner,
+           bio = excluded.bio, banner_fill = excluded.banner_fill, theme = excluded.theme
          WHERE excluded.version > profiles.version",
         params![
             account,
@@ -1265,19 +1274,18 @@ pub fn upsert_profile(conn: &Connection, account: &[u8], p: &ProfileRow) -> Resu
             i64_of(p.note_set_at),
             i64_of(p.note_expires_at),
             p.arrival,
-            encode_image(p.avatar.as_ref()),
-            encode_image(p.banner.as_ref()),
-            p.banner_color,
+            encode_part(p.avatar.as_ref()),
+            encode_part(p.banner.as_ref()),
             p.bio,
-            p.theme[0],
-            p.theme[1]
+            encode_part(p.banner_fill.as_ref()),
+            encode_part(p.theme.as_ref())
         ],
     )?;
     Ok(n > 0)
 }
 
 const PROFILE_COLUMNS: &str =
-    "version, display_name, typing_template, note_text, note_set_at, note_expires_at, arrival, avatar, banner, banner_color, bio, theme_primary, theme_accent";
+    "version, display_name, typing_template, note_text, note_set_at, note_expires_at, arrival, avatar, banner, bio, banner_fill, theme";
 
 fn profile_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ProfileRow> {
     profile_row_at(r, 0)
@@ -1307,11 +1315,11 @@ fn profile_row_at(r: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<ProfileR
         note_set_at: r.get::<_, i64>(at + 4)? as u64,
         note_expires_at: r.get::<_, i64>(at + 5)? as u64,
         arrival: r.get(at + 6)?,
-        avatar: decode_image(r.get(at + 7)?),
-        banner: decode_image(r.get(at + 8)?),
-        banner_color: r.get(at + 9)?,
-        bio: r.get(at + 10)?,
-        theme: [r.get(at + 11)?, r.get(at + 12)?],
+        avatar: decode_part(r.get(at + 7)?),
+        banner: decode_part(r.get(at + 8)?),
+        bio: r.get(at + 9)?,
+        banner_fill: decode_part(r.get(at + 10)?),
+        theme: decode_part(r.get(at + 11)?),
     })
 }
 

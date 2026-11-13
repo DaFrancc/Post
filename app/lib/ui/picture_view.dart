@@ -135,18 +135,20 @@ class _PictureViewState extends State<PictureView> {
   }
 }
 
-/// A banner: [picture] filling the box with rounded corners, or [color]
-/// with none (and while it is made).
+/// A banner: [picture] filling the box with rounded corners, or [fill] (a
+/// colour or gradient) with none, and while it is made.
 class BannerView extends StatelessWidget {
-  const BannerView({super.key, required this.picture, required this.color, required this.radius});
+  const BannerView({super.key, required this.picture, required this.fill, required this.radius});
 
   final PictureRef? picture;
-  final Color color;
+  final Gradient fill;
   final BorderRadius radius;
 
   @override
   Widget build(BuildContext context) {
-    final plain = DecoratedBox(decoration: BoxDecoration(color: color, borderRadius: radius));
+    final plain = DecoratedBox(
+      decoration: BoxDecoration(gradient: fill, borderRadius: radius),
+    );
     final p = picture;
     return p == null ? plain : PictureView(picture: p, radius: radius, placeholder: plain);
   }

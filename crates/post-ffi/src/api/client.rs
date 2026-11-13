@@ -244,24 +244,37 @@ pub struct PersonInfo {
     pub avatar: Option<String>,
     /// Their banner's ID, for `picture`, once this device has it.
     pub banner: Option<String>,
-    /// The banner colour they chose, `0xRRGGBB`, if any.
-    pub banner_color: Option<u32>,
     /// Their bio (about me), formatted like a message; empty if none.
     pub bio: String,
+    /// Their banner without a banner image, if they chose a colour.
+    pub banner_fill: Option<ColorFill>,
     /// Their profile colours, if they chose them.
-    pub colors: Option<ProfileColors>,
+    pub theme: Option<ColorFill>,
     /// When their account began (Unix ms), if known: "on Post since".
     pub since_ms: Option<u64>,
 }
 
-/// Profile colours: the main colour of someone's profile card and its
-/// accent, `0xRRGGBB` each.
-#[derive(Clone, Copy)]
-pub struct ProfileColors {
-    /// The main colour, at the top of the card.
-    pub primary: u32,
-    /// The accent, at the bottom.
-    pub accent: u32,
+/// A colour, or a gradient between two at an angle.
+#[derive(Clone)]
+pub struct ColorFill {
+    /// One colour (solid) or two (a gradient from the first to the
+    /// second), `0xRRGGBB` each.
+    pub colors: Vec<u32>,
+    /// A gradient's direction in degrees, as in CSS: 0 runs from the
+    /// bottom up, 90 left to right, 180 top to bottom. 0 when solid.
+    pub angle: u32,
+}
+
+impl From<core::Fill> for ColorFill {
+    fn from(f: core::Fill) -> Self {
+        Self { colors: f.colors, angle: f.angle }
+    }
+}
+
+impl From<ColorFill> for core::Fill {
+    fn from(f: ColorFill) -> Self {
+        Self { colors: f.colors, angle: f.angle }
+    }
 }
 
 /// One of this account's devices.
@@ -740,24 +753,24 @@ impl Client {
             note: change.note,
             note_keep: change.note_keep,
             arrival: change.arrival,
-            banner_color: None,
             bio: change.bio,
+            banner_fill: None,
             theme: None,
         };
         Ok(self.core.set_profile(update).await?)
     }
 
-    /// Set the banner colour shown when there is no banner image
-    /// (`0xRRGGBB`), or with `None` leave it to the app.
-    pub async fn set_banner_color(&self, color: Option<u32>) -> Result<(), PostError> {
-        let update = core::ProfileUpdate { banner_color: Some(color), ..Default::default() };
+    /// Set the banner's colour or gradient shown when there is no banner
+    /// image, or with `None` leave it to the app. Shared at once.
+    pub async fn set_banner_fill(&self, fill: Option<ColorFill>) -> Result<(), PostError> {
+        let update = core::ProfileUpdate { banner_fill: Some(fill.map(Into::into)), ..Default::default() };
         Ok(self.core.set_profile(update).await?)
     }
 
     /// Set the user's profile colours, or with `None` go back to the app's
     /// own look. Shared at once.
-    pub async fn set_profile_colors(&self, colors: Option<ProfileColors>) -> Result<(), PostError> {
-        let update = core::ProfileUpdate { theme: Some(colors.map(|c| [c.primary, c.accent])), ..Default::default() };
+    pub async fn set_theme(&self, fill: Option<ColorFill>) -> Result<(), PostError> {
+        let update = core::ProfileUpdate { theme: Some(fill.map(Into::into)), ..Default::default() };
         Ok(self.core.set_profile(update).await?)
     }
 
@@ -1115,9 +1128,9 @@ impl Client {
             arrival: p.arrival,
             avatar: p.avatar,
             banner: p.banner,
-            banner_color: p.banner_color,
             bio: p.bio,
-            colors: p.theme.map(|[primary, accent]| ProfileColors { primary, accent }),
+            banner_fill: p.banner_fill.map(Into::into),
+            theme: p.theme.map(Into::into),
             since_ms: p.since_ms,
         })
     }

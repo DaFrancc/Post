@@ -9,7 +9,7 @@ import 'error.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `announcement`, `app_event`, `call_info`, `call_join`, `conversation`, `found_update`, `identity`, `message`, `ms`, `sentence`, `updater`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `from`, `from`, `from`
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>
 abstract class Client implements RustOpaqueInterface {
@@ -294,9 +294,9 @@ abstract class Client implements RustOpaqueInterface {
     required bool admin,
   });
 
-  /// Set the banner colour shown when there is no banner image
-  /// (`0xRRGGBB`), or with `None` leave it to the app.
-  Future<void> setBannerColor({int? color});
+  /// Set the banner's colour or gradient shown when there is no banner
+  /// image, or with `None` leave it to the app. Shared at once.
+  Future<void> setBannerFill({ColorFill? fill});
 
   /// Set (or clear, with "") the user's name in one conversation.
   Future<void> setConversationName({
@@ -325,16 +325,16 @@ abstract class Client implements RustOpaqueInterface {
   /// Change the user's profile and share it with every conversation.
   Future<void> setProfile({required ProfileChange change});
 
-  /// Set the user's profile colours, or with `None` go back to the app's
-  /// own look. Shared at once.
-  Future<void> setProfileColors({ProfileColors? colors});
-
   /// Send read receipts or stop, on all the user's devices. Off, the user
   /// also stops seeing when others read theirs.
   Future<void> setReadReceipts({required bool enabled});
 
   /// Set (or with `None` clear) an app setting on this device.
   Future<void> setSetting({required String key, String? value});
+
+  /// Set the user's profile colours, or with `None` go back to the app's
+  /// own look. Shared at once.
+  Future<void> setTheme({ColorFill? fill});
 
   /// Record that the user compared safety numbers with someone, or (false)
   /// withdraw it.
@@ -716,6 +716,30 @@ class CallParticipantInfo {
           username == other.username &&
           you == other.you &&
           thisDevice == other.thisDevice;
+}
+
+/// A colour, or a gradient between two at an angle.
+class ColorFill {
+  /// One colour (solid) or two (a gradient from the first to the
+  /// second), `0xRRGGBB` each.
+  final Uint32List colors;
+
+  /// A gradient's direction in degrees, as in CSS: 0 runs from the
+  /// bottom up, 90 left to right, 180 top to bottom. 0 when solid.
+  final int angle;
+
+  const ColorFill({required this.colors, required this.angle});
+
+  @override
+  int get hashCode => colors.hashCode ^ angle.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ColorFill &&
+          runtimeType == other.runtimeType &&
+          colors == other.colors &&
+          angle == other.angle;
 }
 
 /// A conversation in the list.
@@ -1287,14 +1311,14 @@ class PersonInfo {
   /// Their banner's ID, for `picture`, once this device has it.
   final String? banner;
 
-  /// The banner colour they chose, `0xRRGGBB`, if any.
-  final int? bannerColor;
-
   /// Their bio (about me), formatted like a message; empty if none.
   final String bio;
 
+  /// Their banner without a banner image, if they chose a colour.
+  final ColorFill? bannerFill;
+
   /// Their profile colours, if they chose them.
-  final ProfileColors? colors;
+  final ColorFill? theme;
 
   /// When their account began (Unix ms), if known: "on Post since".
   final BigInt? sinceMs;
@@ -1310,9 +1334,9 @@ class PersonInfo {
     required this.arrival,
     this.avatar,
     this.banner,
-    this.bannerColor,
     required this.bio,
-    this.colors,
+    this.bannerFill,
+    this.theme,
     this.sinceMs,
   });
 
@@ -1328,9 +1352,9 @@ class PersonInfo {
       arrival.hashCode ^
       avatar.hashCode ^
       banner.hashCode ^
-      bannerColor.hashCode ^
       bio.hashCode ^
-      colors.hashCode ^
+      bannerFill.hashCode ^
+      theme.hashCode ^
       sinceMs.hashCode;
 
   @override
@@ -1348,9 +1372,9 @@ class PersonInfo {
           arrival == other.arrival &&
           avatar == other.avatar &&
           banner == other.banner &&
-          bannerColor == other.bannerColor &&
           bio == other.bio &&
-          colors == other.colors &&
+          bannerFill == other.bannerFill &&
+          theme == other.theme &&
           sinceMs == other.sinceMs;
 }
 
@@ -1550,29 +1574,6 @@ class ProfileChange {
           noteKeep == other.noteKeep &&
           arrival == other.arrival &&
           bio == other.bio;
-}
-
-/// Profile colours: the main colour of someone's profile card and its
-/// accent, `0xRRGGBB` each.
-class ProfileColors {
-  /// The main colour, at the top of the card.
-  final int primary;
-
-  /// The accent, at the bottom.
-  final int accent;
-
-  const ProfileColors({required this.primary, required this.accent});
-
-  @override
-  int get hashCode => primary.hashCode ^ accent.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is ProfileColors &&
-          runtimeType == other.runtimeType &&
-          primary == other.primary &&
-          accent == other.accent;
 }
 
 /// How far one person has got.

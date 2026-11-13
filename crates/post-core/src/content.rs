@@ -252,21 +252,44 @@ pub struct Profile {
     /// The banner across the top of their profile.
     #[prost(message, optional, tag = "7")]
     pub banner: Option<ProfileImage>,
-    /// The banner's colour when there is no banner image, as
-    /// `0x01RRGGBB`; 0 for the app's choice. The 1 lets black be chosen.
-    #[prost(uint32, tag = "8")]
-    pub banner_color: u32,
+    // Tags 8, 10 and 11 held colours as plain numbers before any release;
+    // not to be used again.
     /// About me: a few lines, formatted like a message (formatting and
     /// mentions); empty for none.
     #[prost(string, tag = "9")]
     pub bio: String,
-    /// Profile colours: the main colour of their profile card and its
-    /// accent, `0x01RRGGBB` like `banner_color`. Both or neither (0 and 0,
-    /// the app's own look).
-    #[prost(uint32, tag = "10")]
-    pub theme_primary: u32,
-    #[prost(uint32, tag = "11")]
-    pub theme_accent: u32,
+    /// The banner when there is no banner image; none for the app's choice.
+    #[prost(message, optional, tag = "12")]
+    pub banner_fill: Option<Fill>,
+    /// Profile colours: their profile card in a colour or a gradient; none
+    /// for the app's own look.
+    #[prost(message, optional, tag = "13")]
+    pub theme: Option<Fill>,
+}
+
+/// A colour, or a gradient between two, to fill something with.
+#[derive(Clone, PartialEq, Eq, Message)]
+pub struct Fill {
+    /// One colour (solid), or two (a gradient from the first to the
+    /// second), `0xRRGGBB` each.
+    #[prost(uint32, repeated, tag = "1")]
+    pub colors: Vec<u32>,
+    /// A gradient's direction, in degrees as in CSS: 0 runs from the bottom
+    /// up, 90 left to right, 180 top to bottom. 0 for a solid colour.
+    #[prost(uint32, tag = "2")]
+    pub angle: u32,
+}
+
+impl Fill {
+    /// Well formed: one or two colours, and an angle under 360 (0 when
+    /// solid). One that is not is dropped from a profile rather than
+    /// refusing the profile.
+    pub fn valid(&self) -> bool {
+        (1..=2).contains(&self.colors.len())
+            && self.colors.iter().all(|&c| c <= 0x00ff_ffff)
+            && self.angle < 360
+            && (self.colors.len() == 2 || self.angle == 0)
+    }
 }
 
 /// A profile picture or banner: an encrypted small blob on the server, and
@@ -308,18 +331,6 @@ impl ProfileImage {
             && (1..=max_h).contains(&self.height)
             && matches!(self.mime.as_str(), "image/png" | "image/jpeg")
     }
-}
-
-/// Whether a colour is one a profile may carry: none (0) or `0x01RRGGBB`
-/// (see [`Profile::banner_color`]).
-pub fn valid_color(c: u32) -> bool {
-    c == 0 || c >> 24 == 1
-}
-
-/// Whether profile colours are a pair a profile may carry: two colours, or
-/// none.
-pub fn valid_theme(primary: u32, accent: u32) -> bool {
-    valid_color(primary) && valid_color(accent) && (primary == 0) == (accent == 0)
 }
 
 #[derive(Clone, PartialEq, Message)]

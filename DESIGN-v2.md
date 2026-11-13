@@ -733,7 +733,7 @@ member lists and details whatever name is shown.
   looks at whose picture, check its size and hash, decrypt it, and decode it fully
   with limits set to the largest allowed size before showing it. Until then, and
   with none, apps show a default icon on the person's colour, never initials. With
-  no banner image, a banner colour (`banner_color`, tag 8) or the app's choice.
+  no banner image, a banner fill (`banner_fill`, tag 12, below) or the app's choice.
   Small blobs live 90 days. The uploading device renews them about monthly with a
   secret only it holds, over the anonymous connection, and deletes the old one when
   a picture changes; another device of the account uploads the picture again when it
@@ -746,11 +746,20 @@ member lists and details whatever name is shown.
   No control characters other than `\n`, and none that reorder text. A received bio
   is cut to fit, never refused. A profile card shows its first few lines, fading
   out, with "Show more"; opened, a very tall one scrolls inside the card.
-- **Profile colours.** `theme_primary` and `theme_accent`, tags 10 and 11:
-  `0x01RRGGBB` like `banner_color`, both or neither. Any colours may be sent; the app
-  offers named pairs. The card's edge shows the colours themselves; behind the text
-  they are deepened towards the app's panel (less for pale colours) so its light
-  text stays readable. An invalid pair is dropped, never refusing the profile.
+- **Fills.** The banner without an image (`banner_fill`, tag 12) and profile colours
+  (`theme`, tag 13) are each a `Fill { colors, angle }`. It is one colour (solid), or
+  two with an angle (a gradient from the first to the second). Colours are
+  `0xRRGGBB`; the angle is in degrees as in CSS (0 runs bottom to top, 90 left to
+  right, 180 top to bottom) and is 0 when solid. Any colours may be chosen: the app
+  takes them as RGB hex, with a square showing each. A fill that is not well formed
+  is dropped, never refusing the profile. Tags 8, 10 and 11 held colours as plain
+  numbers before any release, and are not used again.
+- **Profile colours.** The card's edge shows the fill as chosen. Behind the text the
+  same fill is deepened towards the app's panel (less for pale colours), so the app's
+  light text stays readable. The gap around the picture on the banner is cut out of
+  the banner, and the gap around a presence dot out of the picture. Whatever lies
+  behind shows through (a gradient at any angle, a hovered row), so no gap colour has
+  to match it.
 
 ### Typing indicators
 

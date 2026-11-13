@@ -71,7 +71,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 280672928;
+  int get rustContentHash => -166519664;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -372,9 +372,9 @@ abstract class RustLibApi extends BaseApi {
     required bool admin,
   });
 
-  Future<void> crateApiClientClientSetBannerColor({
+  Future<void> crateApiClientClientSetBannerFill({
     required Client that,
-    int? color,
+    ColorFill? fill,
   });
 
   Future<void> crateApiClientClientSetConversationName({
@@ -406,11 +406,6 @@ abstract class RustLibApi extends BaseApi {
     required ProfileChange change,
   });
 
-  Future<void> crateApiClientClientSetProfileColors({
-    required Client that,
-    ProfileColors? colors,
-  });
-
   Future<void> crateApiClientClientSetReadReceipts({
     required Client that,
     required bool enabled,
@@ -420,6 +415,11 @@ abstract class RustLibApi extends BaseApi {
     required Client that,
     required String key,
     String? value,
+  });
+
+  Future<void> crateApiClientClientSetTheme({
+    required Client that,
+    ColorFill? fill,
   });
 
   Future<void> crateApiClientClientSetVerified({
@@ -2788,9 +2788,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<void> crateApiClientClientSetBannerColor({
+  Future<void> crateApiClientClientSetBannerFill({
     required Client that,
-    int? color,
+    ColorFill? fill,
   }) {
     return handler.executeNormal(
       NormalTask(
@@ -2800,7 +2800,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             that,
             serializer,
           );
-          sse_encode_opt_box_autoadd_u_32(color, serializer);
+          sse_encode_opt_box_autoadd_color_fill(fill, serializer);
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
@@ -2812,17 +2812,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_post_error,
         ),
-        constMeta: kCrateApiClientClientSetBannerColorConstMeta,
-        argValues: [that, color],
+        constMeta: kCrateApiClientClientSetBannerFillConstMeta,
+        argValues: [that, fill],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiClientClientSetBannerColorConstMeta =>
+  TaskConstMeta get kCrateApiClientClientSetBannerFillConstMeta =>
       const TaskConstMeta(
-        debugName: "Client_set_banner_color",
-        argNames: ["that", "color"],
+        debugName: "Client_set_banner_fill",
+        argNames: ["that", "fill"],
       );
 
   @override
@@ -3024,44 +3024,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<void> crateApiClientClientSetProfileColors({
-    required Client that,
-    ProfileColors? colors,
-  }) {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
-            that,
-            serializer,
-          );
-          sse_encode_opt_box_autoadd_profile_colors(colors, serializer);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 68,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_post_error,
-        ),
-        constMeta: kCrateApiClientClientSetProfileColorsConstMeta,
-        argValues: [that, colors],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiClientClientSetProfileColorsConstMeta =>
-      const TaskConstMeta(
-        debugName: "Client_set_profile_colors",
-        argNames: ["that", "colors"],
-      );
-
-  @override
   Future<void> crateApiClientClientSetReadReceipts({
     required Client that,
     required bool enabled,
@@ -3078,7 +3040,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 69,
+            funcId: 68,
             port: port_,
           );
         },
@@ -3118,7 +3080,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 70,
+            funcId: 69,
             port: port_,
           );
         },
@@ -3137,6 +3099,44 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(
         debugName: "Client_set_setting",
         argNames: ["that", "key", "value"],
+      );
+
+  @override
+  Future<void> crateApiClientClientSetTheme({
+    required Client that,
+    ColorFill? fill,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerClient(
+            that,
+            serializer,
+          );
+          sse_encode_opt_box_autoadd_color_fill(fill, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 70,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_post_error,
+        ),
+        constMeta: kCrateApiClientClientSetThemeConstMeta,
+        argValues: [that, fill],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiClientClientSetThemeConstMeta =>
+      const TaskConstMeta(
+        debugName: "Client_set_theme",
+        argNames: ["that", "fill"],
       );
 
   @override
@@ -3862,6 +3862,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ColorFill dco_decode_box_autoadd_color_fill(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_color_fill(raw);
+  }
+
+  @protected
   Identity dco_decode_box_autoadd_identity(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_identity(raw);
@@ -3892,21 +3898,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  ProfileColors dco_decode_box_autoadd_profile_colors(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return dco_decode_profile_colors(raw);
-  }
-
-  @protected
   SearchOptions dco_decode_box_autoadd_search_options(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_search_options(raw);
-  }
-
-  @protected
-  int dco_decode_box_autoadd_u_32(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return raw as int;
   }
 
   @protected
@@ -3991,6 +3985,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       username: dco_decode_String(arr[1]),
       you: dco_decode_bool(arr[2]),
       thisDevice: dco_decode_bool(arr[3]),
+    );
+  }
+
+  @protected
+  ColorFill dco_decode_color_fill(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return ColorFill(
+      colors: dco_decode_list_prim_u_32_strict(arr[0]),
+      angle: dco_decode_u_32(arr[1]),
     );
   }
 
@@ -4178,6 +4184,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  Uint32List dco_decode_list_prim_u_32_strict(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as Uint32List;
+  }
+
+  @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as List<int>;
@@ -4320,6 +4332,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ColorFill? dco_decode_opt_box_autoadd_color_fill(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_color_fill(raw);
+  }
+
+  @protected
   Identity? dco_decode_opt_box_autoadd_identity(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_identity(raw);
@@ -4341,18 +4359,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   PictureCrop? dco_decode_opt_box_autoadd_picture_crop(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_picture_crop(raw);
-  }
-
-  @protected
-  ProfileColors? dco_decode_opt_box_autoadd_profile_colors(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return raw == null ? null : dco_decode_box_autoadd_profile_colors(raw);
-  }
-
-  @protected
-  int? dco_decode_opt_box_autoadd_u_32(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return raw == null ? null : dco_decode_box_autoadd_u_32(raw);
   }
 
   @protected
@@ -4390,9 +4396,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       arrival: dco_decode_String(arr[7]),
       avatar: dco_decode_opt_String(arr[8]),
       banner: dco_decode_opt_String(arr[9]),
-      bannerColor: dco_decode_opt_box_autoadd_u_32(arr[10]),
-      bio: dco_decode_String(arr[11]),
-      colors: dco_decode_opt_box_autoadd_profile_colors(arr[12]),
+      bio: dco_decode_String(arr[10]),
+      bannerFill: dco_decode_opt_box_autoadd_color_fill(arr[11]),
+      theme: dco_decode_opt_box_autoadd_color_fill(arr[12]),
       sinceMs: dco_decode_opt_box_autoadd_u_64(arr[13]),
     );
   }
@@ -4481,18 +4487,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       noteKeep: dco_decode_bool(arr[3]),
       arrival: dco_decode_opt_String(arr[4]),
       bio: dco_decode_opt_String(arr[5]),
-    );
-  }
-
-  @protected
-  ProfileColors dco_decode_profile_colors(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    final arr = raw as List<dynamic>;
-    if (arr.length != 2)
-      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
-    return ProfileColors(
-      primary: dco_decode_u_32(arr[0]),
-      accent: dco_decode_u_32(arr[1]),
     );
   }
 
@@ -4785,6 +4779,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ColorFill sse_decode_box_autoadd_color_fill(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_color_fill(deserializer));
+  }
+
+  @protected
   Identity sse_decode_box_autoadd_identity(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_identity(deserializer));
@@ -4823,25 +4823,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  ProfileColors sse_decode_box_autoadd_profile_colors(
-    SseDeserializer deserializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return (sse_decode_profile_colors(deserializer));
-  }
-
-  @protected
   SearchOptions sse_decode_box_autoadd_search_options(
     SseDeserializer deserializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_search_options(deserializer));
-  }
-
-  @protected
-  int sse_decode_box_autoadd_u_32(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return (sse_decode_u_32(deserializer));
   }
 
   @protected
@@ -4931,6 +4917,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       you: var_you,
       thisDevice: var_thisDevice,
     );
+  }
+
+  @protected
+  ColorFill sse_decode_color_fill(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_colors = sse_decode_list_prim_u_32_strict(deserializer);
+    var var_angle = sse_decode_u_32(deserializer);
+    return ColorFill(colors: var_colors, angle: var_angle);
   }
 
   @protected
@@ -5206,6 +5200,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  Uint32List sse_decode_list_prim_u_32_strict(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var len_ = sse_decode_i_32(deserializer);
+    return deserializer.buffer.getUint32List(len_);
+  }
+
+  @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
@@ -5383,6 +5384,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ColorFill? sse_decode_opt_box_autoadd_color_fill(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_color_fill(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   Identity? sse_decode_opt_box_autoadd_identity(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -5427,30 +5441,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_picture_crop(deserializer));
-    } else {
-      return null;
-    }
-  }
-
-  @protected
-  ProfileColors? sse_decode_opt_box_autoadd_profile_colors(
-    SseDeserializer deserializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    if (sse_decode_bool(deserializer)) {
-      return (sse_decode_box_autoadd_profile_colors(deserializer));
-    } else {
-      return null;
-    }
-  }
-
-  @protected
-  int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    if (sse_decode_bool(deserializer)) {
-      return (sse_decode_box_autoadd_u_32(deserializer));
     } else {
       return null;
     }
@@ -5504,9 +5494,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_arrival = sse_decode_String(deserializer);
     var var_avatar = sse_decode_opt_String(deserializer);
     var var_banner = sse_decode_opt_String(deserializer);
-    var var_bannerColor = sse_decode_opt_box_autoadd_u_32(deserializer);
     var var_bio = sse_decode_String(deserializer);
-    var var_colors = sse_decode_opt_box_autoadd_profile_colors(deserializer);
+    var var_bannerFill = sse_decode_opt_box_autoadd_color_fill(deserializer);
+    var var_theme = sse_decode_opt_box_autoadd_color_fill(deserializer);
     var var_sinceMs = sse_decode_opt_box_autoadd_u_64(deserializer);
     return PersonInfo(
       username: var_username,
@@ -5519,9 +5509,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       arrival: var_arrival,
       avatar: var_avatar,
       banner: var_banner,
-      bannerColor: var_bannerColor,
       bio: var_bio,
-      colors: var_colors,
+      bannerFill: var_bannerFill,
+      theme: var_theme,
       sinceMs: var_sinceMs,
     );
   }
@@ -5617,14 +5607,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       arrival: var_arrival,
       bio: var_bio,
     );
-  }
-
-  @protected
-  ProfileColors sse_decode_profile_colors(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_primary = sse_decode_u_32(deserializer);
-    var var_accent = sse_decode_u_32(deserializer);
-    return ProfileColors(primary: var_primary, accent: var_accent);
   }
 
   @protected
@@ -5928,6 +5910,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_color_fill(
+    ColorFill self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_color_fill(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_identity(
     Identity self,
     SseSerializer serializer,
@@ -5973,27 +5964,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_box_autoadd_profile_colors(
-    ProfileColors self,
-    SseSerializer serializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_profile_colors(self, serializer);
-  }
-
-  @protected
   void sse_encode_box_autoadd_search_options(
     SearchOptions self,
     SseSerializer serializer,
   ) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_search_options(self, serializer);
-  }
-
-  @protected
-  void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_u_32(self, serializer);
   }
 
   @protected
@@ -6060,6 +6036,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.username, serializer);
     sse_encode_bool(self.you, serializer);
     sse_encode_bool(self.thisDevice, serializer);
+  }
+
+  @protected
+  void sse_encode_color_fill(ColorFill self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_prim_u_32_strict(self.colors, serializer);
+    sse_encode_u_32(self.angle, serializer);
   }
 
   @protected
@@ -6297,6 +6280,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_prim_u_32_strict(
+    Uint32List self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    serializer.buffer.putUint32List(self);
+  }
+
+  @protected
   void sse_encode_list_prim_u_8_loose(
     List<int> self,
     SseSerializer serializer,
@@ -6440,6 +6433,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_color_fill(
+    ColorFill? self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_color_fill(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_identity(
     Identity? self,
     SseSerializer serializer,
@@ -6492,29 +6498,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_opt_box_autoadd_profile_colors(
-    ProfileColors? self,
-    SseSerializer serializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    sse_encode_bool(self != null, serializer);
-    if (self != null) {
-      sse_encode_box_autoadd_profile_colors(self, serializer);
-    }
-  }
-
-  @protected
-  void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    sse_encode_bool(self != null, serializer);
-    if (self != null) {
-      sse_encode_box_autoadd_u_32(self, serializer);
-    }
-  }
-
-  @protected
   void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -6563,9 +6546,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.arrival, serializer);
     sse_encode_opt_String(self.avatar, serializer);
     sse_encode_opt_String(self.banner, serializer);
-    sse_encode_opt_box_autoadd_u_32(self.bannerColor, serializer);
     sse_encode_String(self.bio, serializer);
-    sse_encode_opt_box_autoadd_profile_colors(self.colors, serializer);
+    sse_encode_opt_box_autoadd_color_fill(self.bannerFill, serializer);
+    sse_encode_opt_box_autoadd_color_fill(self.theme, serializer);
     sse_encode_opt_box_autoadd_u_64(self.sinceMs, serializer);
   }
 
@@ -6635,13 +6618,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self.noteKeep, serializer);
     sse_encode_opt_String(self.arrival, serializer);
     sse_encode_opt_String(self.bio, serializer);
-  }
-
-  @protected
-  void sse_encode_profile_colors(ProfileColors self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_u_32(self.primary, serializer);
-    sse_encode_u_32(self.accent, serializer);
   }
 
   @protected
@@ -7183,10 +7159,10 @@ class ClientImpl extends RustOpaque implements Client {
     admin: admin,
   );
 
-  /// Set the banner colour shown when there is no banner image
-  /// (`0xRRGGBB`), or with `None` leave it to the app.
-  Future<void> setBannerColor({int? color}) => RustLib.instance.api
-      .crateApiClientClientSetBannerColor(that: this, color: color);
+  /// Set the banner's colour or gradient shown when there is no banner
+  /// image, or with `None` leave it to the app. Shared at once.
+  Future<void> setBannerFill({ColorFill? fill}) => RustLib.instance.api
+      .crateApiClientClientSetBannerFill(that: this, fill: fill);
 
   /// Set (or clear, with "") the user's name in one conversation.
   Future<void> setConversationName({
@@ -7234,11 +7210,6 @@ class ClientImpl extends RustOpaque implements Client {
       .api
       .crateApiClientClientSetProfile(that: this, change: change);
 
-  /// Set the user's profile colours, or with `None` go back to the app's
-  /// own look. Shared at once.
-  Future<void> setProfileColors({ProfileColors? colors}) => RustLib.instance.api
-      .crateApiClientClientSetProfileColors(that: this, colors: colors);
-
   /// Send read receipts or stop, on all the user's devices. Off, the user
   /// also stops seeing when others read theirs.
   Future<void> setReadReceipts({required bool enabled}) => RustLib.instance.api
@@ -7249,6 +7220,11 @@ class ClientImpl extends RustOpaque implements Client {
       .instance
       .api
       .crateApiClientClientSetSetting(that: this, key: key, value: value);
+
+  /// Set the user's profile colours, or with `None` go back to the app's
+  /// own look. Shared at once.
+  Future<void> setTheme({ColorFill? fill}) =>
+      RustLib.instance.api.crateApiClientClientSetTheme(that: this, fill: fill);
 
   /// Record that the user compared safety numbers with someone, or (false)
   /// withdraw it.

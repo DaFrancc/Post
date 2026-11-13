@@ -1,6 +1,7 @@
 // Settings: your profile, your devices, security and the account details.
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -421,8 +422,9 @@ class _LookEditorState extends State<_LookEditor> {
   /// What is being changed, while it saves.
   String? _busy;
 
-  /// Banner colours to choose from: the avatar colours, and two darks.
-  static const _colours = [...PColors.avatars, Color(0xFF3A3D4F), Color(0xFF1B2140)];
+  /// Colours being edited but not yet applied, shown in the preview.
+  _Draft? _bannerDraft;
+  _Draft? _themeDraft;
 
   Future<void> _run(String what, Future<void> Function() change) async {
     setState(() => _busy = what);
@@ -435,18 +437,15 @@ class _LookEditorState extends State<_LookEditor> {
     }
   }
 
-  Future<void> _colour(Color? c) => _run('colour', () async {
-    await widget.state.client.setBannerColor(color: c == null ? null : c.toARGB32() & 0xFFFFFF);
+  Future<void> _applyBanner(Fill? f) async {
+    await widget.state.client.setBannerFill(fill: f?.carried);
     await widget.state.reloadPerson(widget.state.me.username);
-  });
+  }
 
-  Future<void> _theme(ProfileTheme? t) => _run('theme', () async {
-    int rgb(Color c) => c.toARGB32() & 0xFFFFFF;
-    await widget.state.client.setProfileColors(
-      colors: t == null ? null : ProfileColors(primary: rgb(t.primary), accent: rgb(t.accent)),
-    );
+  Future<void> _applyTheme(Fill? f) async {
+    await widget.state.client.setTheme(fill: f?.carried);
     await widget.state.reloadPerson(widget.state.me.username);
-  });
+  }
 
   /// A change (tonal) or a removal (danger): both tactile, like every
   /// button that does something.
@@ -469,9 +468,12 @@ class _LookEditorState extends State<_LookEditor> {
         final banner = state.bannerOf(me);
         final hasAvatar = p?.avatar != null;
         final hasBanner = p?.banner != null;
-        final chosen = p?.bannerColor;
-        final theme = state.themeOf(me);
-        final face = theme?.top ?? PColors.panelRaised;
+        final savedBanner = p?.bannerFill == null ? null : Fill.of(p!.bannerFill!);
+        final savedTheme = p?.theme == null ? null : Fill.of(p!.theme!);
+        // The preview shows what is being edited, before it is applied.
+        final bannerFill = _bannerDraft == null ? state.bannerFillOf(me) : AppState.defaultBannerFill(me, _bannerDraft!.fill?.carried);
+        final themeFill = _themeDraft == null ? savedTheme : _themeDraft!.fill;
+        final theme = themeFill == null ? null : ProfileTheme(themeFill);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -484,24 +486,25 @@ class _LookEditorState extends State<_LookEditor> {
                 child: Stack(
                   children: [
                     // A rounded shape filled with the banner, not a clip: its
-                    // corners stay smooth on every renderer.
+                    // corners stay smooth on every renderer. The gap around
+                    // the picture cut out of it.
                     SizedBox(
                       height: 120,
                       width: double.infinity,
-                      child: BannerView(
-                        picture: banner,
-                        color: state.bannerColorOf(me),
-                        radius: BorderRadius.vertical(top: Radius.circular(inner)),
+                      child: Punch(
+                        centre: const Offset(16 + 4 + 42, 74 + 4 + 42),
+                        radius: 42 + 4,
+                        child: BannerView(
+                          picture: banner,
+                          fill: bannerFill.gradient,
+                          radius: BorderRadius.vertical(top: Radius.circular(inner)),
+                        ),
                       ),
                     ),
                     Positioned(
-                      left: 16,
-                      top: 74,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(color: face, shape: BoxShape.circle),
-                        child: PAvatar(name: widget.shownName, colorKey: me, size: 84, image: avatar),
-                      ),
+                      left: 16 + 4,
+                      top: 74 + 4,
+                      child: PAvatar(name: widget.shownName, colorKey: me, size: 84, image: avatar),
                     ),
                     Positioned(
                       left: 120,
@@ -538,58 +541,28 @@ class _LookEditorState extends State<_LookEditor> {
               style: const TextStyle(fontSize: 12.5, height: 1.45, color: PColors.textFaint),
             ),
             if (!hasBanner) ...[
-              const SizedBox(height: 18),
-              const Text('Banner colour', style: PType.name),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _Swatch(
-                    label: 'Your colour',
-                    color: PColors.avatarFor(me).withValues(alpha: 0.55),
-                    chosen: chosen == null,
-                    onTap: _busy == null ? () => unawaited(_colour(null)) : null,
-                  ),
-                  for (final c in _colours)
-                    _Swatch(
-                      label: '#${(c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}',
-                      color: c,
-                      chosen: chosen == (c.toARGB32() & 0xFFFFFF),
-                      onTap: _busy == null ? () => unawaited(_colour(c)) : null,
-                    ),
-                ],
+              const SizedBox(height: 22),
+              _FillEditor(
+                key: const ValueKey('banner-fill'),
+                title: 'Banner colour',
+                help: 'Across the top of your card while you have no banner image.',
+                noneLabel: 'Your colour',
+                saved: savedBanner,
+                start: PColors.avatarFor(me),
+                onDraft: (d) => setState(() => _bannerDraft = d),
+                onApply: _applyBanner,
               ),
             ],
-            const SizedBox(height: 18),
-            const Text('Profile colours', style: PType.name),
-            const SizedBox(height: 4),
-            const Text('Your card in two colours, for everyone who opens it.', style: PType.small),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _Swatch(
-                  what: 'Profile colours',
-                  label: "The app's own",
-                  color: PColors.panelRaised,
-                  outlined: true,
-                  chosen: theme == null,
-                  onTap: _busy == null ? () => unawaited(_theme(null)) : null,
-                ),
-                for (final t in ThemePreset.all)
-                  _Swatch(
-                    what: 'Profile colours',
-                    label: t.name,
-                    gradient: t.theme.edge,
-                    chosen: theme == t.theme,
-                    onTap: _busy == null ? () => unawaited(_theme(t.theme)) : null,
-                  ),
-                // Colours chosen elsewhere (the command line, say).
-                if (theme != null && !ThemePreset.all.any((t) => t.theme == theme))
-                  _Swatch(what: 'Profile colours', label: 'Your own colours', gradient: theme.edge, chosen: true, onTap: null),
-              ],
+            const SizedBox(height: 22),
+            _FillEditor(
+              key: const ValueKey('theme-fill'),
+              title: 'Profile colours',
+              help: 'Your whole card in a colour or a gradient, for everyone who opens it.',
+              noneLabel: "The app's",
+              saved: savedTheme,
+              start: PColors.avatarFor(me),
+              onDraft: (d) => setState(() => _themeDraft = d),
+              onApply: _applyTheme,
             ),
           ],
         );
@@ -598,62 +571,265 @@ class _LookEditorState extends State<_LookEditor> {
   }
 }
 
-/// A round colour (or two) to choose, ringed when chosen.
-class _Swatch extends StatelessWidget {
-  const _Swatch({
-    this.what = 'Banner colour',
-    required this.label,
-    this.color,
-    this.gradient,
-    this.outlined = false,
-    required this.chosen,
-    required this.onTap,
+/// A fill being edited and not yet applied: [fill], or null for none.
+class _Draft {
+  const _Draft(this.fill);
+
+  final Fill? fill;
+}
+
+enum _FillKind { none, solid, gradient }
+
+/// A colour fill to choose: none (the app's choice), one colour, or a
+/// gradient between two at an angle; each colour typed as RGB hex beside a
+/// square showing it. Tells [onDraft] what it holds as it changes, for a
+/// preview (null when that is what is saved), and shares it on Apply.
+class _FillEditor extends StatefulWidget {
+  const _FillEditor({
+    super.key,
+    required this.title,
+    required this.help,
+    required this.noneLabel,
+    required this.saved,
+    required this.start,
+    required this.onDraft,
+    required this.onApply,
   });
 
-  /// What is being chosen, for screen readers.
-  final String what;
-  final String label;
-  final Color? color;
-  final Gradient? gradient;
+  final String title;
+  final String help;
 
-  /// A faint edge, for a colour close to what is behind it.
-  final bool outlined;
-  final bool chosen;
-  final VoidCallback? onTap;
+  /// What none is called (whose look shows instead).
+  final String noneLabel;
+
+  /// What the profile has now.
+  final Fill? saved;
+
+  /// The first colour offered, coming from none.
+  final Color start;
+  final ValueChanged<_Draft?> onDraft;
+  final Future<void> Function(Fill?) onApply;
+
+  @override
+  State<_FillEditor> createState() => _FillEditorState();
+}
+
+class _FillEditorState extends State<_FillEditor> {
+  final _from = TextEditingController();
+  final _to = TextEditingController();
+  var _kind = _FillKind.none;
+  var _angle = 180;
+  var _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load(widget.saved);
+  }
+
+  @override
+  void didUpdateWidget(_FillEditor old) {
+    super.didUpdateWidget(old);
+    // Applied (here or on another device): show what is saved now.
+    if (old.saved != widget.saved && _draft == widget.saved) _load(widget.saved);
+  }
+
+  @override
+  void dispose() {
+    _from.dispose();
+    _to.dispose();
+    super.dispose();
+  }
+
+  static String _hex(Color c) => (c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0');
+
+  static Color? _parse(String s) => s.length == 6 ? Color(0xFF000000 | int.parse(s, radix: 16)) : null;
+
+  void _load(Fill? f) {
+    _kind = f == null ? _FillKind.none : (f.solid ? _FillKind.solid : _FillKind.gradient);
+    final first = f?.colors.first ?? widget.start;
+    // A second colour to start from: the first, a little round the wheel.
+    final hsv = HSVColor.fromColor(first);
+    final second = f != null && !f.solid ? f.colors[1] : hsv.withHue((hsv.hue + 50) % 360).toColor();
+    _from.text = _hex(first);
+    _to.text = _hex(second);
+    _angle = f != null && !f.solid ? f.angle : 180;
+  }
+
+  /// What the fields hold; null for none. Unchanged if a colour is not
+  /// six hex digits yet ([_complete] says).
+  Fill? get _draft {
+    final a = _parse(_from.text), b = _parse(_to.text);
+    return switch (_kind) {
+      _FillKind.none => null,
+      _FillKind.solid => a == null ? widget.saved : Fill.solid(a),
+      _FillKind.gradient => a == null || b == null ? widget.saved : Fill([a, b], _angle),
+    };
+  }
+
+  bool get _complete => switch (_kind) {
+    _FillKind.none => true,
+    _FillKind.solid => _parse(_from.text) != null,
+    _FillKind.gradient => _parse(_from.text) != null && _parse(_to.text) != null,
+  };
+
+  void _changed() {
+    setState(() {});
+    final d = _draft;
+    widget.onDraft(d == widget.saved ? null : _Draft(d));
+  }
+
+  Future<void> _apply() async {
+    setState(() => _busy = true);
+    try {
+      await widget.onApply(_draft);
+      widget.onDraft(null);
+    } catch (e) {
+      if (mounted) showToast(context, errorText(e), error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: label,
-      child: Semantics(
-        button: true,
-        selected: chosen,
-        label: '$what $label',
-        child: MouseRegion(
-          cursor: onTap == null ? SystemMouseCursors.basic : SystemMouseCursors.click,
-          child: GestureDetector(
-            onTap: onTap,
-            child: AnimatedContainer(
-              duration: PMotion.fast,
-              width: 30,
-              height: 30,
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: chosen ? PColors.textStrong : Colors.transparent, width: 2),
+    final changed = _complete && _draft != widget.saved;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(widget.title, style: PType.name),
+        const SizedBox(height: 4),
+        Text(widget.help, style: PType.small),
+        const SizedBox(height: 10),
+        SegmentedButton<_FillKind>(
+          showSelectedIcon: false,
+          segments: [
+            ButtonSegment(value: _FillKind.none, label: Text(widget.noneLabel)),
+            const ButtonSegment(value: _FillKind.solid, label: Text('Colour')),
+            const ButtonSegment(value: _FillKind.gradient, label: Text('Gradient')),
+          ],
+          selected: {_kind},
+          onSelectionChanged: _busy
+              ? null
+              : (s) {
+                  _kind = s.single;
+                  _changed();
+                },
+        ),
+        if (_kind != _FillKind.none) ...[
+          const SizedBox(height: 12),
+          _HexField(label: _kind == _FillKind.gradient ? 'From' : 'Colour', controller: _from, enabled: !_busy, onChanged: _changed),
+        ],
+        if (_kind == _FillKind.gradient) ...[
+          const SizedBox(height: 8),
+          _HexField(label: 'To', controller: _to, enabled: !_busy, onChanged: _changed),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              const SizedBox(
+                width: 56,
+                child: Text('Angle', style: TextStyle(fontSize: 13.5, color: PColors.textMuted)),
               ),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: color,
-                  gradient: gradient,
-                  shape: BoxShape.circle,
-                  border: outlined ? Border.all(color: PColors.borderStrong) : null,
+              SizedBox(
+                width: 240,
+                child: Slider(
+                  value: _angle.toDouble(),
+                  max: 359,
+                  divisions: 359,
+                  label: '$_angle°',
+                  onChanged: _busy
+                      ? null
+                      : (v) {
+                          _angle = v.round();
+                          _changed();
+                        },
                 ),
               ),
-            ),
+              // Which way it runs, and how far round.
+              Transform.rotate(
+                angle: _angle * math.pi / 180,
+                child: const Icon(Icons.arrow_upward_rounded, size: 18, color: PColors.textMuted),
+              ),
+              const SizedBox(width: 6),
+              SizedBox(
+                width: 40,
+                child: Text('$_angle°', style: const TextStyle(fontSize: 13.5, color: PColors.textMuted)),
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 10),
+        FilledButton(
+          style: PButtons.tonal,
+          onPressed: changed && !_busy ? () => unawaited(_apply()) : null,
+          child: _busy ? const PSpinner() : const Text('Apply'),
+        ),
+      ],
+    );
+  }
+}
+
+/// A colour typed as six RGB hex digits, beside a rounded square showing
+/// it (hatched until all six are there).
+class _HexField extends StatelessWidget {
+  const _HexField({required this.label, required this.controller, required this.enabled, required this.onChanged});
+
+  final String label;
+  final TextEditingController controller;
+  final bool enabled;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = controller.text;
+    final colour = text.length == 6 ? Color(0xFF000000 | int.parse(text, radix: 16)) : null;
+    return Row(
+      children: [
+        SizedBox(
+          width: 56,
+          child: Text(label, style: const TextStyle(fontSize: 13.5, color: PColors.textMuted)),
+        ),
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: colour ?? PColors.sunken,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: PColors.borderStrong),
+          ),
+          child: colour == null ? const Icon(Icons.more_horiz_rounded, size: 16, color: PColors.textFaint) : null,
+        ),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 130,
+          child: TextField(
+            controller: controller,
+            enabled: enabled,
+            autocorrect: false,
+            onChanged: (_) => onChanged(),
+            inputFormatters: [_HexFormatter()],
+            style: const TextStyle(fontSize: 14.5, color: PColors.text, fontFamily: PType.mono),
+            decoration: const InputDecoration(prefixText: '#', hintText: 'rrggbb', counterText: ''),
           ),
         ),
-      ),
+      ],
+    );
+  }
+}
+
+/// Keeps a field to six hex digits, lowercase; a pasted `#RRGGBB` loses
+/// its `#`.
+class _HexFormatter extends TextInputFormatter {
+  static final _notHex = RegExp('[^0-9a-f]');
+
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    final text = newValue.text.toLowerCase().replaceAll(_notHex, '');
+    if (text == newValue.text) return newValue.text.length > 6 ? oldValue : newValue;
+    final cut = text.length > 6 ? text.substring(0, 6) : text;
+    return TextEditingValue(
+      text: cut,
+      selection: TextSelection.collapsed(offset: cut.length),
     );
   }
 }

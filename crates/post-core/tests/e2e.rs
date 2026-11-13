@@ -5,7 +5,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use post_core::{Core, DbKey, Event, MessageState, ProfileUpdate};
+use post_core::{Core, DbKey, Event, Fill, MessageState, ProfileUpdate};
 use tempfile::TempDir;
 use zeroize::Zeroizing;
 
@@ -101,7 +101,7 @@ async fn dm_messages_edits_deletes_and_profiles() {
             note_keep: false,
             arrival: Some("decode".into()),
             bio: Some("Climber, bad photographer.\n\nAsk me about **the spreadsheet**, @bob.".into()),
-            theme: Some(Some([0x4a3a8f, 0x1b4e63])),
+            theme: Some(Some(Fill { colors: vec![0x4a3a8f, 0x1b4e63], angle: 135 })),
             ..Default::default()
         })
         .await
@@ -134,7 +134,7 @@ async fn dm_messages_edits_deletes_and_profiles() {
     assert_eq!(alice_seen_by_bob.note.as_deref(), Some("at the beach"));
     assert_eq!(alice_seen_by_bob.arrival, "decode", "her messages arrive her way on Bob's screen too");
     assert_eq!(alice_seen_by_bob.bio, "Climber, bad photographer.\n\nAsk me about **the spreadsheet**, @bob.", "line breaks and all");
-    assert_eq!(alice_seen_by_bob.theme, Some([0x4a3a8f, 0x1b4e63]), "her card in her colours");
+    assert_eq!(alice_seen_by_bob.theme, Some(Fill { colors: vec![0x4a3a8f, 0x1b4e63], angle: 135 }), "her card in her colours");
     let since = alice_seen_by_bob.since_ms.expect("when her account began");
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("now").as_millis() as u64;
     assert!(since <= now && now - since < 10 * 60 * 1000, "her account began minutes ago");
@@ -648,7 +648,13 @@ async fn profile_pictures_and_banners_reach_others() {
 
     alice.set_picture(PictureKind::Avatar, Some((png.clone(), None))).await.expect("set picture");
     alice.set_picture(PictureKind::Banner, Some((png, None))).await.expect("set banner");
-    alice.set_profile(ProfileUpdate { banner_color: Some(Some(0x11_22_33)), ..Default::default() }).await.expect("colour");
+    let solid = Fill { colors: vec![0x11_22_33], angle: 0 };
+    alice.set_profile(ProfileUpdate { banner_fill: Some(Some(solid.clone())), ..Default::default() }).await.expect("colour");
+    // A gradient needs two colours; a solid colour has no angle.
+    let bad = Fill { colors: vec![0x11_22_33], angle: 90 };
+    assert!(alice.set_profile(ProfileUpdate { banner_fill: Some(Some(bad)), ..Default::default() }).await.is_err());
+    let bad = Fill { colors: vec![0x11_22_33, 0x44_55_66], angle: 360 };
+    assert!(alice.set_profile(ProfileUpdate { theme: Some(Some(bad)), ..Default::default() }).await.is_err());
 
     // Alice has hers at once; it never needs fetching back.
     let mine = alice.person("alice").await.expect("person");
@@ -665,7 +671,7 @@ async fn profile_pictures_and_banners_reach_others() {
     let banner = seen.banner.expect("banner");
     let banner_img = image::load_from_memory(&bob.picture(&banner).expect("read").expect("fetched")).expect("an image");
     assert_eq!((banner_img.width(), banner_img.height()), (1200, 400), "3 : 1, no wider than it was");
-    assert_eq!(seen.banner_color, Some(0x11_22_33));
+    assert_eq!(seen.banner_fill, Some(solid));
 
     // Not an image: refused before anything is sent.
     assert!(alice.set_picture(PictureKind::Avatar, Some((b"not an image".to_vec(), None))).await.is_err());

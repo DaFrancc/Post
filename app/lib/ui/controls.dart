@@ -11,8 +11,10 @@ import 'package:flutter/services.dart';
 import '../theme.dart';
 import 'format.dart';
 import 'picture_view.dart';
+import 'profile_theme.dart';
 
 export 'picture_view.dart' show BannerView, PictureRef;
+export 'profile_theme.dart' show Fill, Punch;
 
 /// A labelled text field with an error or help line under it.
 class PField extends StatelessWidget {
@@ -208,16 +210,7 @@ class _PIconButtonState extends State<PIconButton> {
 /// default face on their colour; a group's initials on its colour. Groups
 /// are rounded squares, people are circles. Optionally with a presence dot.
 class PAvatar extends StatelessWidget {
-  const PAvatar({
-    super.key,
-    required this.name,
-    required this.colorKey,
-    this.size = 36,
-    this.square = false,
-    this.presence,
-    this.ringColor = PColors.panel,
-    this.image,
-  });
+  const PAvatar({super.key, required this.name, required this.colorKey, this.size = 36, this.square = false, this.presence, this.image});
 
   /// Who or what it is, for screen readers (and a group's initials).
   final String name;
@@ -225,11 +218,10 @@ class PAvatar extends StatelessWidget {
   final double size;
   final bool square;
 
-  /// A presence word (online, away, dnd, offline), or null for no dot.
+  /// A presence word (online, away, dnd, offline), or null for no dot. The
+  /// gap around it is cut out of the picture, so it shows whatever is
+  /// behind: a hovered row, a gradient.
   final String? presence;
-
-  /// The colour behind the avatar, so the dot looks cut out of it.
-  final Color ringColor;
 
   /// Their profile picture, once it is here.
   final PictureRef? image;
@@ -275,23 +267,19 @@ class PAvatar extends StatelessWidget {
     // not the text.
     final dot = (size * 0.28).clamp(9.0, 16.0);
     final ring = (size * 0.075).clamp(2.5, 4.0);
+    // The dot's centre, inset a little from the corner.
+    final at = size - size * 0.02 - dot / 2;
     return SizedBox(
       width: size,
       height: size,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          face,
+          Punch(centre: Offset(at, at), radius: dot / 2 + ring, child: face),
           Positioned(
-            right: -ring + size * 0.02,
-            bottom: -ring + size * 0.02,
-            child: Container(
-              width: dot + 2 * ring,
-              height: dot + 2 * ring,
-              decoration: BoxDecoration(color: ringColor, shape: BoxShape.circle),
-              alignment: Alignment.center,
-              child: PresenceDot(p, size: dot),
-            ),
+            left: at - dot / 2,
+            top: at - dot / 2,
+            child: PresenceDot(p, size: dot),
           ),
         ],
       ),

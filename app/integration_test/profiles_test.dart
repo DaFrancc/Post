@@ -70,17 +70,25 @@ void main() {
     await h.register('sam', name: 'Sam');
     await h.register('bob', name: 'Bob B', note: 'in the mountains till Sunday');
     await h.cli('bob', ['send', '--to', 'sam', 'booked the hut for saturday!']);
-    await h.cli('bob', ['picture', 'set', await _image('face', 900, 900, const [Color(0xFF3A2C4F), Color(0xFF6A3E9E)])]);
-    await h.cli('bob', ['banner', 'set', await _image('sky', 2400, 900, const [Color(0xFF2B3B8F), Color(0xFF6A3E9E), Color(0xFFC2588E)])]);
+    await h.cli('bob', [
+      'picture',
+      'set',
+      await _image('face', 900, 900, const [Color(0xFF3A2C4F), Color(0xFF6A3E9E)]),
+    ]);
+    await h.cli('bob', [
+      'banner',
+      'set',
+      await _image('sky', 2400, 900, const [Color(0xFF2B3B8F), Color(0xFF6A3E9E), Color(0xFFC2588E)]),
+    ]);
     // Taller than the card shows at first.
     await h.cli('bob', [
       'profile',
       '--bio',
       'Climber, bad photographer, **worse cook**.\nAsk @sam about the hut.\n\n'
           'Routes this year:\n- the north ridge\n- the long traverse\n- the slab, again\n\n_Back on Sunday._',
-      // Dusk.
-      '--colors',
-      '#6a55c8,#2a7a96',
+      // A gradient, corner to corner.
+      '--theme',
+      '#6a55c8,#2a7a96@135',
     ]);
 
     await _open(t, 'sam');
@@ -128,12 +136,46 @@ void main() {
     // The page reloads her profile from the core after saving.
     expect(t.widget<TextField>(bio).controller!.text, 'Mostly **reading**.\nSometimes climbing.');
 
-    // She picks profile colours: the preview at the top turns to them.
-    final rose = find.byTooltip('Rose');
-    await t.scrollUntilVisible(rose, -200, scrollable: page);
-    await tap(t, rose);
-    await waitFor(t, find.byWidgetPredicate((w) => w is ProfileFrame && w.theme == ThemePreset.all[1].theme));
-    await t.scrollUntilVisible(find.text('Add a picture'), -200, scrollable: page);
+    // A banner colour, typed as hex, and profile colours as a gradient.
+    // The preview at the top shows each as it is typed; Apply shares it.
+    final bannerFill = find.byKey(const ValueKey('banner-fill'));
+    final themeFill = find.byKey(const ValueKey('theme-fill'));
+    await t.scrollUntilVisible(bannerFill, -200, scrollable: page);
+    // Each control scrolled into view before it is used.
+    Future<void> shown(Finder f) async {
+      await t.ensureVisible(f);
+      await settle(t);
+    }
+
+    final solid = find.descendant(of: bannerFill, matching: find.text('Colour'));
+    await shown(solid);
+    await tap(t, solid);
+    final bannerHex = find.descendant(of: bannerFill, matching: find.byType(TextField));
+    await shown(bannerHex);
+    await t.enterText(bannerHex, '#C2588E');
+    await settle(t);
+    final applyBanner = find.descendant(of: bannerFill, matching: find.text('Apply'));
+    await shown(applyBanner);
+    await tap(t, applyBanner);
+    final toGradient = find.descendant(of: themeFill, matching: find.text('Gradient'));
+    await shown(toGradient);
+    await tap(t, toGradient);
+    final hex = find.descendant(of: themeFill, matching: find.byType(TextField));
+    await shown(hex.at(1));
+    await t.enterText(hex.at(0), '2b6cb0');
+    await t.enterText(hex.at(1), '3db8ae');
+    await settle(t);
     await _shot(t, 'profiles-05-colours');
+    final applyTheme = find.descendant(of: themeFill, matching: find.text('Apply'));
+    await shown(applyTheme);
+    await tap(t, applyTheme);
+    // Applied: nothing left to apply, and the preview at the top in her
+    // gradient and her banner colour.
+    await waitFor(t, find.descendant(of: themeFill, matching: find.byWidgetPredicate((w) => w is FilledButton && w.onPressed == null)));
+    await t.scrollUntilVisible(find.text('Add a picture'), -200, scrollable: page);
+    final gradient = ProfileTheme(const Fill([Color(0xFF2B6CB0), Color(0xFF3DB8AE)], 180));
+    await waitFor(t, find.byWidgetPredicate((w) => w is ProfileFrame && w.theme == gradient));
+    await t.drag(page, const Offset(0, 2000));
+    await _shot(t, 'profiles-06-applied');
   });
 }

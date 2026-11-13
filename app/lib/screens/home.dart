@@ -706,7 +706,6 @@ class _ConversationRowState extends State<_ConversationRow> {
                           name: c.title,
                           colorKey: c.peer ?? c.id,
                           presence: state.presenceOf(c.peer ?? ''),
-                          ringColor: bg,
                           image: c.peer == null ? null : state.avatarOf(c.peer!),
                         ),
                   const SizedBox(width: 12),
@@ -902,13 +901,7 @@ class _YouCard extends StatelessWidget {
                 onTap: () => _presenceMenu(anchor),
                 child: Row(
                   children: [
-                    PAvatar(
-                      name: state.myName,
-                      colorKey: state.me.username,
-                      presence: state.ownPresenceWord,
-                      ringColor: PColors.sunken,
-                      image: state.avatarOf(state.me.username),
-                    ),
+                    PAvatar(name: state.myName, colorKey: state.me.username, presence: state.ownPresenceWord, image: state.avatarOf(state.me.username)),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(

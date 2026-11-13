@@ -59,8 +59,7 @@ class _ProfileCard extends StatelessWidget {
         final name = p?.shownName ?? username;
         final presence = state.presenceOf(username);
         final theme = state.themeOf(username);
-        // What the picture and the boxes sit on.
-        final face = theme?.top ?? PColors.panelRaised;
+        // What the boxes sit on.
         final well = theme == null ? PColors.sunken : Colors.black.withValues(alpha: 0.28);
         return ProfileFrame(
           theme: theme,
@@ -70,24 +69,25 @@ class _ProfileCard extends StatelessWidget {
               children: [
                 // Its top corners rounded with the card's, as a shape
                 // rather than by the card's clip: smooth on every
-                // renderer.
+                // renderer. The gap around the picture is cut out of it,
+                // showing the card behind, whatever its fill.
                 SizedBox(
                   height: 100,
                   width: double.infinity,
-                  child: BannerView(
-                    picture: state.bannerOf(username),
-                    color: state.bannerColorOf(username),
-                    radius: BorderRadius.vertical(top: Radius.circular(inner)),
+                  child: Punch(
+                    centre: const Offset(12 + 4 + 40, 56 + 4 + 40),
+                    radius: 40 + 4,
+                    child: BannerView(
+                      picture: state.bannerOf(username),
+                      fill: state.bannerFillOf(username).gradient,
+                      radius: BorderRadius.vertical(top: Radius.circular(inner)),
+                    ),
                   ),
                 ),
                 Positioned(
-                  left: 12,
-                  top: 56,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(color: face, shape: BoxShape.circle),
-                    child: PAvatar(name: name, colorKey: username, size: 80, presence: presence, ringColor: face, image: state.avatarOf(username)),
-                  ),
+                  left: 12 + 4,
+                  top: 56 + 4,
+                  child: PAvatar(name: name, colorKey: username, size: 80, presence: presence, image: state.avatarOf(username)),
                 ),
                 if (p?.verified ?? false)
                   Positioned(

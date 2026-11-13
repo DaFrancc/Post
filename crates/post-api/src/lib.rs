@@ -124,13 +124,13 @@ pub struct Person {
     pub picture: Option<String>,
     /// Their banner's ID, for `save_picture`, once this device has it.
     pub banner: Option<String>,
-    /// Their banner colour, `#rrggbb`, if they chose one.
-    pub banner_color: Option<String>,
     /// Their bio (about me), formatted like a message; empty if none.
     pub bio: String,
-    /// Their profile colours, main then accent, `#rrggbb` each; empty if
-    /// they chose none.
-    pub colors: Vec<String>,
+    /// Their banner's colour without a banner image, if they chose one: a
+    /// fill (see `set_profile`).
+    pub banner_fill: Option<String>,
+    /// Their profile colours, if they chose them: a fill.
+    pub theme: Option<String>,
     /// When their account began (Unix ms), if known.
     pub since_ms: Option<u64>,
 }
@@ -816,18 +816,20 @@ pub struct ProfileParams {
     /// restores the default.
     #[serde(default)]
     pub arrival: Option<String>,
-    /// Banner colour shown when you have no banner image, `#rrggbb`; empty
-    /// restores the app's choice.
-    #[serde(default)]
-    pub banner_color: Option<String>,
     /// Bio (about me): up to 500 characters, line breaks included,
     /// formatted like a message; empty clears it.
     #[serde(default)]
     pub bio: Option<String>,
-    /// Profile colours: the main colour of your profile card and its
-    /// accent, `#rrggbb` each; empty restores the app's own look.
+    /// The banner shown when you have no banner image: a fill, which is a
+    /// colour (`#6e8bff`) or a gradient between two at an angle in degrees
+    /// (`#6e8bff,#c2588e@135`; 180 runs top to bottom, the default). Empty
+    /// restores the app's choice.
     #[serde(default)]
-    pub colors: Option<Vec<String>>,
+    pub banner_fill: Option<String>,
+    /// Profile colours, your card in a fill (as `banner_fill`); empty
+    /// restores the app's own look.
+    #[serde(default)]
+    pub theme: Option<String>,
 }
 
 /// `set_picture`: your profile picture or banner.
@@ -1045,7 +1047,7 @@ methods! {
     "edit", Connection, EditParams, Message, "Edit one of your messages; earlier versions stay visible.";
     "delete", Connection, MessageParams, Done, "Delete one of your messages, with every version, for everyone.";
     "versions", Local, MessageParams, Vec<MessageVersion>, "Every version of a message, the original first.";
-    "set_profile", Connection, ProfileParams, Done, "Change your display name, typing template, note, arrival style, banner colour, bio or profile colours.";
+    "set_profile", Connection, ProfileParams, Done, "Change your display name, typing template, note, arrival style, bio, banner colour or profile colours.";
     "set_picture", Connection, SetPictureParams, Done, "Set your profile picture or banner from an image file, or remove it.";
     "save_picture", Local, SavePictureParams, Done, "Write a profile picture or banner this device has to a file.";
     "set_conversation_name", Connection, ConversationNameParams, Done, "Set your display name in one conversation.";
@@ -1130,11 +1132,33 @@ fn id<T: std::str::FromStr<Err = core::Error>>(s: &str) -> Result<T, ApiError> {
 
 /// `#rrggbb` (or `rrggbb`) as `0xRRGGBB`.
 fn parse_color(s: &str) -> Result<u32, ApiError> {
-    let hex = s.strip_prefix('#').unwrap_or(s);
+    let hex = s.trim().strip_prefix('#').unwrap_or(s.trim());
     match u32::from_str_radix(hex, 16) {
         Ok(c) if hex.len() == 6 => Ok(c),
         _ => Err(ApiError { code: -32602, message: format!("{s} is not a colour like #6e8bff") }),
     }
+}
+
+/// A fill: `#rrggbb`, or `#rrggbb,#rrggbb` with an optional `@angle` in
+/// degrees (180, top to bottom, if left out).
+fn parse_fill(s: &str) -> Result<core::Fill, ApiError> {
+    let bad = || ApiError { code: -32602, message: format!("{s} is not a fill like #6e8bff or #6e8bff,#c2588e@135") };
+    let (colors, angle) = match s.split_once('@') {
+        Some((c, a)) => (c, Some(a.trim().trim_end_matches("deg").parse::<u32>().map_err(|_| bad())?)),
+        None => (s, None),
+    };
+    let colors = colors.split(',').map(parse_color).collect::<Result<Vec<_>, _>>()?;
+    let fill = match colors.len() {
+        1 if angle.is_none() => core::Fill { colors, angle: 0 },
+        2 => core::Fill { colors, angle: angle.unwrap_or(180) },
+        _ => return Err(bad()),
+    };
+    if fill.valid() { Ok(fill) } else { Err(bad()) }
+}
+
+fn format_fill(f: &core::Fill) -> String {
+    let colors: Vec<String> = f.colors.iter().map(|c| format!("#{c:06x}")).collect();
+    if colors.len() == 2 { format!("{}@{}", colors.join(","), f.angle) } else { colors.join(",") }
 }
 
 /// An image file to make a picture from, refusing one too large to be one.
@@ -1296,16 +1320,12 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
         }
         "set_profile" => {
             let p: ProfileParams = params(p)?;
-            let banner_color = match p.banner_color.as_deref() {
-                None => None,
-                Some("") => Some(None),
-                Some(c) => Some(Some(parse_color(c)?)),
-            };
-            let theme = match p.colors.as_deref() {
-                None => None,
-                Some([]) => Some(None),
-                Some([main, accent]) => Some(Some([parse_color(main)?, parse_color(accent)?])),
-                Some(_) => return Err(ApiError { code: -32602, message: "profile colours are two colours (main, accent), or none".into() }),
+            let fill = |f: Option<String>| -> Result<Option<Option<core::Fill>>, ApiError> {
+                Ok(match f.as_deref() {
+                    None => None,
+                    Some("") => Some(None),
+                    Some(s) => Some(Some(parse_fill(s)?)),
+                })
             };
             core.set_profile(core::ProfileUpdate {
                 display_name: p.display_name,
@@ -1313,9 +1333,9 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 note: p.note,
                 note_keep: p.note_keep,
                 arrival: p.arrival,
-                banner_color,
                 bio: p.bio,
-                theme,
+                banner_fill: fill(p.banner_fill)?,
+                theme: fill(p.theme)?,
             })
             .await?;
             ok(Done {})
@@ -1369,9 +1389,9 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 arrival: x.arrival,
                 picture: x.avatar,
                 banner: x.banner,
-                banner_color: x.banner_color.map(|c| format!("#{c:06x}")),
                 bio: x.bio,
-                colors: x.theme.into_iter().flatten().map(|c| format!("#{c:06x}")).collect(),
+                banner_fill: x.banner_fill.as_ref().map(format_fill),
+                theme: x.theme.as_ref().map(format_fill),
                 since_ms: x.since_ms,
             })
         }
@@ -1533,6 +1553,20 @@ pub fn openrpc() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fills_read_and_write_the_same() {
+        let solid = parse_fill("#6E8BFF").expect("solid");
+        assert_eq!(solid, core::Fill { colors: vec![0x6e8bff], angle: 0 });
+        assert_eq!(format_fill(&solid), "#6e8bff");
+        let gradient = parse_fill("#6e8bff, #c2588e@135").expect("gradient");
+        assert_eq!(gradient, core::Fill { colors: vec![0x6e8bff, 0xc2588e], angle: 135 });
+        assert_eq!(parse_fill(&format_fill(&gradient)).expect("again"), gradient);
+        assert_eq!(parse_fill("#6e8bff,#c2588e").expect("default angle").angle, 180);
+        for bad in ["6e8bf", "#6e8bff@90", "#a,#b", "#6e8bff,#c2588e@360", "#111111,#222222,#333333", "#6e8bff,#c2588e@x"] {
+            assert!(parse_fill(bad).is_err(), "{bad}");
+        }
+    }
 
     #[test]
     fn every_method_dispatches_and_has_a_schema() {

@@ -2982,8 +2982,8 @@ impl Engine {
         content::check_note(&row.note_text).map_err(invalid)?;
         content::check_arrival(&row.arrival).map_err(invalid)?;
         content::check_bio(&row.bio).map_err(invalid)?;
-        if !content::valid_color(row.banner_color) || !content::valid_theme(row.theme[0], row.theme[1]) {
-            return Err(Error::InvalidInput("profile colours are two colours, or none".into()));
+        if [&row.banner_fill, &row.theme].into_iter().flatten().any(|f| !f.valid()) {
+            return Err(Error::InvalidInput("a colour fill is one colour, or two and an angle under 360".into()));
         }
         let mine = self.me()?.account;
         row.version = store::profile(&self.conn, &mine.0)?.map_or(0, |p| p.version) + 1;
@@ -3452,10 +3452,9 @@ fn profile_body(p: &store::ProfileRow) -> content::Profile {
         arrival: p.arrival.clone(),
         avatar: p.avatar.clone(),
         banner: p.banner.clone(),
-        banner_color: p.banner_color,
         bio: p.bio.clone(),
-        theme_primary: p.theme[0],
-        theme_accent: p.theme[1],
+        banner_fill: p.banner_fill.clone(),
+        theme: p.theme.clone(),
     }
 }
 
@@ -3830,12 +3829,12 @@ fn handle_content(
                 // Only a look: one that is not a valid name is dropped
                 // rather than refusing the whole profile.
                 arrival: if content::check_arrival(&p.arrival).is_ok() { p.arrival.clone() } else { String::new() },
-                // Likewise a picture that is not well formed, or a colour.
+                // Likewise a picture that is not well formed, or a fill.
                 avatar: p.avatar.clone().filter(|i| i.valid(PictureKind::Avatar)),
                 banner: p.banner.clone().filter(|i| i.valid(PictureKind::Banner)),
-                banner_color: if content::valid_color(p.banner_color) { p.banner_color } else { 0 },
                 bio: content::fit_bio(&p.bio),
-                theme: if content::valid_theme(p.theme_primary, p.theme_accent) { [p.theme_primary, p.theme_accent] } else { [0, 0] },
+                banner_fill: p.banner_fill.clone().filter(content::Fill::valid),
+                theme: p.theme.clone().filter(content::Fill::valid),
             };
             Ok(if store::upsert_profile(tx, &sender.0, &row)? { Outcome::Profile(*sender) } else { Outcome::Nothing })
         }

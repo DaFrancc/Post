@@ -1439,14 +1439,7 @@ class _MentionList extends StatelessWidget {
           decoration: BoxDecoration(color: lit ? PColors.active : Colors.transparent, borderRadius: BorderRadius.circular(10)),
           child: Row(
             children: [
-              PAvatar(
-                name: m.shownName,
-                colorKey: m.username,
-                size: 26,
-                presence: presenceOf(m.username),
-                ringColor: lit ? PColors.active : PColors.panelRaised,
-                image: avatarOf(m.username),
-              ),
+              PAvatar(name: m.shownName, colorKey: m.username, size: 26, presence: presenceOf(m.username), image: avatarOf(m.username)),
               const SizedBox(width: 10),
               Flexible(
                 child: Text(

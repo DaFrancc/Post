@@ -253,14 +253,7 @@ class _MemberRowState extends State<_MemberRow> {
               opacity: widget.presence == 'offline' ? 0.6 : 1,
               child: Row(
                 children: [
-                  PAvatar(
-                    name: m.shownName,
-                    colorKey: m.username,
-                    size: 32,
-                    presence: widget.presence,
-                    ringColor: bg,
-                    image: widget.state.avatarOf(m.username),
-                  ),
+                  PAvatar(name: m.shownName, colorKey: m.username, size: 32, presence: widget.presence, image: widget.state.avatarOf(m.username)),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
@@ -365,7 +358,6 @@ class _ProfileState extends State<_Profile> {
         final verified = p?.verified ?? false;
         final banner = _state.bannerOf(widget.username);
         final theme = _state.themeOf(widget.username);
-        final face = theme?.top ?? PColors.panel;
         final list = ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
           children: [
@@ -379,25 +371,20 @@ class _ProfileState extends State<_Profile> {
                   child: Stack(
                     alignment: Alignment.topCenter,
                     children: [
+                      // The gap around the picture cut out of it, showing
+                      // the panel behind, whatever its fill.
                       SizedBox(
                         height: height,
                         width: double.infinity,
-                        child: BannerView(picture: banner, color: _state.bannerColorOf(widget.username), radius: BorderRadius.circular(14)),
+                        child: Punch(
+                          centre: Offset(box.maxWidth / 2, height + 4),
+                          radius: 40 + 4,
+                          child: BannerView(picture: banner, fill: _state.bannerFillOf(widget.username).gradient, radius: BorderRadius.circular(14)),
+                        ),
                       ),
                       Positioned(
-                        top: height - 40,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(color: face, shape: BoxShape.circle),
-                          child: PAvatar(
-                            name: name,
-                            colorKey: widget.username,
-                            size: 80,
-                            presence: presence,
-                            ringColor: face,
-                            image: _state.avatarOf(widget.username),
-                          ),
-                        ),
+                        top: height - 36,
+                        child: PAvatar(name: name, colorKey: widget.username, size: 80, presence: presence, image: _state.avatarOf(widget.username)),
                       ),
                     ],
                   ),
@@ -473,22 +460,10 @@ class _ProfileState extends State<_Profile> {
           ],
         );
         if (theme == null) return list;
-        // In their colours: the top colour for the first stretch, where the
-        // picture is (its ring matching, however far the list scrolls up
-        // into it), deepening to the bottom colour by the panel's foot.
-        return LayoutBuilder(
-          builder: (context, box) => DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [theme.top, theme.top, theme.bottom],
-                // The list's padding, the banner (3 : 1), the picture below it.
-                stops: [0, ((16 + (box.maxWidth - 32) / 3 + 48) / box.maxHeight).clamp(0.0, 1.0), 1],
-              ),
-            ),
-            child: list,
-          ),
+        // In their colours, the panel's whole height.
+        return DecoratedBox(
+          decoration: BoxDecoration(gradient: theme.fill),
+          child: list,
         );
       },
     );

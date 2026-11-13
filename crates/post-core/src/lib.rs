@@ -32,7 +32,7 @@ use rusqlite::Connection;
 use tokio::sync::broadcast;
 use zeroize::Zeroizing;
 
-pub use content::{MAX_BIO, MAX_NOTE, MAX_TYPING_TEMPLATE, NAME_PLACEHOLDER, render_typing};
+pub use content::{Fill, MAX_BIO, MAX_NOTE, MAX_TYPING_TEMPLATE, NAME_PLACEHOLDER, render_typing};
 use engine::Engine;
 
 /// Everything that can go wrong in the core.
@@ -561,13 +561,13 @@ pub struct Person {
     pub avatar: Option<String>,
     /// Their banner, for [`Core::picture`], once this device has it.
     pub banner: Option<String>,
-    /// The banner colour they chose (`0xRRGGBB`), if any.
-    pub banner_color: Option<u32>,
     /// Their bio (about me), formatted like a message; empty if none.
     pub bio: String,
-    /// Their profile colours (`0xRRGGBB`), main then accent, if they chose
-    /// them.
-    pub theme: Option<[u32; 2]>,
+    /// Their banner's colour or gradient when they have no banner image, if
+    /// they chose one.
+    pub banner_fill: Option<Fill>,
+    /// Their profile colours, if they chose them.
+    pub theme: Option<Fill>,
     /// When their account began (Unix ms): signed into its device list and
     /// checked by their server when it registered.
     pub since_ms: Option<u64>,
@@ -694,14 +694,13 @@ pub struct ProfileUpdate {
     pub note_keep: bool,
     /// New arrival preset for your messages; empty restores the default.
     pub arrival: Option<String>,
-    /// New banner colour (`0xRRGGBB`) shown when there is no banner image,
-    /// or `Some(None)` for the app's choice.
-    pub banner_color: Option<Option<u32>>,
     /// New bio (about me); empty clears it.
     pub bio: Option<String>,
-    /// New profile colours (`0xRRGGBB`), main then accent, or `Some(None)`
-    /// for the app's own look.
-    pub theme: Option<Option<[u32; 2]>>,
+    /// New banner colour or gradient, shown when there is no banner image,
+    /// or `Some(None)` for the app's choice.
+    pub banner_fill: Option<Option<Fill>>,
+    /// New profile colours, or `Some(None)` for the app's own look.
+    pub theme: Option<Option<Fill>>,
 }
 
 /// Something that happened, for live views.
@@ -1560,17 +1559,8 @@ impl Core {
             Some(n) => (n, now, if update.note_keep { 0 } else { now + content::NOTE_DEFAULT_MS }),
             None => (current.note_text.clone(), current.note_set_at, current.note_expires_at),
         };
-        let color = |rgb: u32| 0x0100_0000 | (rgb & 0x00ff_ffff);
-        let banner_color = match update.banner_color {
-            Some(Some(rgb)) => color(rgb),
-            Some(None) => 0,
-            None => current.banner_color,
-        };
-        let theme = match update.theme {
-            Some(Some([main, accent])) => [color(main), color(accent)],
-            Some(None) => [0, 0],
-            None => current.theme,
-        };
+        let banner_fill = update.banner_fill.unwrap_or_else(|| current.banner_fill.clone());
+        let theme = update.theme.unwrap_or_else(|| current.theme.clone());
         engine
             .set_profile(store::ProfileRow {
                 version: 0,
@@ -1581,7 +1571,7 @@ impl Core {
                 note_expires_at,
                 arrival: update.arrival.unwrap_or_else(|| current.arrival.clone()),
                 bio: update.bio.unwrap_or_else(|| current.bio.clone()),
-                banner_color,
+                banner_fill,
                 theme,
                 ..current
             })
@@ -1663,9 +1653,9 @@ impl Core {
                 arrival: p.as_ref().map(|p| p.arrival.clone()).unwrap_or_default(),
                 avatar: held(picture::PictureKind::Avatar)?,
                 banner: held(picture::PictureKind::Banner)?,
-                banner_color: p.as_ref().filter(|p| p.banner_color != 0).map(|p| p.banner_color & 0x00ff_ffff),
                 bio: p.as_ref().map(|p| p.bio.clone()).unwrap_or_default(),
-                theme: p.as_ref().filter(|p| p.theme != [0, 0]).map(|p| p.theme.map(|c| c & 0x00ff_ffff)),
+                banner_fill: p.as_ref().and_then(|p| p.banner_fill.clone()),
+                theme: p.as_ref().and_then(|p| p.theme.clone()),
                 since_ms,
                 note: p.filter(|p| !p.note_text.is_empty() && (p.note_expires_at == 0 || p.note_expires_at > now)).map(|p| p.note_text),
             })

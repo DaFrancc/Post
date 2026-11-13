@@ -145,18 +145,19 @@ enum Command {
         /// typewriter, focus, wave or instant ("" restores the default).
         #[arg(long)]
         arrival: Option<String>,
-        /// Banner colour shown when you have no banner image, like
-        /// #6e8bff ("" restores the app's choice).
-        #[arg(long)]
-        banner_color: Option<String>,
         /// About me: up to 500 characters, line breaks included, formatted
         /// like a message ("" clears it).
         #[arg(long)]
         bio: Option<String>,
-        /// Profile colours: your card's main colour and its accent, like
-        /// "#4a3a8f,#1b4e63" ("" restores the app's own look).
+        /// The banner when you have no banner image: a colour like #6e8bff,
+        /// or a gradient at an angle like "#6e8bff,#c2588e@135" ("" restores
+        /// the app's choice).
         #[arg(long)]
-        colors: Option<String>,
+        banner_fill: Option<String>,
+        /// Profile colours: your card in a colour or a gradient, written
+        /// like --banner-fill ("" restores the app's own look).
+        #[arg(long)]
+        theme: Option<String>,
     },
     /// Your profile picture: set it from an image file (its middle is
     /// used, square), remove it, or save someone's to a file.
@@ -510,7 +511,7 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         Command::Delete { conversation, message } => ("delete", json!({ "conversation": conversation, "message": message })),
         Command::Versions { conversation, message } => ("versions", json!({ "conversation": conversation, "message": message })),
         Command::Receipts { conversation, message } => ("message_receipts", json!({ "conversation": conversation, "message": message })),
-        Command::Profile { display_name, typing_template, note, keep_note, arrival, banner_color, bio, colors } => (
+        Command::Profile { display_name, typing_template, note, keep_note, arrival, bio, banner_fill, theme } => (
             "set_profile",
             json!({
                 "display_name": display_name,
@@ -518,9 +519,9 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
                 "note": note,
                 "note_keep": keep_note,
                 "arrival": arrival,
-                "banner_color": banner_color,
                 "bio": bio,
-                "colors": colors.as_ref().map(|c| c.split(',').map(str::trim).filter(|c| !c.is_empty()).map(String::from).collect::<Vec<_>>()),
+                "banner_fill": banner_fill,
+                "theme": theme,
             }),
         ),
         Command::Picture { cmd } => picture_call("picture", cmd),
@@ -708,17 +709,13 @@ fn print_human(method: &str, v: &Value) {
             if let Some(n) = v["note"].as_str() {
                 println!("note: {n}");
             }
-            for (k, label) in [("picture", "picture"), ("banner", "banner"), ("banner_color", "banner colour")] {
+            for (k, label) in [("picture", "picture"), ("banner", "banner"), ("banner_fill", "banner colour"), ("theme", "profile colours")] {
                 if let Some(x) = v[k].as_str() {
                     println!("{label}: {x}");
                 }
             }
             if let Some(since) = v["since_ms"].as_u64() {
                 println!("on Post since: {} UTC", time(since));
-            }
-            if let Some(colors) = v["colors"].as_array().filter(|c| !c.is_empty()) {
-                let colors: Vec<&str> = colors.iter().filter_map(|c| c.as_str()).collect();
-                println!("profile colours: {}", colors.join(", "));
             }
             if !s(v, "bio").is_empty() {
                 println!("about me:");
