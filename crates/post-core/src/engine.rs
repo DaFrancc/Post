@@ -30,7 +30,8 @@ use tokio::sync::broadcast;
 use zeroize::Zeroizing;
 
 use crate::content::{self, Body, Content};
-use crate::{calls, ephemeral};
+use crate::picture::{Picture, PictureKind};
+use crate::{blob, calls, ephemeral};
 use crate::link::{self as linking, Channel, LinkCode};
 use crate::net::{ServerConn, expect_reply};
 use crate::provider::Provider;
@@ -2991,6 +2992,207 @@ impl Engine {
         }
     }
 
+    // ------------------------------------------------------------ pictures
+
+    /// Set (`Some`) or remove this account's picture of `kind`, and share
+    /// the profile. The picture it replaces is deleted from the server.
+    pub async fn set_picture(&mut self, kind: PictureKind, picture: Option<Picture>) -> Result<()> {
+        let mine = self.me()?.account;
+        let mut row = store::profile(&self.conn, &mine.0)?.unwrap_or_default();
+        let old = row.image(kind).map(|i| i.blob_id.clone());
+        *row.image_mut(kind) = match picture {
+            Some(p) => Some(self.upload_picture(&p).await?),
+            None => None,
+        };
+        self.set_profile(row).await?;
+        if let Some(old) = old {
+            self.delete_own_picture(&old).await?;
+        }
+        Ok(())
+    }
+
+    /// Encrypt and upload a picture. It is kept here, with the secret that
+    /// renews it, so it shows at once and never needs fetching back.
+    async fn upload_picture(&mut self, p: &Picture) -> Result<content::ProfileImage> {
+        let (key, ciphertext) = blob::encrypt(&p.bytes)?;
+        let sha = Sha256::digest(&ciphertext).to_vec();
+        let size = u32::try_from(ciphertext.len()).map_err(|_| Error::Picture("the picture is too large".into()))?;
+        let mut secret = Zeroizing::new([0u8; 32]);
+        getrandom::fill(secret.as_mut()).map_err(|_| Error::Rng)?;
+        let req = proto::UploadBlob { data: ciphertext, renew_hash: Sha256::digest(secret.as_ref()).to_vec() };
+        let stored = match self.session()?.request(Request::UploadBlob(req)).await {
+            Ok(r) => expect_reply!(r, Reply::BlobStored)?,
+            // A server from before pictures.
+            Err(Error::Server(e)) if e.code() == ErrorCode::BadRequest && e.message == "empty request" => {
+                return Err(Error::InvalidInput("your server is too old for profile pictures: ask whoever runs it to update it".into()));
+            }
+            Err(Error::Server(e)) if e.code() == ErrorCode::RateLimited => {
+                return Err(Error::InvalidInput("you have changed pictures too often today; try again tomorrow".into()));
+            }
+            Err(Error::Server(e)) if e.code() == ErrorCode::Unavailable => {
+                return Err(Error::InvalidInput("your server has no room for more pictures right now".into()));
+            }
+            Err(e) => return Err(e),
+        };
+        let tx = self.conn.transaction()?;
+        store::put_picture(&tx, &sha, &p.bytes, stored.expires_at_ms)?;
+        store::add_own_picture(
+            &tx,
+            &store::OwnPicture {
+                blob_id: stored.blob_id.clone(),
+                sha256: sha.clone(),
+                renew_secret: secret.to_vec(),
+                expires_at: stored.expires_at_ms,
+            },
+        )?;
+        tx.commit()?;
+        Ok(content::ProfileImage {
+            blob_id: stored.blob_id,
+            key: key.to_vec(),
+            sha256: sha,
+            size,
+            width: p.width,
+            height: p.height,
+            mime: p.mime.into(),
+        })
+    }
+
+    /// Delete one of this device's uploads from the server, if it is one.
+    /// One the server no longer has, or refuses, is forgotten; a network
+    /// failure leaves it for the next sync's [`Self::renew_pictures`].
+    async fn delete_own_picture(&mut self, blob_id: &[u8]) -> Result<()> {
+        let Some(own) = store::own_pictures(&self.conn)?.into_iter().find(|o| o.blob_id == blob_id) else { return Ok(()) };
+        let req = proto::DeleteBlob { blob_id: own.blob_id.clone(), renew_secret: own.renew_secret.clone() };
+        let Ok(anon) = self.anon() else { return Ok(()) };
+        match anon.request(Request::DeleteBlob(req)).await {
+            Ok(_) | Err(Error::Server(_)) => store::remove_own_picture(&self.conn, &own.blob_id),
+            Err(Error::NotConnected | Error::Network(_)) => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Fetch, check and keep a few of the pictures profiles name that this
+    /// device does not have yet, and forget ones no profile names any more.
+    /// Returns whether more are waiting.
+    pub async fn fetch_pictures(&mut self) -> Result<bool> {
+        const AT_ONCE: usize = 8;
+        // Gone from the server, or a server without pictures: try again in
+        // a few hours, then less and less often.
+        const MISSING_WAIT_MS: u64 = 6 * 3600 * 1000;
+        // Not a valid picture: it will not get better soon.
+        const INVALID_WAIT_MS: u64 = 7 * 24 * 3600 * 1000;
+        let mut keep = HashSet::new();
+        let mut wanted = Vec::new();
+        for (account, p) in store::all_profiles(&self.conn)? {
+            for kind in [PictureKind::Avatar, PictureKind::Banner] {
+                let Some(image) = p.image(kind) else { continue };
+                keep.insert(image.sha256.clone());
+                if store::picture_expiry(&self.conn, &image.sha256)?.is_none() && !store::picture_waiting(&self.conn, &image.sha256)? {
+                    wanted.push((account.clone(), kind, image.clone()));
+                }
+            }
+        }
+        store::forget_pictures_except(&self.conn, &keep)?;
+        let more = wanted.len() > AT_ONCE;
+        for (account, kind, image) in wanted.into_iter().take(AT_ONCE) {
+            let req = Request::FetchBlob(proto::FetchBlob { blob_id: image.blob_id.clone() });
+            let blob = match self.anon()?.request(req).await {
+                Ok(r) => expect_reply!(r, Reply::Blob)?,
+                Err(Error::Server(e)) if matches!(e.code(), ErrorCode::NotFound | ErrorCode::BadRequest) => {
+                    store::picture_missed(&self.conn, &image.sha256, MISSING_WAIT_MS)?;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+            match open_picture(kind, &image, &blob.data) {
+                Ok(plain) => {
+                    store::put_picture(&self.conn, &image.sha256, &plain, blob.expires_at_ms)?;
+                    if let Some(username) = store::username_of(&self.conn, &account)? {
+                        self.emit(Event::ProfileChanged { username });
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "a picture could not be used");
+                    store::picture_missed(&self.conn, &image.sha256, INVALID_WAIT_MS)?;
+                }
+            }
+        }
+        Ok(more)
+    }
+
+    /// Keep this account's pictures on the server: renew this device's
+    /// uploads a month or more before they lapse, delete ones no longer
+    /// shown, and upload again a picture that lapsed, or that another of
+    /// this account's devices uploaded and is about to lapse (this device
+    /// cannot renew those: only the uploader holds the secret).
+    pub async fn renew_pictures(&mut self) -> Result<()> {
+        // Renewed when under this long is left: about every 30 days.
+        const RENEW_WITHIN_MS: u64 = 60 * 24 * 3600 * 1000;
+        // Uploaded again when another device's upload has under this left.
+        const REUPLOAD_WITHIN_MS: u64 = 14 * 24 * 3600 * 1000;
+        let now = store::now_ms();
+        let mine = self.me()?.account;
+        let profile = store::profile(&self.conn, &mine.0)?.unwrap_or_default();
+        let shown = |blob: &[u8]| [PictureKind::Avatar, PictureKind::Banner].into_iter().find(|k| profile.image(*k).is_some_and(|i| i.blob_id == blob));
+        let own = store::own_pictures(&self.conn)?;
+        for o in &own {
+            let Some(kind) = shown(&o.blob_id) else {
+                self.delete_own_picture(&o.blob_id).await?;
+                continue;
+            };
+            if o.expires_at > now + RENEW_WITHIN_MS {
+                continue;
+            }
+            let req = proto::RenewBlob { blob_id: o.blob_id.clone(), renew_secret: o.renew_secret.clone() };
+            match self.anon()?.request(Request::RenewBlob(req)).await {
+                Ok(r) => {
+                    let stored = expect_reply!(r, Reply::BlobStored)?;
+                    store::own_picture_renewed(&self.conn, &o.blob_id, stored.expires_at_ms)?;
+                    store::picture_renewed(&self.conn, &o.sha256, stored.expires_at_ms)?;
+                }
+                Err(Error::Server(e)) if e.code() == ErrorCode::NotFound => {
+                    store::remove_own_picture(&self.conn, &o.blob_id)?;
+                    self.upload_again(kind).await?;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        for kind in [PictureKind::Avatar, PictureKind::Banner] {
+            let Some(image) = profile.image(kind) else { continue };
+            if own.iter().any(|o| o.blob_id == image.blob_id) {
+                continue;
+            }
+            let Some(expires) = store::picture_expiry(&self.conn, &image.sha256)? else { continue };
+            if expires > now + REUPLOAD_WITHIN_MS {
+                continue;
+            }
+            // The uploader may have renewed it since: ask before uploading.
+            let req = Request::FetchBlob(proto::FetchBlob { blob_id: image.blob_id.clone() });
+            match self.anon()?.request(req).await {
+                Ok(r) => {
+                    let blob = expect_reply!(r, Reply::Blob)?;
+                    store::picture_renewed(&self.conn, &image.sha256, blob.expires_at_ms)?;
+                    if blob.expires_at_ms <= now + REUPLOAD_WITHIN_MS {
+                        self.upload_again(kind).await?;
+                    }
+                }
+                Err(Error::Server(e)) if e.code() == ErrorCode::NotFound => self.upload_again(kind).await?,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+
+    /// Upload this account's picture of `kind` again, from the copy here,
+    /// under a new blob, and share the profile naming it.
+    async fn upload_again(&mut self, kind: PictureKind) -> Result<()> {
+        let mine = self.me()?.account;
+        let Some(image) = store::profile(&self.conn, &mine.0)?.and_then(|p| p.image(kind).cloned()) else { return Ok(()) };
+        let Some(bytes) = store::picture(&self.conn, &image.sha256)? else { return Ok(()) };
+        let mime = if image.mime == "image/png" { "image/png" } else { "image/jpeg" };
+        self.set_picture(kind, Some(Picture { bytes, width: image.width, height: image.height, mime })).await
+    }
+
     /// Set or clear a private nickname for someone. Shared only with this
     /// account's own devices, through the self group.
     pub async fn set_nickname(&mut self, username: &str, nickname: &str) -> Result<()> {
@@ -3239,7 +3441,26 @@ fn profile_body(p: &store::ProfileRow) -> content::Profile {
             expires_at_ms: p.note_expires_at,
         }),
         arrival: p.arrival.clone(),
+        avatar: p.avatar.clone(),
+        banner: p.banner.clone(),
+        banner_color: p.banner_color,
     }
+}
+
+/// Check a fetched picture against what its profile says, open it, and
+/// check the image inside.
+fn open_picture(kind: PictureKind, image: &content::ProfileImage, ciphertext: &[u8]) -> Result<Vec<u8>> {
+    let bad = |why: &str| Error::Picture(format!("a picture did not match its profile: {why}"));
+    if ciphertext.len() != image.size as usize {
+        return Err(bad("wrong size"));
+    }
+    if Sha256::digest(ciphertext).as_slice() != image.sha256.as_slice() {
+        return Err(bad("wrong hash"));
+    }
+    let key: [u8; 32] = image.key.as_slice().try_into().map_err(|_| bad("bad key"))?;
+    let plain = blob::decrypt(&key, ciphertext)?;
+    crate::picture::check(kind, &plain)?;
+    Ok(plain)
 }
 
 /// A message that exists, is not deleted, and was sent by `me`.
@@ -3603,6 +3824,10 @@ fn handle_content(
                 // Only a look: one that is not a valid name is dropped
                 // rather than refusing the whole profile.
                 arrival: if content::check_arrival(&p.arrival).is_ok() { p.arrival.clone() } else { String::new() },
+                // Likewise a picture that is not well formed, or a colour.
+                avatar: p.avatar.clone().filter(|i| i.valid(PictureKind::Avatar)),
+                banner: p.banner.clone().filter(|i| i.valid(PictureKind::Banner)),
+                banner_color: if content::valid_banner_color(p.banner_color) { p.banner_color } else { 0 },
             };
             Ok(if store::upsert_profile(tx, &sender.0, &row)? { Outcome::Profile(*sender) } else { Outcome::Nothing })
         }

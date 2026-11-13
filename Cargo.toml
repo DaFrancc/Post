@@ -17,7 +17,10 @@ ml-dsa = "0.1.2"
 sha2 = "0.10"
 # Sealing device-link slots, and ephemeral signals from phase 4 (design
 # sections 5 and 6). The 0.10/0.12 lines share digest 0.10 with sha2.
-chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc", "stream"] }
+# Profile pictures and banners: decoded with limits, cropped, shrunk and
+# re-encoded on the sender; fully decoded with limits again on receipt.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 hkdf = "0.12"
 # LiveKit access tokens are HS256 JWTs (design section 10).
 hmac = "0.12"

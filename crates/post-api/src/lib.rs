@@ -119,6 +119,13 @@ pub struct Person {
     /// How their messages arrive on screen in the app (a preset's name);
     /// empty for the default.
     pub arrival: String,
+    /// Their profile picture's ID, for `save_picture`, once this device
+    /// has it.
+    pub picture: Option<String>,
+    /// Their banner's ID, for `save_picture`, once this device has it.
+    pub banner: Option<String>,
+    /// Their banner colour, `#rrggbb`, if they chose one.
+    pub banner_color: Option<String>,
 }
 
 /// A safety number.
@@ -802,6 +809,32 @@ pub struct ProfileParams {
     /// restores the default.
     #[serde(default)]
     pub arrival: Option<String>,
+    /// Banner colour shown when you have no banner image, `#rrggbb`; empty
+    /// restores the app's choice.
+    #[serde(default)]
+    pub banner_color: Option<String>,
+}
+
+/// `set_picture`: your profile picture or banner.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetPictureParams {
+    /// `picture` or `banner`.
+    pub kind: String,
+    /// An image file (PNG, JPEG, WebP or GIF) on this computer; its middle
+    /// is used, in shape. Omitted, the picture is removed.
+    #[serde(default)]
+    pub file: Option<String>,
+}
+
+/// `save_picture`: write a picture this device has to a file.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SavePictureParams {
+    /// The picture's ID, from a person's `picture` or `banner`.
+    pub id: String,
+    /// Where to write it. It must not exist.
+    pub file: String,
 }
 
 /// `set_conversation_name`: your display name in one conversation.
@@ -997,7 +1030,9 @@ methods! {
     "edit", Connection, EditParams, Message, "Edit one of your messages; earlier versions stay visible.";
     "delete", Connection, MessageParams, Done, "Delete one of your messages, with every version, for everyone.";
     "versions", Local, MessageParams, Vec<MessageVersion>, "Every version of a message, the original first.";
-    "set_profile", Connection, ProfileParams, Done, "Change your display name, typing template or note.";
+    "set_profile", Connection, ProfileParams, Done, "Change your display name, typing template, note, arrival style or banner colour.";
+    "set_picture", Connection, SetPictureParams, Done, "Set your profile picture or banner from an image file, or remove it.";
+    "save_picture", Local, SavePictureParams, Done, "Write a profile picture or banner this device has to a file.";
     "set_conversation_name", Connection, ConversationNameParams, Done, "Set your display name in one conversation.";
     "set_nickname", Local, NicknameParams, Done, "Set your private nickname for someone.";
     "person", Local, UserParams, Person, "What you know about a person.";
@@ -1076,6 +1111,25 @@ fn params<T: DeserializeOwned>(v: Value) -> Result<T, ApiError> {
 
 fn id<T: std::str::FromStr<Err = core::Error>>(s: &str) -> Result<T, ApiError> {
     s.parse().map_err(ApiError::from)
+}
+
+/// `#rrggbb` (or `rrggbb`) as `0xRRGGBB`.
+fn parse_color(s: &str) -> Result<u32, ApiError> {
+    let hex = s.strip_prefix('#').unwrap_or(s);
+    match u32::from_str_radix(hex, 16) {
+        Ok(c) if hex.len() == 6 => Ok(c),
+        _ => Err(ApiError { code: -32602, message: format!("{s} is not a colour like #6e8bff") }),
+    }
+}
+
+/// An image file to make a picture from, refusing one too large to be one.
+fn read_image(path: &str) -> Result<Vec<u8>, ApiError> {
+    let bad = |m: String| ApiError { code: -32602, message: m };
+    let size = std::fs::metadata(path).map_err(|e| bad(format!("reading {path}: {e}")))?.len();
+    if size > core::picture::MAX_SOURCE_BYTES as u64 {
+        return Err(bad(format!("{path} is over {} MB", core::picture::MAX_SOURCE_BYTES / 1024 / 1024)));
+    }
+    std::fs::read(path).map_err(|e| bad(format!("reading {path}: {e}")))
 }
 
 fn ok<T: Serialize>(v: T) -> Result<Value, ApiError> {
@@ -1227,14 +1281,45 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
         }
         "set_profile" => {
             let p: ProfileParams = params(p)?;
+            let banner_color = match p.banner_color.as_deref() {
+                None => None,
+                Some("") => Some(None),
+                Some(c) => Some(Some(parse_color(c)?)),
+            };
             core.set_profile(core::ProfileUpdate {
                 display_name: p.display_name,
                 typing_template: p.typing_template,
                 note: p.note,
                 note_keep: p.note_keep,
                 arrival: p.arrival,
+                banner_color,
             })
             .await?;
+            ok(Done {})
+        }
+        "set_picture" => {
+            let p: SetPictureParams = params(p)?;
+            let kind = match p.kind.as_str() {
+                "picture" => core::picture::PictureKind::Avatar,
+                "banner" => core::picture::PictureKind::Banner,
+                _ => return Err(ApiError { code: -32602, message: "kind is picture or banner".into() }),
+            };
+            let source = match p.file {
+                Some(f) => Some((read_image(&f)?, None)),
+                None => None,
+            };
+            core.set_picture(kind, source).await?;
+            ok(Done {})
+        }
+        "save_picture" => {
+            let p: SavePictureParams = params(p)?;
+            let bytes = core.picture(&p.id)?.ok_or_else(|| ApiError { code: -32602, message: "this device has no picture with that ID".into() })?;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&p.file)
+                .and_then(|mut f| std::io::Write::write_all(&mut f, &bytes))
+                .map_err(|e| ApiError { code: -32602, message: format!("writing {}: {e}", p.file) })?;
             ok(Done {})
         }
         "set_conversation_name" => {
@@ -1259,6 +1344,9 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 note: x.note,
                 verified: x.verified,
                 arrival: x.arrival,
+                picture: x.avatar,
+                banner: x.banner,
+                banner_color: x.banner_color.map(|c| format!("#{c:06x}")),
             })
         }
         "set_verified" => {

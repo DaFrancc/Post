@@ -145,6 +145,21 @@ enum Command {
         /// typewriter, focus, wave or instant ("" restores the default).
         #[arg(long)]
         arrival: Option<String>,
+        /// Banner colour shown when you have no banner image, like
+        /// #6e8bff ("" restores the app's choice).
+        #[arg(long)]
+        banner_color: Option<String>,
+    },
+    /// Your profile picture: set it from an image file (its middle is
+    /// used, square), remove it, or save someone's to a file.
+    Picture {
+        #[command(subcommand)]
+        cmd: PictureCommand,
+    },
+    /// The banner across the top of your profile (3 : 1): set, remove or save.
+    Banner {
+        #[command(subcommand)]
+        cmd: PictureCommand,
     },
     /// Set your display name in one conversation ("" clears it).
     Name { conversation: String, name: String },
@@ -211,6 +226,17 @@ enum Command {
     },
     /// Print the OpenRPC description of the local API.
     Schema,
+}
+
+#[derive(Subcommand)]
+enum PictureCommand {
+    /// Use an image file (PNG, JPEG, WebP or GIF); it is shrunk to fit.
+    Set { file: std::path::PathBuf },
+    /// Remove it.
+    Remove,
+    /// Write a picture this device has to a file, by the ID `post person`
+    /// shows.
+    Save { id: String, file: std::path::PathBuf },
 }
 
 #[derive(Subcommand)]
@@ -476,7 +502,7 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         Command::Delete { conversation, message } => ("delete", json!({ "conversation": conversation, "message": message })),
         Command::Versions { conversation, message } => ("versions", json!({ "conversation": conversation, "message": message })),
         Command::Receipts { conversation, message } => ("message_receipts", json!({ "conversation": conversation, "message": message })),
-        Command::Profile { display_name, typing_template, note, keep_note, arrival } => (
+        Command::Profile { display_name, typing_template, note, keep_note, arrival, banner_color } => (
             "set_profile",
             json!({
                 "display_name": display_name,
@@ -484,8 +510,11 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
                 "note": note,
                 "note_keep": keep_note,
                 "arrival": arrival,
+                "banner_color": banner_color,
             }),
         ),
+        Command::Picture { cmd } => picture_call("picture", cmd),
+        Command::Banner { cmd } => picture_call("banner", cmd),
         Command::Name { conversation, name } => ("set_conversation_name", json!({ "conversation": conversation, "name": name })),
         Command::Nickname { username, nickname } => ("set_nickname", json!({ "username": username, "nickname": nickname })),
         Command::Person { username } => ("person", json!({ "username": username })),
@@ -507,6 +536,17 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         Command::Typing { conversation } => ("send_typing", json!({ "conversation": conversation })),
         Command::Keygen { .. } | Command::Daemon { .. } | Command::Schema | Command::Link { .. } => return None,
     })
+}
+
+/// A picture command's call. Files are made absolute here: a daemon may run
+/// in another folder.
+fn picture_call(kind: &str, cmd: &PictureCommand) -> (&'static str, Value) {
+    let path = |f: &std::path::Path| std::path::absolute(f).unwrap_or_else(|_| f.to_path_buf()).to_string_lossy().into_owned();
+    match cmd {
+        PictureCommand::Set { file } => ("set_picture", json!({ "kind": kind, "file": path(file) })),
+        PictureCommand::Remove => ("set_picture", json!({ "kind": kind })),
+        PictureCommand::Save { id, file } => ("save_picture", json!({ "id": id, "file": path(file) })),
+    }
 }
 
 /// Unix milliseconds as `YYYY-MM-DD HH:MM` UTC.
@@ -657,6 +697,11 @@ fn print_human(method: &str, v: &Value) {
             }
             if let Some(n) = v["note"].as_str() {
                 println!("note: {n}");
+            }
+            for (k, label) in [("picture", "picture"), ("banner", "banner"), ("banner_color", "banner colour")] {
+                if let Some(x) = v[k].as_str() {
+                    println!("{label}: {x}");
+                }
             }
             println!("safety number: {}", if v["verified"] == true { "verified" } else { "not verified" });
         }
@@ -906,6 +951,9 @@ mod tests {
             Command::Maintenance { cmd: MaintenanceCommand::Status },
             Command::Maintenance { cmd: MaintenanceCommand::Plan { at: None, minutes: 5, reason: String::new(), quiet: false } },
             Command::Maintenance { cmd: MaintenanceCommand::End },
+            Command::Picture { cmd: PictureCommand::Set { file: "a.png".into() } },
+            Command::Picture { cmd: PictureCommand::Remove },
+            Command::Banner { cmd: PictureCommand::Save { id: "00".into(), file: "b.png".into() } },
         ];
         for c in &cmds {
             let (m, _) = to_call(c).expect("maps");

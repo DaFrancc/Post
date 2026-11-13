@@ -36,6 +36,9 @@ pub struct ChainHead {
     pub head: Vec<u8>,
 }
 
+// A profile is larger than the rest, but bodies are handled one at a time,
+// never kept by the thousand.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, PartialEq, Oneof)]
 pub enum Body {
     #[prost(message, tag = "10")]
@@ -232,7 +235,9 @@ pub struct Profile {
     /// Global display name; empty means show the username.
     #[prost(string, tag = "2")]
     pub display_name: String,
-    // Tag 3 is the avatar, added with attachments in phase 6.
+    /// Profile picture; none shows the app's default.
+    #[prost(message, optional, tag = "3")]
+    pub avatar: Option<ProfileImage>,
     /// Typing template containing `$$NAME$$`; empty means the standard text.
     #[prost(string, tag = "4")]
     pub typing_template: String,
@@ -244,6 +249,60 @@ pub struct Profile {
     /// presets need no protocol change.
     #[prost(string, tag = "6")]
     pub arrival: String,
+    /// The banner across the top of their profile.
+    #[prost(message, optional, tag = "7")]
+    pub banner: Option<ProfileImage>,
+    /// The banner's colour when there is no banner image, as
+    /// `0x01RRGGBB`; 0 for the app's choice. The 1 lets black be chosen.
+    #[prost(uint32, tag = "8")]
+    pub banner_color: u32,
+}
+
+/// A profile picture or banner: an encrypted small blob on the server, and
+/// what it takes to fetch, check and open it (design section 7, "Avatar").
+#[derive(Clone, PartialEq, Message)]
+pub struct ProfileImage {
+    /// 16 bytes, from the server.
+    #[prost(bytes = "vec", tag = "1")]
+    pub blob_id: Vec<u8>,
+    /// The 32-byte key it is encrypted under.
+    #[prost(bytes = "vec", tag = "2")]
+    pub key: Vec<u8>,
+    /// SHA-256 of the ciphertext, checked before decrypting.
+    #[prost(bytes = "vec", tag = "3")]
+    pub sha256: Vec<u8>,
+    /// Bytes of ciphertext.
+    #[prost(uint32, tag = "4")]
+    pub size: u32,
+    #[prost(uint32, tag = "5")]
+    pub width: u32,
+    #[prost(uint32, tag = "6")]
+    pub height: u32,
+    /// `image/png` or `image/jpeg`.
+    #[prost(string, tag = "7")]
+    pub mime: String,
+}
+
+impl ProfileImage {
+    /// Well formed for a picture of `kind`. One that is not is dropped
+    /// from a profile rather than refusing the profile.
+    pub fn valid(&self, kind: crate::picture::PictureKind) -> bool {
+        let (max_w, max_h) = kind.max_size();
+        self.blob_id.len() == 16
+            && self.key.len() == 32
+            && self.sha256.len() == 32
+            && self.size > 0
+            && self.size as usize <= post_proto::MAX_SMALL_BLOB_BYTES
+            && (1..=max_w).contains(&self.width)
+            && (1..=max_h).contains(&self.height)
+            && matches!(self.mime.as_str(), "image/png" | "image/jpeg")
+    }
+}
+
+/// Whether a banner colour is one a profile may carry (see
+/// [`Profile::banner_color`]).
+pub fn valid_banner_color(c: u32) -> bool {
+    c == 0 || c >> 24 == 1
 }
 
 #[derive(Clone, PartialEq, Message)]

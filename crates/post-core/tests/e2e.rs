@@ -100,6 +100,7 @@ async fn dm_messages_edits_deletes_and_profiles() {
             note: Some("at the beach".into()),
             note_keep: false,
             arrival: Some("decode".into()),
+            ..Default::default()
         })
         .await
         .expect("profile");
@@ -617,6 +618,54 @@ async fn hosts_make_invites() {
     carol.register(&invite.server, &invite.code, "carol", false).await.expect("register with the host's invite");
     let dave = Core::open(&dir.path().join("dave"), &DbKey::from_bytes([7; 32])).expect("open profile");
     assert!(dave.register(&invite.server, &invite.code, "dave", false).await.is_err(), "single use");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn profile_pictures_and_banners_reach_others() {
+    use post_core::picture::PictureKind;
+
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let dm = alice.start_dm("bob").await.expect("start dm");
+    alice.send_text(dm.id, "hi").await.expect("send");
+    bob.sync().await.expect("bob joins");
+
+    // A photo-sized image, larger than a picture may be.
+    let photo = image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(1200, 900, |x, y| image::Rgb([(x % 256) as u8, (y % 256) as u8, 90])));
+    let mut png = Vec::new();
+    photo.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).expect("png");
+
+    alice.set_picture(PictureKind::Avatar, Some((png.clone(), None))).await.expect("set picture");
+    alice.set_picture(PictureKind::Banner, Some((png, None))).await.expect("set banner");
+    alice.set_profile(ProfileUpdate { banner_color: Some(Some(0x11_22_33)), ..Default::default() }).await.expect("colour");
+
+    // Alice has hers at once; it never needs fetching back.
+    let mine = alice.person("alice").await.expect("person");
+    let avatar = mine.avatar.clone().expect("her picture shows");
+    let picture = alice.picture(&avatar).expect("read").expect("held");
+    let decoded = image::load_from_memory(&picture).expect("an image");
+    assert_eq!((decoded.width(), decoded.height()), (512, 512), "cropped square and shrunk");
+
+    // Bob fetches, checks and opens them.
+    bob.sync().await.expect("bob sync");
+    let seen = bob.person("alice").await.expect("person");
+    assert_eq!(seen.avatar.as_deref(), Some(avatar.as_str()));
+    assert_eq!(bob.picture(&avatar).expect("read").expect("fetched"), picture);
+    let banner = seen.banner.expect("banner");
+    let banner_img = image::load_from_memory(&bob.picture(&banner).expect("read").expect("fetched")).expect("an image");
+    assert_eq!((banner_img.width(), banner_img.height()), (1200, 400), "3 : 1, no wider than it was");
+    assert_eq!(seen.banner_color, Some(0x11_22_33));
+
+    // Not an image: refused before anything is sent.
+    assert!(alice.set_picture(PictureKind::Avatar, Some((b"not an image".to_vec(), None))).await.is_err());
+
+    // Removed: Bob shows the default again, and forgets the old one.
+    alice.set_picture(PictureKind::Avatar, None).await.expect("remove");
+    bob.sync().await.expect("bob sync");
+    assert_eq!(bob.person("alice").await.expect("person").avatar, None);
+    assert_eq!(bob.picture(&avatar).expect("read"), None);
 }
 
 fn state_of(c: &Core, conv: post_core::ConversationId, id: post_core::MessageId) -> MessageState {

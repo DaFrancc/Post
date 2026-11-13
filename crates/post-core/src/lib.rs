@@ -11,12 +11,14 @@
 
 pub mod keyfile;
 
+mod blob;
 mod content;
 mod calls;
 mod engine;
 mod ephemeral;
 mod link;
 mod net;
+pub mod picture;
 mod provider;
 mod store;
 pub mod update;
@@ -103,6 +105,10 @@ pub enum Error {
     /// sentence saying why.
     #[error("{0}")]
     Update(String),
+    /// A picture could not be used: not an image, too big, or damaged on
+    /// the way; one sentence saying why.
+    #[error("{0}")]
+    Picture(String),
 }
 
 /// Result type for the core.
@@ -550,6 +556,13 @@ pub struct Person {
     /// How their messages arrive on screen (an app animation preset);
     /// empty for the default.
     pub arrival: String,
+    /// Their profile picture, for [`Core::picture`], once this device has
+    /// it; until then (or with none), show the default.
+    pub avatar: Option<String>,
+    /// Their banner, for [`Core::picture`], once this device has it.
+    pub banner: Option<String>,
+    /// The banner colour they chose (`0xRRGGBB`), if any.
+    pub banner_color: Option<u32>,
 }
 
 /// A device asking to join this account, as shown before approving it.
@@ -673,6 +686,9 @@ pub struct ProfileUpdate {
     pub note_keep: bool,
     /// New arrival preset for your messages; empty restores the default.
     pub arrival: Option<String>,
+    /// New banner colour (`0xRRGGBB`) shown when there is no banner image,
+    /// or `Some(None)` for the app's choice.
+    pub banner_color: Option<Option<u32>>,
 }
 
 /// Something that happened, for live views.
@@ -1026,7 +1042,26 @@ impl Core {
 
     /// Fetch and process everything new, and send what is queued.
     pub async fn sync(&self) -> Result<()> {
-        self.engine.lock().await.sync().await
+        self.engine.lock().await.sync().await?;
+        match self.engine.lock().await.renew_pictures().await {
+            Ok(()) => {}
+            Err(e @ (Error::NotConnected | Error::Network(_))) => return Err(e),
+            Err(e) => tracing::warn!(error = %e, "renewing pictures failed"),
+        }
+        // Then pictures, a few at a time, letting other work in between: a
+        // new device may have hundreds to fetch, and they never hold up a
+        // message. A failure waits for the next sync.
+        loop {
+            match self.engine.lock().await.fetch_pictures().await {
+                Ok(true) => {}
+                Ok(false) => return Ok(()),
+                Err(e @ (Error::NotConnected | Error::Network(_))) => return Err(e),
+                Err(e) => {
+                    tracing::warn!(error = %e, "fetching pictures failed");
+                    return Ok(());
+                }
+            }
+        }
     }
 
     /// Stay connected for as long as the returned future runs: connect, stay
@@ -1498,32 +1533,57 @@ impl Core {
     pub async fn set_profile(&self, update: ProfileUpdate) -> Result<()> {
         let mut engine = self.engine.lock().await;
         let mine = engine.me.as_ref().ok_or(Error::NotRegistered)?.account;
-        let current = store::profile(&engine.conn, &mine.0)?.unwrap_or(store::ProfileRow {
-            version: 0,
-            display_name: String::new(),
-            typing_template: String::new(),
-            note_text: String::new(),
-            note_set_at: 0,
-            note_expires_at: 0,
-            arrival: String::new(),
-        });
+        let current = store::profile(&engine.conn, &mine.0)?.unwrap_or_default();
         let now = store::now_ms();
         let (note_text, note_set_at, note_expires_at) = match update.note {
             Some(n) if n.is_empty() => (String::new(), 0, 0),
             Some(n) => (n, now, if update.note_keep { 0 } else { now + content::NOTE_DEFAULT_MS }),
-            None => (current.note_text, current.note_set_at, current.note_expires_at),
+            None => (current.note_text.clone(), current.note_set_at, current.note_expires_at),
+        };
+        let banner_color = match update.banner_color {
+            Some(Some(rgb)) => 0x0100_0000 | (rgb & 0x00ff_ffff),
+            Some(None) => 0,
+            None => current.banner_color,
         };
         engine
             .set_profile(store::ProfileRow {
                 version: 0,
-                display_name: update.display_name.unwrap_or(current.display_name),
-                typing_template: update.typing_template.unwrap_or(current.typing_template),
+                display_name: update.display_name.unwrap_or_else(|| current.display_name.clone()),
+                typing_template: update.typing_template.unwrap_or_else(|| current.typing_template.clone()),
                 note_text,
                 note_set_at,
                 note_expires_at,
-                arrival: update.arrival.unwrap_or(current.arrival),
+                arrival: update.arrival.unwrap_or_else(|| current.arrival.clone()),
+                banner_color,
+                ..current
             })
             .await
+    }
+
+    /// Set your profile picture or banner from an image file's bytes,
+    /// cropped to `crop` (else its middle), or remove it (`None`). The
+    /// image is made into a picture within the limits here, encrypted,
+    /// uploaded, and shared like the rest of your profile. Needs a
+    /// connection.
+    pub async fn set_picture(&self, kind: picture::PictureKind, source: Option<(Vec<u8>, Option<picture::Crop>)>) -> Result<()> {
+        // Decoding and shrinking a large photo takes a moment: not on the
+        // engine, which would hold up messages meanwhile.
+        let prepared = match source {
+            Some((bytes, crop)) => Some(
+                tokio::task::spawn_blocking(move || picture::prepare(kind, &bytes, crop))
+                    .await
+                    .map_err(|_| Error::Picture("preparing the picture failed".into()))??,
+            ),
+            None => None,
+        };
+        self.engine.lock().await.set_picture(kind, prepared).await
+    }
+
+    /// A picture (profile picture or banner) this device has fetched, by
+    /// the ID a [`Person`] gives for it.
+    pub fn picture(&self, id: &str) -> Result<Option<Vec<u8>>> {
+        let Ok(sha) = hex::decode(id) else { return Ok(None) };
+        self.read(|c| store::picture(c, &sha))
     }
 
     /// Set (or clear, with an empty name) your display name in one conversation.
@@ -1544,6 +1604,13 @@ impl Core {
         self.read(|c| {
             let p = store::profile(c, &account.0)?;
             let now = store::now_ms();
+            // A picture shows once it is here; until then, the default.
+            let held = |kind| -> Result<Option<String>> {
+                match p.as_ref().and_then(|p| p.image(kind)) {
+                    Some(i) if store::picture_expiry(c, &i.sha256)?.is_some() => Ok(Some(hex::encode(&i.sha256))),
+                    _ => Ok(None),
+                }
+            };
             Ok(Person {
                 username: username.into(),
                 shown_name: store::shown_name(c, None, &account.0)?,
@@ -1552,6 +1619,9 @@ impl Core {
                 typing_template: p.as_ref().map(|p| p.typing_template.clone()).unwrap_or_default(),
                 verified: store::is_verified(c, &account.0)?,
                 arrival: p.as_ref().map(|p| p.arrival.clone()).unwrap_or_default(),
+                avatar: held(picture::PictureKind::Avatar)?,
+                banner: held(picture::PictureKind::Banner)?,
+                banner_color: p.as_ref().filter(|p| p.banner_color != 0).map(|p| p.banner_color & 0x00ff_ffff),
                 note: p.filter(|p| !p.note_text.is_empty() && (p.note_expires_at == 0 || p.note_expires_at > now)).map(|p| p.note_text),
             })
         })

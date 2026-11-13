@@ -717,11 +717,22 @@ What a viewer sees for someone, first match wins:
 
 The same order fills `$$NAME$$` in typing templates. The @username stays visible in
 member lists and details whatever name is shown.
-- **Avatar.** A square image, resized by the client to at most 512×512 and 200 KB,
-  encrypted and uploaded as a blob like an attachment (section 9), with its key in
-  the profile. Avatar blobs live 90 days, and the owner's client renews them over the
-  anonymous connection with a renewal secret only it holds. Ships with attachments
-  in phase 6.
+- **Profile picture and banner.** A square picture of at most 512×512 and 200 KiB,
+  and a 3:1 banner of at most 1500×500 and 500 KiB. The sender's client crops the
+  image the user picked, shrinks it and encodes it again as PNG (if it has
+  see-through parts) or JPEG, so no metadata leaves the device. It is encrypted in
+  the attachment format (section 9) and uploaded as a small blob over the session
+  (`UploadBlob`, 20 a day per account), and the profile carries
+  `ProfileImage { blob_id, key, sha256, size, width, height, mime }` (tags 3 and 7).
+  Receivers fetch it anonymously (`FetchBlob`), so the server does not learn who
+  looks at whose picture, check its size and hash, decrypt it, and decode it fully
+  with limits set to the largest allowed size before showing it. Until then, and
+  with none, apps show a default icon on the person's colour, never initials. With
+  no banner image, a banner colour (`banner_color`, tag 8) or the app's choice.
+  Small blobs live 90 days. The uploading device renews them about monthly with a
+  secret only it holds, over the anonymous connection, and deletes the old one when
+  a picture changes; another device of the account uploads the picture again when it
+  is about to lapse.
 - **Note.** Up to 60 characters, like an Instagram note. Expires 24 hours after it is
   set unless the user chooses no expiry; expired notes are hidden by every client.
 
