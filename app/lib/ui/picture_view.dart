@@ -146,9 +146,7 @@ class BannerView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final plain = DecoratedBox(
-      decoration: BoxDecoration(color: color, borderRadius: radius),
-    );
+    final plain = DecoratedBox(decoration: BoxDecoration(color: color, borderRadius: radius));
     final p = picture;
     return p == null ? plain : PictureView(picture: p, radius: radius, placeholder: plain);
   }

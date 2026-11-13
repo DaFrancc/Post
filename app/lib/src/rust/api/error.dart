@@ -55,5 +55,9 @@ class PostError implements FrbException {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || other is PostError && runtimeType == other.runtimeType && kind == other.kind && message == other.message;
+      identical(this, other) ||
+      other is PostError &&
+          runtimeType == other.runtimeType &&
+          kind == other.kind &&
+          message == other.message;
 }
