@@ -6,10 +6,14 @@
 #       Set up the server, or set it up again: safe to re-run. Installs
 #       Podman, makes way on ports 80 and 443, opens the firewall, makes the
 #       secrets, starts everything, checks HTTPS and prints the first invite.
-#   deploy/server.sh update [--image SOURCE] [--no-pull]
-#       Newer code: pulls this clone, then a new server image, and restarts.
+#   deploy/server.sh update [--version X.Y.Z] [--image SOURCE] [--no-pull]
+#       The newest server release (or the one given): checks it out in this
+#       clone, downloads its image, and restarts. --no-pull keeps the
+#       checkout as it is.
 #   deploy/server.sh invite [--bot] [--days N]
 #       A code for someone to create an account with.
+#   deploy/server.sh url
+#       The address apps sign in with (wss://DOMAIN/v1/ws), and nothing else.
 #   deploy/server.sh host add USER | host remove USER | host list
 #       Hosts post announcements to everyone, and plan maintenance, from
 #       the app.
@@ -43,10 +47,13 @@
 #       Bring a backup up on a new server, then set it up as install does.
 #       Only where there is no Post server yet: it never overwrites one.
 #
+# Servers run releases (tags server-vX.Y.Z; the app has its own versions).
 # SOURCE is where the server image comes from:
-#   ci       downloaded: the image CI built for this checkout's commit (the
-#            default). CI builds one for every push, in a few minutes.
-#   build    built here from this checkout (slow on a small server)
+#   ci       downloaded: the image CI built for a server release (the
+#            default). A checkout that is not a release switches to the
+#            newest release first.
+#   build    built here from this checkout, whatever it is (slow on a small
+#            server)
 #   local    the one already loaded (from `push`)
 set -euo pipefail
 
@@ -57,6 +64,8 @@ conf=$(getent passwd root | cut -d: -f6)/.config/post
 image=localhost/postd:latest
 backups=$(getent passwd root | cut -d: -f6)/post-backups
 registry=ghcr.io/dafrancc/post-server
+# Where server releases' signed manifests are published.
+release_repo=DaFrancc/Post
 caddy_image=docker.io/library/caddy:2
 livekit_image=docker.io/livekit/livekit-server:v1.13.11
 
@@ -192,7 +201,9 @@ check_dns() {
 #   iproute2 (ip, ss), procps        addresses and ports; sysctl
 #   git, gzip                        updating this clone; loading pushed images
 #   age                              encrypting backups
-packages=(podman netavark aardvark-dns catatonit ca-certificates curl iproute2 procps git gzip age)
+#   openssl, jq                      checking a server release's signature
+#                                    (OpenSSL 3.5 for ML-DSA) and reading it
+packages=(podman netavark aardvark-dns catatonit ca-certificates curl iproute2 procps git gzip age openssl jq)
 
 install_packages() {
   local missing=() p
@@ -340,20 +351,105 @@ get_image() {
 }
 
 # The image CI built from this checkout's commit, so it is exactly this code.
-download_image() {
-  local sha
-  sha=$(git -C "$repo" rev-parse HEAD 2>/dev/null) ||
-    die "git cannot read $repo (if another user owns it: git config --global --add safe.directory $repo)"
-  if [[ -n $(git -C "$repo" status --porcelain --untracked-files=no -- Cargo.toml Cargo.lock crates deploy/Containerfile) ]]; then
-    warn "this clone has changes to the server's code; the downloaded image is the commit without them (--image build uses them)"
+# The server release this checkout is, such as server-v0.3.0, or nothing.
+release_at_head() {
+  git -C "$repo" describe --exact-match --tags --match 'server-v[0-9]*' HEAD 2>/dev/null | grep -E '^server-v[0-9]+\.[0-9]+\.[0-9]+$' || true
+}
+
+# The newest server release, from the tags fetched.
+newest_release() {
+  git -C "$repo" tag -l 'server-v[0-9]*' --sort=-v:refname | grep -E '^server-v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true
+}
+
+fetch_releases() {
+  git -C "$repo" fetch -q --tags --force origin ||
+    die "could not fetch releases (if another user owns $repo: git config --global --add safe.directory $repo)"
+}
+
+# Check a server release with the release key in this checkout, the one
+# already trusted: its manifest's signature (Ed25519 and ML-DSA-65, both
+# needed), its version, and that its commit is the tag's here, so a moved
+# tag is caught. Prints the image digest it names; nothing else.
+verify_release() {
+  local tag=$1 version=${1#server-v} dir
+  local ed=$repo/deploy/release-key-ed25519.pem ml=$repo/deploy/release-key-mldsa65.pem
+  [[ -f $ed && -f $ml ]] || die "this checkout has no release key to check $tag with (deploy/release-key-*.pem)"
+  local v
+  v=$(openssl version | awk '{print $2}')
+  [[ $(printf '%s\n' 3.5 "$v" | sort -V | head -1) == 3.5 ]] || die "checking releases needs OpenSSL 3.5 or newer (Debian 13); this has $v"
+  dir=$(mktemp -d)
+  local url="https://github.com/$release_repo/releases/download/$tag"
+  if ! curl -fsSL --max-time 60 -o "$dir/manifest" "$url/manifest-server.json" ||
+    ! curl -fsSL --max-time 60 -o "$dir/sig" "$url/manifest-server.json.sig"; then
+    rm -rf -- "$dir"
+    die "$tag is not signed and published yet, so it is not used (scripts/release.sh sign publishes it)"
   fi
-  say "Downloading the server image for commit ${sha:0:12}"
-  if podman pull -q "$registry:sha-$sha" >/dev/null 2>&1; then
-    podman tag "$registry:sha-$sha" "$image"
+  # What the release key signs: the label's length, the label, the bytes.
+  { printf '\x16%s' 'post/server-release/v1'; cat "$dir/manifest"; } >"$dir/signed"
+  head -c 64 "$dir/sig" >"$dir/sig.ed"
+  tail -c +65 "$dir/sig" >"$dir/sig.ml"
+  local ok=true
+  [[ $(stat -c %s "$dir/sig") == 3373 ]] || ok=false
+  openssl pkeyutl -verify -pubin -inkey "$ed" -rawin -in "$dir/signed" -sigfile "$dir/sig.ed" >/dev/null 2>&1 || ok=false
+  openssl pkeyutl -verify -pubin -inkey "$ml" -rawin -in "$dir/signed" -sigfile "$dir/sig.ml" >/dev/null 2>&1 || ok=false
+  local m_version m_commit m_digest want
+  m_version=$(jq -r .version "$dir/manifest" 2>/dev/null || true)
+  m_commit=$(jq -r .commit "$dir/manifest" 2>/dev/null || true)
+  m_digest=$(jq -r .image_digest "$dir/manifest" 2>/dev/null || true)
+  rm -rf -- "$dir"
+  $ok || die "$tag's signature does not verify against the release key: not using it"
+  [[ $m_version == "$version" ]] || die "$tag's signed manifest is for version $m_version: not using it"
+  want=$(git -C "$repo" rev-parse "$tag^{commit}")
+  [[ $m_commit == "$want" ]] || die "$tag points at ${want:0:12} here, but the signed release is ${m_commit:0:12}: the tag was moved; not using it"
+  [[ $m_digest =~ ^sha256:[0-9a-f]{64}$ ]] || die "$tag's signed manifest names no image digest"
+  printf '%s' "$m_digest"
+}
+
+# Check out a server release. This file changes with it, so the caller runs
+# itself again from the new checkout straight after, before anything else.
+check_out_release() {
+  local tag=$1
+  if [[ -n $(git -C "$repo" status --porcelain --untracked-files=no) ]]; then
+    die "this clone has local changes, which checking out $tag would lose: commit or stash them first (git -C $repo status)"
+  fi
+  say "Switching to Post server ${tag#server-v}"
+  git -C "$repo" -c advice.detachedHead=false checkout -q --detach "$tag"
+}
+
+# Servers run releases, the only commits with a downloaded image: with
+# --image ci, a checkout that is not one switches to the newest release and
+# runs this command again from it.
+run_from_release() {
+  local source=$1
+  shift
+  [[ $source == ci && -z $(release_at_head) ]] || return 0
+  # OpenSSL and jq, to check the release, before anything else needs them.
+  install_packages
+  fetch_releases
+  local tag
+  tag=$(newest_release)
+  [[ -n $tag ]] || die "there is no server release yet; build from this checkout with --image build"
+  # Checked with this checkout's key before its code is run.
+  verify_release "$tag" >/dev/null
+  check_out_release "$tag"
+  exec "$repo/deploy/server.sh" "$@"
+}
+
+download_image() {
+  local tag
+  tag=$(release_at_head)
+  [[ -n $tag ]] || die "this checkout is not a server release, and images are made for releases only: use --image build"
+  local version=${tag#server-v} digest
+  say "Checking Post server $version's signature"
+  digest=$(verify_release "$tag")
+  say "Downloading the server image for Post server $version"
+  # By digest: exactly the image the signed release names.
+  if podman pull -q "$registry@$digest" >/dev/null 2>&1; then
+    podman tag "$registry@$digest" "$image"
     return
   fi
-  warn "GitHub has no server image for commit ${sha:0:12}"
-  note "CI builds one a few minutes after each push: if this commit is new, try again shortly."
+  warn "GitHub has no server image for $version"
+  note "CI builds one a few minutes after a release is tagged: if it is new, try again shortly."
   note "If it never appears, the post-server package may be private: make it public on GitHub."
   note "Or build it on your own computer and send it: deploy/server.sh push THIS_HOST, then --image local."
   ask "Build it here instead? (Slow on a small server.)" || exit 1
@@ -428,7 +524,7 @@ check_https() {
 # --------------------------------------------------------------- commands
 
 cmd_install() {
-  local domain='' calls=yes source=ci
+  local domain='' calls=yes source=ci args=("$@")
   while (($#)); do
     case $1 in
       --no-calls) calls=no ;;
@@ -443,6 +539,7 @@ cmd_install() {
   need_root
   [[ -n $domain ]] || domain=$(installed_domain)
   [[ -n $domain ]] || die "give the server's domain: deploy/server.sh install chat.example.org"
+  run_from_release "$source" install "${args[@]}"
   check_system
   check_domain "$domain"
   # An existing install keeps its choice about calls.
@@ -476,6 +573,7 @@ cmd_install() {
   fi
   echo
   note "More invites:   deploy/server.sh invite"
+  note "The address:    deploy/server.sh url"
   note "Newer code:     deploy/server.sh update"
   note "How it is:      deploy/server.sh status"
   note "Announcements:  deploy/server.sh host add YOUR_USERNAME, then post from the app"
@@ -484,10 +582,11 @@ cmd_install() {
 }
 
 cmd_update() {
-  local pull=true pass=()
+  local pull=true version='' pass=()
   while (($#)); do
     case $1 in
       --no-pull) pull=false ;;
+      --version) version=${2:?--version needs X.Y.Z}; shift ;;
       --image) pass+=(--image "${2:?--image needs a value}"); shift ;;
       --yes) pass+=(--yes) ;;
       -h | --help) usage ;;
@@ -498,17 +597,51 @@ cmd_update() {
   need_root
   [[ -n $(installed_domain) ]] || die "no Post server is set up here yet: deploy/server.sh install DOMAIN"
   if $pull; then
-    say "Pulling the newest code"
-    git -C "$repo" pull --ff-only
-    # The pull may have changed this script: carry on with the new one.
+    install_packages
+    fetch_releases
+    local tag
+    if [[ -n $version ]]; then
+      tag=server-v$version
+      git -C "$repo" rev-parse -q --verify "refs/tags/$tag" >/dev/null || die "there is no server release $version"
+    else
+      tag=$(newest_release)
+      [[ -n $tag ]] || die "there is no server release yet"
+    fi
+    if [[ $(release_at_head) == "$tag" ]]; then
+      note "Already on Post server ${tag#server-v}; setting it up again."
+    else
+      say "Checking Post server ${tag#server-v}'s signature"
+      verify_release "$tag" >/dev/null
+      check_out_release "$tag"
+    fi
+    # This script may have changed with the release: carry on with its own.
     exec "$repo/deploy/server.sh" update --no-pull "${pass[@]}"
   fi
   cmd_install "${pass[@]}"
 }
 
+# The address apps sign in with.
+server_url() {
+  local domain
+  domain=$(installed_domain)
+  [[ -n $domain ]] || die "no Post server is set up here yet: deploy/server.sh install DOMAIN"
+  printf 'wss://%s/v1/ws' "$domain"
+}
+
+cmd_url() {
+  server_url
+  echo
+}
+
 cmd_invite() {
   need_root
+  local url
+  url=$(server_url)
   podman exec post-server postd invite "$@"
+  # The code alone on standard output, for scripts; what to do with it for
+  # whoever reads it.
+  [[ -t 1 ]] && printf '    Sign up in the app with this code, at server %s\n' "$url" >&2
+  return 0
 }
 
 # postd's admin commands run inside its container, against its database.
@@ -602,6 +735,7 @@ cmd_status() {
   domain=$(installed_domain)
   [[ -n $domain ]] || die "no Post server is set up here yet: deploy/server.sh install DOMAIN"
   say "Post at $domain"
+  note "Apps connect to: $(server_url)"
   local u
   for u in post-server post-caddy post-livekit; do
     [[ -f $units/${u}.container ]] || continue
@@ -735,11 +869,11 @@ cmd_backup() {
 }
 
 cmd_restore() {
-  local file='' identity='' pass=()
+  local file='' identity='' pass=() source=ci args=("$@")
   while (($#)); do
     case $1 in
       --identity) identity=${2:?--identity needs an age key file}; shift ;;
-      --image) pass+=(--image "${2:?--image needs a value}"); shift ;;
+      --image) source=${2:?--image needs a value}; pass+=(--image "$source"); shift ;;
       --yes) yes=true; pass+=(--yes) ;;
       -h | --help) usage ;;
       -*) die "unknown option $1" ;;
@@ -750,6 +884,8 @@ cmd_restore() {
   need_root
   [[ -n $file ]] || die "give the backup file: deploy/server.sh restore FILE"
   [[ -f $file ]] || die "no such file: $file"
+  # Before anything is unpacked: running again leaves no cleanup behind.
+  run_from_release "$source" restore "${args[@]}"
   check_system
   install_packages
   # Never over a server: its key and data would be replaced.
@@ -799,6 +935,7 @@ main() {
     install) cmd_install "$@" ;;
     update) cmd_update "$@" ;;
     invite) cmd_invite "$@" ;;
+    url) cmd_url "$@" ;;
     host) cmd_host "$@" ;;
     announce) cmd_announce "$@" ;;
     maintenance) cmd_maintenance "$@" ;;

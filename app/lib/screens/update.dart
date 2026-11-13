@@ -29,6 +29,55 @@ Future<void> restartIntoUpdate(BuildContext context, AppState state) async {
   await closeWindow();
 }
 
+/// Update now, whatever has happened so far: download the update if it has
+/// not been (automatic updates off, or a download that failed), then install
+/// it and restart into it.
+Future<void> updateNow(BuildContext context, AppState state) async {
+  if (state.updateStage == UpdateStage.idle) await state.downloadUpdate();
+  if (state.updateStage == UpdateStage.ready && context.mounted) {
+    await restartIntoUpdate(context, state);
+  } else if (state.updateError != null && context.mounted) {
+    showToast(context, state.updateError!, error: true);
+  }
+}
+
+/// The green Update button, on the card and the Updates page. It shows
+/// how far a download or an install has got while it works.
+class UpdateButton extends StatelessWidget {
+  const UpdateButton({super.key, required this.state, this.label = 'Update', this.compact = false});
+
+  final AppState state;
+  final String label;
+
+  /// Small, for the card.
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final stage = state.updateStage;
+    final busy = stage == UpdateStage.checking || stage == UpdateStage.downloading || stage == UpdateStage.installing;
+    final text = switch (stage) {
+      UpdateStage.downloading => '${(state.updateProgress * 100).floor()}%',
+      UpdateStage.installing => 'Installing…',
+      _ => label,
+    };
+    return FilledButton.icon(
+      onPressed: busy ? null : () => unawaited(updateNow(context, state)),
+      style: FilledButton.styleFrom(
+        backgroundColor: PColors.update,
+        foregroundColor: PColors.onUpdate,
+        disabledBackgroundColor: PColors.update.withValues(alpha: 0.55),
+        disabledForegroundColor: PColors.onUpdate,
+        minimumSize: compact ? const Size(0, 30) : null,
+        padding: compact ? const EdgeInsets.symmetric(horizontal: 12) : null,
+        visualDensity: compact ? VisualDensity.compact : null,
+      ),
+      icon: busy ? const PSpinner(size: 14, color: PColors.onUpdate) : Icon(Icons.system_update_alt_rounded, size: compact ? 16 : 18),
+      label: Text(text),
+    );
+  }
+}
+
 /// While the app runs: a downloaded update installs as the window closes,
 /// so the next start is the new version.
 void installUpdatesOnClose(AppState state) {
@@ -70,20 +119,20 @@ class UpdateCard extends StatelessWidget {
       (final u?, UpdateStage.ready || UpdateStage.installing) => _card(
         key: 'ready',
         title: 'Post ${u.version} is ready',
-        detail: stage == UpdateStage.installing ? 'Installing…' : 'Restart to use it, or it installs when you quit.',
-        action: FilledButton(
-          onPressed: stage == UpdateStage.installing ? null : () => unawaited(restartIntoUpdate(context, state)),
-          style: FilledButton.styleFrom(
-            minimumSize: const Size(0, 30),
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            visualDensity: VisualDensity.compact,
-          ),
-          child: const Text('Restart'),
-        ),
+        detail: stage == UpdateStage.installing ? 'Installing…' : 'Update restarts Post into it.',
+        action: UpdateButton(state: state, compact: true),
         onTap: onDetails,
       ),
-      (final u?, _) when !u.canInstall => _card(key: 'manual', title: 'Post ${u.version} is out', detail: 'See how to update', onTap: onDetails),
-      _ => null,
+      // Built from source: it never installs itself, so it only says so.
+      (final u?, _) when !u.canInstall => _card(key: 'manual', title: 'Post ${u.version} is out', detail: 'Built from source: see how to update', onTap: onDetails),
+      // Not downloaded yet: automatic updates are off, or a download failed.
+      (final u?, _) => _card(
+        key: 'available',
+        title: 'Post ${u.version} is out',
+        detail: 'Update downloads it and restarts.',
+        action: UpdateButton(state: state, compact: true),
+        onTap: onDetails,
+      ),
     };
     return AnimatedSize(
       duration: PMotion.normal,
@@ -189,10 +238,7 @@ class UpdateRequiredBanner extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  if (state.updateStage == UpdateStage.ready)
-                    FilledButton(onPressed: () => unawaited(restartIntoUpdate(context, state)), child: const Text('Restart now'))
-                  else
-                    OutlinedButton(onPressed: onDetails, child: Text(state.updateStage == UpdateStage.downloading ? 'Downloading…' : 'Details')),
+                  if (u.canInstall) UpdateButton(state: state) else OutlinedButton(onPressed: onDetails, child: const Text('Details')),
                 ],
               ),
             ),
@@ -234,20 +280,16 @@ class UpdateSettings extends StatelessWidget {
               (_, final u?, _) => 'Post ${u.version} is available (${_size(u.size)}).',
             }, style: PType.small),
             const SizedBox(height: 14),
-            Row(
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
               children: [
-                if (stage == UpdateStage.ready)
-                  FilledButton.icon(
-                    onPressed: () => unawaited(restartIntoUpdate(context, state)),
-                    icon: const Icon(Icons.restart_alt_rounded, size: 18),
-                    label: const Text('Restart to update'),
-                  )
-                else
-                  OutlinedButton.icon(
-                    onPressed: busy ? null : () => unawaited(state.checkForUpdate()),
-                    icon: busy ? const PSpinner(size: 16) : const Icon(Icons.refresh_rounded, size: 18),
-                    label: Text(stage == UpdateStage.downloading ? 'Downloading… ${(state.updateProgress * 100).floor()}%' : 'Check for updates'),
-                  ),
+                if (u != null && u.canInstall) UpdateButton(state: state, label: 'Update to ${u.version}'),
+                OutlinedButton.icon(
+                  onPressed: busy || stage == UpdateStage.ready ? null : () => unawaited(state.checkForUpdate()),
+                  icon: stage == UpdateStage.checking ? const PSpinner(size: 16) : const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Check for updates'),
+                ),
               ],
             ),
             if (stage == UpdateStage.downloading) ...[
@@ -277,8 +319,8 @@ class UpdateSettings extends StatelessWidget {
               if (!u.canInstall) ...[
                 const SizedBox(height: 12),
                 const Text(
-                  'This copy of Post was not installed from a release, so it cannot update itself. '
-                  'Download the new release and run its install.sh, or update the way you installed it.',
+                  'This copy of Post was built from source, so it does not install updates or add itself to your apps. '
+                  'Pull the newest code and build it again. Copies installed from a release update themselves.',
                   style: PType.small,
                 ),
               ],

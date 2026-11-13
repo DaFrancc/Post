@@ -53,11 +53,19 @@ git). Leave it running in its own terminal.
 ```sh
 cd app
 flutter build linux --release
-linux/packaging/install-dev.sh release   # adds Post to your app launcher
+build/linux/x64/release/bundle/post
 ```
 
-Then open **Post** from your launcher, or run
-`app/build/linux/x64/release/bundle/post` directly.
+A build from the repository runs from where it is built. It does not add
+itself to your app launcher and does not install updates: pull and build
+again instead. Releases do both: install one with its `install.sh` (see
+[App updates](deploy/README.md#app-updates)) and it updates itself from your
+server.
+
+To see a development build's name and icon on its window under Wayland, it
+needs a launcher entry: `linux/packaging/install-dev.sh release` adds one, and
+`--uninstall` removes it. It refuses while a release is installed, whose
+entry it would replace.
 
 ## Create an account
 

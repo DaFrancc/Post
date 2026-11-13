@@ -302,10 +302,12 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    if (update?.canInstall ?? false) await _downloadUpdate();
+    if (update?.canInstall ?? false) await downloadUpdate();
   }
 
-  Future<void> _downloadUpdate() async {
+  /// Download the update the last check found (a release's install only).
+  Future<void> downloadUpdate() async {
+    if (updateStage != UpdateStage.idle || !(update?.canInstall ?? false)) return;
     updateStage = UpdateStage.downloading;
     updateProgress = 0;
     notifyListeners();

@@ -277,6 +277,25 @@ impl Conn {
                 st.announced(v);
                 Reply::Empty(proto::Empty {})
             }
+            Request::CreateInvite(r) => {
+                let days = if r.days == 0 { 7 } else { r.days };
+                if days > proto::MAX_INVITE_DAYS {
+                    return Err(proto::Error::new(ErrorCode::BadRequest, "an invite lasts at most 30 days"));
+                }
+                let valid_ms = u64::from(days) * 24 * 3600 * 1000;
+                let code = st
+                    .db
+                    .run(move |c| {
+                        announce::check_host(c, By::Host(&account))?;
+                        db::create_invite(c, r.bot, valid_ms).map_err(|e| {
+                            tracing::error!(error = %e, "creating an invite failed");
+                            proto::Error::new(ErrorCode::Internal, "database error")
+                        })
+                    })
+                    .await?;
+                tracing::info!("a host made an invite");
+                Reply::Invite(proto::Invite { code, expires_at_ms: db::now_ms() + valid_ms })
+            }
             Request::EndMaintenance(_) => {
                 let (_, v) = st.db.run(move |c| announce::end(c, By::Host(&account))).await?;
                 st.announced(v);

@@ -16,7 +16,7 @@ import 'dialogs.dart';
 import 'sound_settings.dart';
 import 'update.dart' show UpdateSettings;
 
-enum SettingsSection { profile, appearance, sounds, spelling, devices, security, updates, about }
+enum SettingsSection { profile, appearance, sounds, spelling, devices, security, invites, updates, about }
 
 Future<void> showSettings(BuildContext context, AppState state, {SettingsSection section = SettingsSection.profile}) => showDialog(
   context: context,
@@ -68,7 +68,10 @@ class _SettingsState extends State<_Settings> {
                     padding: EdgeInsets.fromLTRB(10, 0, 10, 14),
                     child: Text('Settings', style: PType.title),
                   ),
-                  for (final s in SettingsSection.values) _NavItem(section: s, selected: s == _section, onTap: () => setState(() => _section = s)),
+                  for (final s in SettingsSection.values)
+                    // Invites are for the server's hosts.
+                    if (s != SettingsSection.invites || (widget.state.announcements?.host ?? false))
+                      _NavItem(section: s, selected: s == _section, onTap: () => setState(() => _section = s)),
                 ],
               ),
             ),
@@ -92,6 +95,7 @@ class _SettingsState extends State<_Settings> {
                       SettingsSection.appearance => const _AppearanceSettings(),
                       SettingsSection.spelling => _SpellingSettings(spelling: widget.state.spelling),
                       SettingsSection.security => _SecuritySettings(state: widget.state),
+                      SettingsSection.invites => _InviteSettings(state: widget.state),
                       SettingsSection.sounds => SoundSettings(sounds: widget.state.sounds),
                       SettingsSection.updates => UpdateSettings(
                         state: widget.state,
@@ -116,6 +120,7 @@ class _SettingsState extends State<_Settings> {
     SettingsSection.appearance => 'Appearance',
     SettingsSection.spelling => 'Spelling',
     SettingsSection.security => 'Privacy & security',
+    SettingsSection.invites => 'Invite people',
     SettingsSection.sounds => 'Sounds',
     SettingsSection.updates => 'Updates',
     SettingsSection.about => 'Account',
@@ -144,6 +149,7 @@ class _NavItemState extends State<_NavItem> {
       SettingsSection.appearance => (Icons.palette_outlined, 'Appearance'),
       SettingsSection.spelling => (Icons.spellcheck_rounded, 'Spelling'),
       SettingsSection.security => (Icons.shield_outlined, 'Privacy'),
+      SettingsSection.invites => (Icons.person_add_alt_outlined, 'Invites'),
       SettingsSection.sounds => (Icons.volume_up_outlined, 'Sounds'),
       SettingsSection.updates => (Icons.system_update_alt_rounded, 'Updates'),
       SettingsSection.about => (Icons.info_outline_rounded, 'Account'),
@@ -1040,6 +1046,166 @@ class _SecuritySettingsState extends State<_SecuritySettings> {
               ),
             ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------- invites
+
+/// For the server's hosts: invite codes, made here instead of on the server.
+class _InviteSettings extends StatefulWidget {
+  const _InviteSettings({required this.state});
+
+  final AppState state;
+
+  @override
+  State<_InviteSettings> createState() => _InviteSettingsState();
+}
+
+class _InviteSettingsState extends State<_InviteSettings> {
+  static const _lengths = [1, 3, 7, 14, 30];
+  int _days = 7;
+  bool _bot = false;
+  bool _busy = false;
+  String? _error;
+
+  /// Codes made while this page was open, newest first. Shown only here:
+  /// the server keeps nothing it could show again.
+  final _made = <InviteInfo>[];
+
+  Future<void> _make() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final invite = await widget.state.client.createInvite(bot: _bot, days: _days);
+      if (mounted) setState(() => _made.insert(0, invite));
+    } catch (e) {
+      if (mounted) setState(() => _error = errorText(e));
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final server = widget.state.announcements?.server ?? 'your server';
+    return _Page(
+      children: [
+        Text(
+          'Make a code for someone to create an account on $server. Each code works once.',
+          style: const TextStyle(fontSize: 13.5, height: 1.55, color: PColors.textMuted),
+        ),
+        const SizedBox(height: 18),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            SizedBox(
+              width: 180,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('WORKS FOR', style: PType.label),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<int>(
+                    initialValue: _days,
+                    items: [for (final d in _lengths) DropdownMenuItem(value: d, child: Text(d == 1 ? '1 day' : '$d days'))],
+                    onChanged: _busy ? null : (v) => setState(() => _days = v ?? _days),
+                    dropdownColor: PColors.dialog,
+                    style: const TextStyle(fontSize: 14, color: PColors.text),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 14),
+            FilledButton.icon(
+              onPressed: _busy ? null : _make,
+              icon: _busy ? const PSpinner(size: 16) : const Icon(Icons.person_add_alt_rounded, size: 18),
+              label: const Text('Make an invite'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _CheckRow(
+          value: _bot,
+          label: 'For a bot account',
+          help: 'Bots sign up with the command-line app, and show as bots to everyone.',
+          onChanged: (v) => setState(() => _bot = v),
+        ),
+        if (_error != null) ...[const SizedBox(height: 14), PErrorBox(_error!)],
+        for (final invite in _made) ...[const SizedBox(height: 16), _InviteCard(invite)],
+        if (_made.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          const Text(
+            'A code shows only here, now: the server keeps just a scrambled copy to check it against. Make another any time.',
+            style: TextStyle(fontSize: 12, height: 1.5, color: PColors.textFaint),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// One invite: the code, where to use it, until when, and copy buttons.
+class _InviteCard extends StatelessWidget {
+  const _InviteCard(this.invite);
+
+  final InviteInfo invite;
+
+  @override
+  Widget build(BuildContext context) {
+    final both = 'Server: ${invite.server}\nInvite code: ${invite.code}';
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 10, 14),
+      decoration: BoxDecoration(
+        color: PColors.sunken,
+        border: Border.all(color: PColors.borderStrong),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: SelectableText(
+                  invite.code,
+                  style: const TextStyle(fontFamily: PType.mono, fontSize: 15, letterSpacing: 0.5, color: PColors.textStrong),
+                ),
+              ),
+              PIconButton(icon: Icons.copy_rounded, tooltip: 'Copy the code', onPressed: () => copyText(context, invite.code, what: 'Invite code copied')),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: SelectableText(
+                  invite.server,
+                  style: const TextStyle(fontFamily: PType.mono, fontSize: 12.5, color: PColors.textMuted),
+                ),
+              ),
+              PIconButton(icon: Icons.copy_rounded, tooltip: 'Copy the server address', onPressed: () => copyText(context, invite.server, what: 'Server address copied')),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${invite.bot ? 'For a bot. ' : ''}Works once, until ${longWhen(invite.expiresAtMs)}.',
+                  style: PType.small,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () => copyText(context, both, what: 'Server and code copied'),
+                icon: const Icon(Icons.content_copy_rounded, size: 16),
+                label: const Text('Copy both'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

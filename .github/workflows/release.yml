@@ -1,20 +1,24 @@
-# Build a release when a version tag is pushed, and leave it as a draft
-# (design section 12, "App updates"):
+# Build an app release when an app version tag is pushed, and leave it as a
+# draft (design section 12, "App updates"):
 #
-#   scripts/release.sh new 1.2.0   tags and pushes; the tag message is the
-#                                  notes, and a "Min-Version: 1.1.0" line
-#                                  marks older apps as too old
+#   scripts/release.sh new app 1.2.0   tags app-v1.2.0 and pushes it; the
+#                                      tag message is the notes, and a
+#                                      "Min-Version: 1.1.0" line marks older
+#                                      apps as too old
+#
+# Try it locally first, in the same runner image: scripts/ci-local.sh.
 #
 # CI never holds the release key. Signing happens on the maintainer's
 # machine with `scripts/release.sh sign`, which checks the files, signs each
 # manifest and publishes the release. Only then do servers fetch it.
 #
-# The server image for the tag is built by server-image.yml.
+# The app and the server are versioned apart: server releases are tagged
+# server-vX.Y.Z and built by server-image.yml.
 name: Release
 
 on:
   push:
-    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+    tags: ['app-v[0-9]+.[0-9]+.[0-9]+']
 
 permissions:
   contents: write
@@ -30,8 +34,9 @@ jobs:
       - name: Version and notes
         run: |
           # The checkout may hold the tag without its message: fetch it whole.
-          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
-          version=${GITHUB_REF_NAME#v}
+          # Not in a local run (scripts/ci-local.sh), which has no GitHub.
+          [[ -n ${ACT:-} ]] || git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          version=${GITHUB_REF_NAME#app-v}
           git tag -l --format='%(contents)' "$GITHUB_REF_NAME" | sed '/-----BEGIN PGP SIGNATURE-----/,$d' > tag-message.txt
           min=$(sed -n 's/^Min-Version: *//p' tag-message.txt | head -1)
           grep -v '^Min-Version:' tag-message.txt > notes.txt || true
@@ -67,6 +72,9 @@ jobs:
             "dist/post-$VERSION-linux-x86_64.tar.gz"
 
       - name: Draft release
+        # A local run (scripts/ci-local.sh, under act) stops before this:
+        # it must never publish anything.
+        if: ${{ !env.ACT }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" --draft --title "Post $VERSION" --notes-file notes.txt dist/*

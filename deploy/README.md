@@ -22,9 +22,11 @@ On a Debian 13 server, as root, with the domain already pointing at it:
 ```sh
 apt update && apt install -y git
 git clone https://github.com/DaFrancc/Post.git && cd Post
-git checkout vX.Y.Z            # optional: a release rather than the newest code
 deploy/server.sh install chat.example.org
 ```
+
+The server runs releases: the script switches the clone to the newest server
+release (a `server-vX.Y.Z` tag) before it starts.
 
 It installs what it needs (Podman and a few tools), offers to stop a web
 server already on ports 80 and 443, opens ufw or firewalld, makes the
@@ -37,15 +39,30 @@ Afterwards:
 
 ```sh
 deploy/server.sh invite        # an invite code (--bot, --days N)
+deploy/server.sh url           # the address apps sign in with: wss://DOMAIN/v1/ws
 deploy/server.sh status        # what is running, HTTPS, the app release offered
-deploy/server.sh update        # newer code: pull, new server image, restart
+deploy/server.sh update        # the newest server release: check it out, its image, restart
+deploy/server.sh update --version 0.3.0   # a particular one, newer or older
 ```
 
-**The server image.** The script downloads the image CI built from the
-checkout's commit (`ghcr.io/dafrancc/post-server:sha-<commit>`), so the
-server never compiles anything. CI builds one for every push, a few minutes
-after it. If there is none yet, the script says so and asks before building
-here instead, which takes a long time on a small server. Two other ways:
+**Versions.** The server and the app have their own versions: the server's
+releases are `server-vX.Y.Z` tags, the app's `app-vX.Y.Z`, and either is
+released only when it changed. They agree through the protocol, not their
+numbers, so any recent app works with any recent server.
+
+**Signed.** A server release is signed with Post's release key, like the
+app's. Before moving to one, the script checks its signature with OpenSSL
+against the key in the checkout it already runs (`deploy/release-key-*.pem`),
+checks the release's commit is the tag's, and then pulls the image by the
+exact digest the signature covers. A tag or image changed on GitHub is
+refused. A release is used only once it is signed and published.
+
+**The server image.** The script downloads the image CI built for the
+server release (`ghcr.io/dafrancc/post-server`, by digest), so the server
+never compiles anything. CI builds one when a server release is tagged, a few
+minutes after. If there is none yet, the script says so and asks before
+building here instead, which takes a long time on a small server. Two other
+ways, which use whatever this clone has checked out:
 
 ```sh
 deploy/server.sh install chat.example.org --image build   # build it on the server

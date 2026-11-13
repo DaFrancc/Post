@@ -159,6 +159,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Identity dco_decode_identity(dynamic raw);
 
   @protected
+  InviteInfo dco_decode_invite_info(dynamic raw);
+
+  @protected
   LinkRequestInfo dco_decode_link_request_info(dynamic raw);
 
   @protected
@@ -443,6 +446,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Identity sse_decode_identity(SseDeserializer deserializer);
+
+  @protected
+  InviteInfo sse_decode_invite_info(SseDeserializer deserializer);
 
   @protected
   LinkRequestInfo sse_decode_link_request_info(SseDeserializer deserializer);
@@ -787,6 +793,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_identity(Identity self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_invite_info(InviteInfo self, SseSerializer serializer);
 
   @protected
   void sse_encode_link_request_info(

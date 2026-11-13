@@ -1,25 +1,34 @@
 # The server image, ghcr.io/<owner>/post-server, for deploy/server.sh, so a
-# small server downloads it instead of compiling (deploy/README.md):
+# small server downloads it instead of compiling (deploy/README.md). Made for
+# server releases only, which is what servers run:
 #
-#   every push     :sha-<commit>   what server.sh downloads for that checkout
-#   release tags   :X.Y.Z, :latest
+#   scripts/release.sh new server 1.2.0   tags server-v1.2.0 and pushes it;
+#                                         this builds :1.2.0 and :latest
+#                                         and drafts a release with the
+#                                         unsigned manifest-server.json
+#   scripts/release.sh sign               signs and publishes it
+#
+# The manifest names the image's digest and the tag's commit. Servers check
+# its signature against the release key before moving to the release, and
+# pull the image by that digest, so they run exactly what was signed.
+#
+# The server and the app are versioned apart (app releases: release.yml);
+# they agree through the protocol, not their version numbers.
 #
 # Built with Podman, so .containerignore applies as it does on a server.
 name: Server image
 
 on:
   push:
-    branches: ['**']
-    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+    tags: ['server-v[0-9]+.[0-9]+.[0-9]+']
 
-# A newer push to the same branch replaces a build still running: servers
-# check out the newest commit.
 concurrency:
   group: server-image-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  # The draft release holding the server manifest.
+  contents: write
   packages: write
 
 jobs:
@@ -28,21 +37,42 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build and publish
+      - name: Version and notes
+        run: |
+          # The checkout may hold the tag without its message: fetch it whole.
+          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" | sed '/-----BEGIN PGP SIGNATURE-----/,$d' > notes.txt
+          echo "VERSION=${GITHUB_REF_NAME#server-v}" >> "$GITHUB_ENV"
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/post-server" >> "$GITHUB_ENV"
+
+      - name: Build and publish the image
         env:
           TOKEN: ${{ github.token }}
         run: |
-          image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/post-server
-          tags=(-t "$image:sha-$GITHUB_SHA")
-          if [[ $GITHUB_REF == refs/tags/v* ]]; then
-            version=${GITHUB_REF_NAME#v}
-            tags+=(-t "$image:$version" -t "$image:latest")
-          fi
           echo "$TOKEN" | podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           podman build -f deploy/Containerfile \
             --label org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY" \
             --label org.opencontainers.image.revision="$GITHUB_SHA" \
-            "${tags[@]}" .
-          for t in "${tags[@]}"; do
-            [[ $t == -t ]] || podman push "$t"
-          done
+            -t "$IMAGE:$VERSION" .
+          # The digest of the image as pushed is what servers pull, by
+          # digest, once the manifest naming it is signed.
+          podman push --digestfile digest.txt "$IMAGE:$VERSION"
+          podman tag "$IMAGE:$VERSION" "$IMAGE:latest"
+          podman push "$IMAGE:latest"
+          echo "DIGEST=$(cat digest.txt)" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Manifest (unsigned)
+        run: |
+          cargo run -q --release -p post-release -- server-manifest \
+            --version "$VERSION" --digest "$DIGEST" --commit "$GITHUB_SHA" \
+            --notes-file notes.txt --out manifest-server.json
+          cat manifest-server.json
+
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Never the latest release: that is the app's, which servers hand
+        # out to apps. Signed and published with scripts/release.sh sign.
+        run: gh release create "$GITHUB_REF_NAME" --draft --latest=false --title "Post server $VERSION" --notes-file notes.txt manifest-server.json

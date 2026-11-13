@@ -35,4 +35,7 @@ pub mod labels {
     pub const AUTH: &str = "post/auth/v1";
     /// The release key signing a release manifest (design section 12).
     pub const RELEASE: &str = "post/release/v1";
+    /// The release key signing a server release: its image and commit. Its
+    /// own label, so an app manifest's signature never passes for one.
+    pub const SERVER_RELEASE: &str = "post/server-release/v1";
 }

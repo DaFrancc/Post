@@ -55,7 +55,7 @@ pub fn auth_message(server_domain: &str, nonce: &[u8]) -> Vec<u8> {
 pub struct ClientFrame {
     #[prost(uint64, tag = "1")]
     pub id: u64,
-    #[prost(oneof = "Request", tags = "10, 11, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49")]
+    #[prost(oneof = "Request", tags = "10, 11, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49")]
     pub request: Option<Request>,
 }
 
@@ -90,6 +90,8 @@ pub enum Request {
     PlanMaintenance(PlanMaintenance),
     #[prost(message, tag = "30")]
     EndMaintenance(EndMaintenance),
+    #[prost(message, tag = "31")]
+    CreateInvite(CreateInvite),
 
     // Anonymous only.
     #[prost(message, tag = "40")]
@@ -133,6 +135,7 @@ impl Request {
                 | Request::Announce(_)
                 | Request::PlanMaintenance(_)
                 | Request::EndMaintenance(_)
+                | Request::CreateInvite(_)
         )
     }
 }
@@ -196,7 +199,7 @@ pub struct Wake {
 pub struct Response {
     #[prost(uint64, tag = "1")]
     pub id: u64,
-    #[prost(oneof = "Reply", tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24")]
+    #[prost(oneof = "Reply", tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25")]
     pub reply: Option<Reply>,
 }
 
@@ -232,6 +235,8 @@ pub enum Reply {
     CallAccess(CallAccess),
     #[prost(message, tag = "24")]
     Announcements(Announcements),
+    #[prost(message, tag = "25")]
+    Invite(Invite),
 }
 
 // ---------------------------------------------------------------- errors
@@ -582,6 +587,29 @@ pub struct PlanMaintenance {
 /// over. Hosts only. `NotFound` if there is none.
 #[derive(Clone, PartialEq, Message)]
 pub struct EndMaintenance {}
+
+/// Longest an invite made from the app stays valid, in days.
+pub const MAX_INVITE_DAYS: u32 = 30;
+
+/// Make a single-use invite code, as `postd invite` does. Hosts only.
+#[derive(Clone, PartialEq, Message)]
+pub struct CreateInvite {
+    /// For a bot account.
+    #[prost(bool, tag = "1")]
+    pub bot: bool,
+    /// Days until it expires, 1 to [`MAX_INVITE_DAYS`]; 0 means 7.
+    #[prost(uint32, tag = "2")]
+    pub days: u32,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct Invite {
+    /// The code to hand out. The server keeps only its hash.
+    #[prost(string, tag = "1")]
+    pub code: String,
+    #[prost(uint64, tag = "2")]
+    pub expires_at_ms: u64,
+}
 
 // ---------------------------------------------------------------- anonymous requests
 
@@ -946,6 +974,7 @@ mod tests {
             Request::Announce(Announce::default()),
             Request::PlanMaintenance(PlanMaintenance::default()),
             Request::EndMaintenance(EndMaintenance::default()),
+            Request::CreateInvite(CreateInvite::default()),
         ];
         for r in requests {
             let f = ClientFrame { id: 1, request: Some(r) };
@@ -967,6 +996,7 @@ mod tests {
             Reply::LinkSlot(LinkSlot::default()),
             Reply::CallAccess(CallAccess::default()),
             Reply::Announcements(Announcements::default()),
+            Reply::Invite(Invite::default()),
         ];
         for r in replies {
             let f = ServerFrame { kind: Some(ServerKind::Response(Response { id: 1, reply: Some(r) })) };
@@ -1004,5 +1034,7 @@ mod tests {
         assert!(Request::Announce(Announce::default()).is_session());
         assert!(Request::PlanMaintenance(PlanMaintenance::default()).is_session());
         assert!(Request::EndMaintenance(EndMaintenance::default()).is_session());
+        // Invites are made by a host, who is someone.
+        assert!(Request::CreateInvite(CreateInvite::default()).is_session());
     }
 }

@@ -44,8 +44,9 @@ pub struct UpdateInfo {
     /// This app is too old to keep talking to the server once it updates:
     /// show it prominently. (Not `required`, a word Dart keeps for itself.)
     pub mandatory: bool,
-    /// The app can install it itself: it runs from an install that updates
-    /// can replace. Otherwise it can only say an update exists.
+    /// The app can install it itself: it runs from a release's install,
+    /// which updates replace. A copy built from source never installs or
+    /// registers itself; it can only say an update exists.
     pub can_install: bool,
 }
 
@@ -376,6 +377,18 @@ pub enum EventKind {
     Announcements,
 }
 
+/// A single-use invite code a host made.
+pub struct InviteInfo {
+    /// The code. Shown once: the server keeps only its hash.
+    pub code: String,
+    /// The server address to sign up at with it.
+    pub server: String,
+    /// When it stops working (Unix ms).
+    pub expires_at_ms: i64,
+    /// It registers a bot account.
+    pub bot: bool,
+}
+
 /// Who has one of the user's messages.
 pub struct MessageReceiptsInfo {
     /// Every other member, by the name the user sees, sorted.
@@ -573,11 +586,12 @@ impl Client {
 
     /// Install the downloaded update in place of this app's version. Gives
     /// the program to start instead of this one; the running app keeps
-    /// running until it is restarted.
+    /// running until it is restarted. Only a release's install can: a copy
+    /// built from source never installs itself.
     pub async fn install_update(&self, current_version: String) -> Result<String, PostError> {
         let found = self.found_update()?;
         let root = core::update::install_root()
-            .ok_or_else(|| PostError::new(ErrorKind::Other, "This copy of Post was not installed in a way it can update itself."))?;
+            .ok_or_else(|| PostError::new(ErrorKind::Other, "This copy of Post was built from source, so it does not install updates."))?;
         let updater = self.updater(&current_version).await?;
         let program = tokio::task::spawn_blocking(move || updater.install(&found, &root))
             .await
@@ -754,6 +768,12 @@ impl Client {
     pub async fn plan_maintenance(&self, starts_at_ms: i64, minutes: u32, reason: String, quiet: bool) -> Result<(), PostError> {
         let starts = u64::try_from(starts_at_ms).map_err(|_| PostError::new(ErrorKind::InvalidInput, "That time is not valid."))?;
         Ok(self.core.plan_maintenance(starts, minutes, &reason, quiet).await?)
+    }
+
+    /// As a host: make a single-use invite code, valid for `days`.
+    pub async fn create_invite(&self, bot: bool, days: u32) -> Result<InviteInfo, PostError> {
+        let i = self.core.create_invite(bot, days).await?;
+        Ok(InviteInfo { code: i.code, server: i.server, expires_at_ms: ms(i.expires_at_ms), bot: i.bot })
     }
 
     /// As a host: cancel the planned maintenance, or announce it is over.
