@@ -3538,6 +3538,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "zbus-secret-service-keyring-store",
  "zeroize",
 ]

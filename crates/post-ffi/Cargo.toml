@@ -19,6 +19,7 @@ flutter_rust_bridge.workspace = true
 anyhow.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 zeroize.workspace = true
 keyring-core.workspace = true
 spellbook.workspace = true
