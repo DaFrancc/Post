@@ -1,0 +1,21 @@
+[package]
+name = "post-api-macros"
+description = "The #[api] attribute: marks Post's local API in post-core and gives its types their JSON form"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn.workspace = true
+quote.workspace = true
+
+[dev-dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -64,6 +64,13 @@ flate2 = "1.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 schemars = "1.2"
+# The local API's generator (docs/phase-1-api.md): the #[api] macro and
+# post-apigen read Rust with syn 2, which prettyplease needs to print it back.
+# span-locations gives the generator file:line:column for its errors.
+syn = { version = "2", features = ["full", "visit-mut"] }
+quote = "1"
+proc-macro2 = { version = "1", features = ["span-locations"] }
+prettyplease = "0.2"
 clap = { version = "4.6", features = ["derive", "env"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
