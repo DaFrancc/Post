@@ -61,21 +61,29 @@ impl Rng {
     }
 }
 
-/// One of the workspace's programs, built if this test run has not yet.
-/// Test binaries live in target/<profile>/deps, the programs a level up.
+/// One of the workspace's programs, built once per test run (so never a stale
+/// copy from an older commit), in this test's profile. Cargo says where it
+/// put it: the folder is not derived from this test's own path, which newer
+/// Cargo keeps in a separate build directory.
 fn program(package: &str, name: &str) -> PathBuf {
-    static BUILD: Mutex<()> = Mutex::new(());
-    let dir = std::env::current_exe().expect("test binary").parent().and_then(Path::parent).expect("target dir").to_path_buf();
-    let path = dir.join(name);
-    let _once = BUILD.lock().unwrap_or_else(|p| p.into_inner());
-    if !path.exists() {
-        let mut cargo = Command::new(env!("CARGO"));
-        cargo.args(["build", "-q", "-p", package, "--bin", name]);
-        if dir.file_name().is_some_and(|d| d == "release") {
-            cargo.arg("--release");
-        }
-        assert!(cargo.status().expect("cargo").success(), "building {name}");
+    static BUILT: Mutex<Vec<(String, PathBuf)>> = Mutex::new(Vec::new());
+    let mut built = BUILT.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some((_, path)) = built.iter().find(|(n, _)| n == name) {
+        return path.clone();
     }
+    let mut cargo = Command::new(env!("CARGO"));
+    cargo.args(["build", "-q", "--message-format=json-render-diagnostics", "-p", package, "--bin", name]);
+    if !cfg!(debug_assertions) {
+        cargo.arg("--release");
+    }
+    let out = cargo.stderr(Stdio::inherit()).output().expect("cargo");
+    assert!(out.status.success(), "building {name}");
+    let path = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find_map(|m| m["executable"].as_str().filter(|_| m["target"]["name"] == name).map(PathBuf::from))
+        .unwrap_or_else(|| panic!("cargo reported no executable for {name}"));
+    built.push((name.to_owned(), path.clone()));
     path
 }
 
