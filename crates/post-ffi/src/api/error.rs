@@ -55,6 +55,7 @@ impl From<core::Error> for PostError {
         use core::Error as E;
         match e {
             E::InvalidInput(m) => Self::new(ErrorKind::InvalidInput, capitalize(&m)),
+            E::Picture(m) => Self::new(ErrorKind::InvalidInput, format!("{}.", capitalize(&m).trim_end_matches('.'))),
             E::UnknownUser(u) => Self::new(ErrorKind::InvalidInput, format!("There is no one called {u} on this server.")),
             E::NotRegistered => Self::new(ErrorKind::NotRegistered, "There is no account on this device yet."),
             E::AlreadyRegistered => Self::new(ErrorKind::InvalidInput, "This device already has an account."),

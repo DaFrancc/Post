@@ -53,7 +53,6 @@ class _ProfileCard extends StatelessWidget {
         final p = state.personNow(username);
         final name = p?.shownName ?? username;
         final presence = state.presenceOf(username);
-        final colour = PColors.avatarFor(username);
         return Material(
           color: PColors.panelRaised,
           elevation: 12,
@@ -66,34 +65,49 @@ class _ProfileCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Their colour across the top, the avatar sitting on its edge.
+              // Their banner across the top (3 : 1), else their banner
+              // colour, the picture sitting on its edge.
               SizedBox(
-                height: 96,
+                height: 144,
                 child: Stack(
                   children: [
-                    Container(
-                      height: 60,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [colour.withValues(alpha: 0.55), colour.withValues(alpha: 0.18)],
+                    // Its top corners rounded with the card's, as a shape
+                    // rather than by the card's clip: smooth on every
+                    // renderer.
+                    SizedBox(
+                      height: 100,
+                      width: double.infinity,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: state.bannerColorOf(username),
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+                          image: switch (state.bannerOf(username)) {
+                            final banner? => DecorationImage(image: banner, fit: BoxFit.cover, onError: (_, _) {}),
+                            null => null,
+                          },
                         ),
                       ),
                     ),
                     Positioned(
-                      left: 16,
-                      top: 24,
+                      left: 12,
+                      top: 56,
                       child: Container(
                         padding: const EdgeInsets.all(4),
                         decoration: const BoxDecoration(color: PColors.panelRaised, shape: BoxShape.circle),
-                        child: PAvatar(name: name, colorKey: username, size: 64, presence: presence, ringColor: PColors.panelRaised),
+                        child: PAvatar(
+                          name: name,
+                          colorKey: username,
+                          size: 80,
+                          presence: presence,
+                          ringColor: PColors.panelRaised,
+                          image: state.avatarOf(username),
+                        ),
                       ),
                     ),
                     if (p?.verified ?? false)
                       Positioned(
                         right: 12,
-                        top: 68,
+                        top: 110,
                         child: Tooltip(
                           message: 'You compared safety numbers',
                           child: Container(

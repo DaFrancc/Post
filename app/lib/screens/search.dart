@@ -546,7 +546,7 @@ class _Person extends StatelessWidget {
     final name = state.personNow(username)?.shownName ?? username;
     return Row(
       children: [
-        PAvatar(name: name, colorKey: username, size: 24),
+        PAvatar(name: name, colorKey: username, size: 24, image: state.avatarOf(username)),
         const SizedBox(width: 10),
         Flexible(
           child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: PType.name.copyWith(fontSize: 13.5)),
@@ -759,7 +759,7 @@ class _SearchPanelState extends State<SearchPanel> {
                         for (final (i, m) in found.messages.indexed) ...[
                           // A heading where the conversation changes.
                           if (i == 0 || found.messages[i - 1].conversation != m.conversation) _Where(state: _state, conversation: m.conversation),
-                          _Card(m: m, onTap: () => _state.jumpTo(m.conversation, m.id)),
+                          _Card(m: m, image: _state.avatarOf(m.senderUsername), onTap: () => _state.jumpTo(m.conversation, m.id)),
                         ],
                       ],
                     ),
@@ -845,9 +845,12 @@ class _Where extends StatelessWidget {
 
 /// One result, as the message looks in the conversation.
 class _Card extends StatefulWidget {
-  const _Card({required this.m, required this.onTap});
+  const _Card({required this.m, required this.image, required this.onTap});
 
   final MessageInfo m;
+
+  /// The sender's picture, if it is here.
+  final ImageProvider? image;
   final VoidCallback onTap;
 
   @override
@@ -878,7 +881,7 @@ class _CardState extends State<_Card> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              PAvatar(name: m.sender, colorKey: m.senderUsername, size: 34),
+              PAvatar(name: m.sender, colorKey: m.senderUsername, size: 34, image: widget.image),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(

@@ -158,7 +158,7 @@ class IncomingCall extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               _Pulse(
-                child: PAvatar(name: caller, colorKey: call.startedBy, size: 64),
+                child: PAvatar(name: caller, colorKey: call.startedBy, size: 64, image: state.avatarOf(call.startedBy)),
               ),
               const SizedBox(height: 12),
               Text(
@@ -375,7 +375,7 @@ class _Speaker extends StatelessWidget {
           shape: BoxShape.circle,
           border: Border.all(color: speaking ? PColors.online : Colors.transparent, width: 2),
         ),
-        child: PAvatar(name: name, colorKey: person.username, size: 24),
+        child: PAvatar(name: name, colorKey: person.username, size: 24, image: state.avatarOf(person.username)),
       ),
     );
   }

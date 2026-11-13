@@ -8,6 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'package:post/src/rust/api/client.dart';
 import 'package:post/src/rust/api/error.dart';
 
+import '../theme.dart';
 import '../ui/arrival.dart';
 import '../version.dart';
 import 'calls.dart';
@@ -520,6 +521,48 @@ class AppState extends ChangeNotifier {
     } finally {
       _peopleLoading.remove(username);
     }
+  }
+
+  // ---------------------------------------------------------------- pictures
+
+  final _pictures = <String, MemoryImage>{};
+  final _picturesLoading = <String>{};
+
+  /// A profile picture or banner by its ID, or null until it has loaded
+  /// (listeners are told when it has).
+  ImageProvider? picture(String? id) {
+    if (id == null) return null;
+    final known = _pictures[id];
+    if (known != null) return known;
+    if (_picturesLoading.add(id)) unawaited(_loadPicture(id));
+    return null;
+  }
+
+  Future<void> _loadPicture(String id) async {
+    try {
+      final bytes = await client.picture(id: id);
+      if (bytes != null) {
+        _pictures[id] = MemoryImage(bytes);
+        notifyListeners();
+      }
+    } catch (_) {
+      // Not here after all: the default shows.
+    } finally {
+      _picturesLoading.remove(id);
+    }
+  }
+
+  /// Someone's profile picture, or null for the default face.
+  ImageProvider? avatarOf(String username) => picture(personNow(username)?.avatar);
+
+  /// Someone's banner image, or null for their banner colour.
+  ImageProvider? bannerOf(String username) => picture(personNow(username)?.banner);
+
+  /// The colour across the top of someone's profile when they have no
+  /// banner image: the one they chose, else a tint of their own colour.
+  Color bannerColorOf(String username) {
+    final c = personNow(username)?.bannerColor;
+    return c == null ? PColors.avatarFor(username).withValues(alpha: 0.55) : Color(0xFF000000 | c);
   }
 
   /// The name this user shows as.

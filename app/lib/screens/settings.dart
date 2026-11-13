@@ -13,6 +13,7 @@ import '../ui/controls.dart';
 import '../ui/format.dart';
 import '../ui/zoom.dart';
 import 'dialogs.dart';
+import 'picture_editor.dart';
 import 'sound_settings.dart';
 import 'update.dart' show UpdateSettings;
 
@@ -281,22 +282,8 @@ class _ProfileSettingsState extends State<_ProfileSettings> {
     final template = _typing.text.trim().isEmpty ? r'$$NAME$$ is typing' : _typing.text.trim();
     return _Page(
       children: [
-        Row(
-          children: [
-            PAvatar(name: shownName, colorKey: widget.state.me.username, size: 56),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(shownName, style: PType.heading),
-                  Text('@${widget.state.me.username}', style: PType.small),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 22),
+        _LookEditor(state: widget.state, shownName: shownName),
+        const SizedBox(height: 26),
         PField(
           label: 'Display name',
           controller: _name,
@@ -358,6 +345,195 @@ class _ProfileSettingsState extends State<_ProfileSettings> {
         const SizedBox(height: 28),
         _ArrivalPicker(state: widget.state, chosen: Arrival.parse(_was?.arrival), onChosen: (_) => unawaited(_load())),
       ],
+    );
+  }
+}
+
+/// Your picture, banner and banner colour, shown as others see them on your
+/// card, each changed with a click and shared at once.
+class _LookEditor extends StatefulWidget {
+  const _LookEditor({required this.state, required this.shownName});
+
+  final AppState state;
+  final String shownName;
+
+  @override
+  State<_LookEditor> createState() => _LookEditorState();
+}
+
+class _LookEditorState extends State<_LookEditor> {
+  /// What is being changed, while it saves.
+  String? _busy;
+
+  /// Banner colours to choose from: the avatar colours, and two darks.
+  static const _colours = [...PColors.avatars, Color(0xFF3A3D4F), Color(0xFF1B2140)];
+
+  Future<void> _run(String what, Future<void> Function() change) async {
+    setState(() => _busy = what);
+    try {
+      await change();
+    } catch (e) {
+      if (mounted) showToast(context, errorText(e), error: true);
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
+  Future<void> _colour(Color? c) => _run('colour', () async {
+    await widget.state.client.setBannerColor(color: c == null ? null : c.toARGB32() & 0xFFFFFF);
+    await widget.state.reloadPerson(widget.state.me.username);
+  });
+
+  Widget _button(String what, String label, {required Future<void> Function() onPressed, bool filled = true}) {
+    final busy = _busy == what;
+    final action = _busy == null ? () => unawaited(_run(what, onPressed)) : null;
+    final child = busy ? const PSpinner() : Text(label);
+    return filled ? FilledButton.tonal(onPressed: action, child: child) : TextButton(onPressed: action, child: child);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = widget.state;
+    return ListenableBuilder(
+      listenable: state,
+      builder: (context, _) {
+        final me = state.me.username;
+        final p = state.personNow(me);
+        final avatar = state.avatarOf(me);
+        final banner = state.bannerOf(me);
+        final hasAvatar = p?.avatar != null;
+        final hasBanner = p?.banner != null;
+        final chosen = p?.bannerColor;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              height: 168,
+              child: Stack(
+                children: [
+                  // A rounded shape filled with the banner, not a clip: its
+                  // corners stay smooth on every renderer.
+                  SizedBox(
+                    height: 120,
+                    width: double.infinity,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: state.bannerColorOf(me),
+                        borderRadius: BorderRadius.circular(14),
+                        image: banner == null ? null : DecorationImage(image: banner, fit: BoxFit.cover, onError: (_, _) {}),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 16,
+                    top: 74,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(color: PColors.dialog, shape: BoxShape.circle),
+                      child: PAvatar(name: widget.shownName, colorKey: me, size: 84, image: avatar),
+                    ),
+                  ),
+                  Positioned(
+                    left: 120,
+                    right: 0,
+                    top: 128,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(widget.shownName, style: PType.heading, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        Text('@$me', style: PType.small),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _button('avatar', hasAvatar ? 'Change picture' : 'Add a picture', onPressed: () => choosePicture(context, state, PictureKind.avatar)),
+                if (hasAvatar)
+                  _button('avatar-remove', 'Remove picture', filled: false, onPressed: () => removePicture(context, state, PictureKind.avatar)),
+                _button('banner', hasBanner ? 'Change banner' : 'Add a banner', onPressed: () => choosePicture(context, state, PictureKind.banner)),
+                if (hasBanner)
+                  _button('banner-remove', 'Remove banner', filled: false, onPressed: () => removePicture(context, state, PictureKind.banner)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'A picture is square, shrunk to ${pictureLimitsText(PictureKind.avatar)}. '
+              'A banner is three times as wide as tall, shrunk to ${pictureLimitsText(PictureKind.banner)}. '
+              'Both are encrypted: your server cannot see them.',
+              style: const TextStyle(fontSize: 12.5, height: 1.45, color: PColors.textFaint),
+            ),
+            if (!hasBanner) ...[
+              const SizedBox(height: 18),
+              const Text('Banner colour', style: PType.name),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _Swatch(
+                    label: 'Your colour',
+                    color: PColors.avatarFor(me).withValues(alpha: 0.55),
+                    chosen: chosen == null,
+                    onTap: _busy == null ? () => unawaited(_colour(null)) : null,
+                  ),
+                  for (final c in _colours)
+                    _Swatch(
+                      label: '#${(c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}',
+                      color: c,
+                      chosen: chosen == (c.toARGB32() & 0xFFFFFF),
+                      onTap: _busy == null ? () => unawaited(_colour(c)) : null,
+                    ),
+                ],
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// A round colour to choose, ringed when chosen.
+class _Swatch extends StatelessWidget {
+  const _Swatch({required this.label, required this.color, required this.chosen, required this.onTap});
+
+  final String label;
+  final Color color;
+  final bool chosen;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: label,
+      child: Semantics(
+        button: true,
+        selected: chosen,
+        label: 'Banner colour $label',
+        child: MouseRegion(
+          cursor: onTap == null ? SystemMouseCursors.basic : SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: onTap,
+            child: AnimatedContainer(
+              duration: PMotion.fast,
+              width: 30,
+              height: 30,
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: chosen ? PColors.textStrong : Colors.transparent, width: 2),
+              ),
+              child: DecoratedBox(decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

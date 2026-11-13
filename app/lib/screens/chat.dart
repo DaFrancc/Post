@@ -809,7 +809,11 @@ class _ChatViewState extends State<ChatView> {
                                             padding: EdgeInsets.all(16),
                                             child: Center(child: PSpinner()),
                                           )
-                                        : _Beginning(key: const ValueKey('beginning'), conversation: c);
+                                        : _Beginning(
+                                            key: const ValueKey('beginning'),
+                                            conversation: c,
+                                            image: c.isGroup || c.peer == null ? null : _state.avatarOf(c.peer!),
+                                          );
                                   }
                                   final item = items[items.length - 1 - i];
                                   return KeyedSubtree(key: item.key, child: _itemView(item));
@@ -834,6 +838,7 @@ class _ChatViewState extends State<ChatView> {
                             picked: _mentionPick,
                             query: _mention?.query ?? '',
                             presenceOf: _state.presenceOf,
+                            avatarOf: _state.avatarOf,
                             onHover: (i) => setState(() => _mentionPick = i),
                             onPick: _pickMention,
                           ),
@@ -903,6 +908,7 @@ class _ChatViewState extends State<ChatView> {
       onMenu: (at) => _messageMenu(m, at),
       onPerson: (anchor) => unawaited(showProfileCard(anchor, _state, m.senderUsername)),
       receipts: () => _state.client.messageReceipts(conversation: widget.conversation.id, message: m.id),
+      avatarOf: _state.avatarOf,
     ),
   };
 }
@@ -1304,9 +1310,12 @@ class _EncryptedBadge extends StatelessWidget {
 // ---------------------------------------------------------------- lines
 
 class _Beginning extends StatelessWidget {
-  const _Beginning({super.key, required this.conversation});
+  const _Beginning({super.key, required this.conversation, this.image});
 
   final ConversationInfo conversation;
+
+  /// The other person's picture, in a DM.
+  final ImageProvider? image;
 
   @override
   Widget build(BuildContext context) {
@@ -1316,7 +1325,7 @@ class _Beginning extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          PAvatar(name: c.title, colorKey: c.isGroup ? c.id : (c.peer ?? c.id), size: 64, square: c.isGroup),
+          PAvatar(name: c.title, colorKey: c.isGroup ? c.id : (c.peer ?? c.id), size: 64, square: c.isGroup, image: image),
           const SizedBox(height: 14),
           Text(c.title, style: PType.title.copyWith(fontSize: 24)),
           const SizedBox(height: 6),
@@ -1336,7 +1345,15 @@ class _Beginning extends StatelessWidget {
 /// lit. Arrows (in the composer) or the pointer choose; Tab, Enter or a
 /// click picks. It never takes the keyboard from the composer.
 class _MentionList extends StatelessWidget {
-  const _MentionList({required this.choices, required this.picked, required this.query, required this.presenceOf, required this.onHover, required this.onPick});
+  const _MentionList({
+    required this.choices,
+    required this.picked,
+    required this.query,
+    required this.presenceOf,
+    required this.avatarOf,
+    required this.onHover,
+    required this.onPick,
+  });
 
   final List<MemberInfo> choices;
   final int picked;
@@ -1344,6 +1361,7 @@ class _MentionList extends StatelessWidget {
   /// What has been typed after the `@`, picked out in each username.
   final String query;
   final String Function(String username) presenceOf;
+  final ImageProvider? Function(String username) avatarOf;
   final ValueChanged<int> onHover;
   final ValueChanged<MemberInfo> onPick;
 
@@ -1427,6 +1445,7 @@ class _MentionList extends StatelessWidget {
                 size: 26,
                 presence: presenceOf(m.username),
                 ringColor: lit ? PColors.active : PColors.panelRaised,
+                image: avatarOf(m.username),
               ),
               const SizedBox(width: 10),
               Flexible(
@@ -1638,11 +1657,15 @@ class _MessageTile extends StatefulWidget {
     required this.onPerson,
     required this.arrival,
     required this.receipts,
+    required this.avatarOf,
     this.flight,
   });
 
   /// Who has this message (yours), for the ticks' hover card.
   final Future<MessageReceiptsInfo> Function() receipts;
+
+  /// Someone's profile picture, if it is here.
+  final ImageProvider? Function(String username) avatarOf;
 
   /// The sender's avatar or name was clicked: given what was clicked, to
   /// show their card beside it.
@@ -1951,7 +1974,7 @@ class _MessageTileState extends State<_MessageTile> with TickerProviderStateMixi
                                     padding: const EdgeInsets.only(top: 2),
                                     child: _PersonLink(
                                       onTap: widget.onPerson,
-                                      child: PAvatar(name: m.sender, colorKey: m.senderUsername, size: 40),
+                                      child: PAvatar(name: m.sender, colorKey: m.senderUsername, size: 40, image: widget.avatarOf(m.senderUsername)),
                                     ),
                                   )
                                 : (_hover
@@ -1971,7 +1994,7 @@ class _MessageTileState extends State<_MessageTile> with TickerProviderStateMixi
                           if (m.outgoing && !m.deleted && !m.failed)
                             Padding(
                               padding: EdgeInsets.only(left: 10, top: widget.startsGroup ? 25 : 4),
-                              child: _Ticks(m, load: widget.receipts),
+                              child: _Ticks(m, load: widget.receipts, avatarOf: widget.avatarOf),
                             ),
                         ],
                       ),
@@ -2057,10 +2080,11 @@ const _readBlue = Color(0xFF5FB8FF);
 /// one tick when the server has it, two when everyone else has it, two blue
 /// when everyone has read it. Hovering says who, person by person.
 class _Ticks extends StatefulWidget {
-  const _Ticks(this.m, {required this.load});
+  const _Ticks(this.m, {required this.load, required this.avatarOf});
 
   final MessageInfo m;
   final Future<MessageReceiptsInfo> Function() load;
+  final ImageProvider? Function(String username) avatarOf;
 
   @override
   State<_Ticks> createState() => _TicksState();
@@ -2134,7 +2158,7 @@ class _TicksState extends State<_Ticks> {
                       child: Icon(stage.icon, size: 15, color: stage.color),
                     ),
                     const SizedBox(width: 10),
-                    _Faces(people),
+                    _Faces(people, avatarOf: widget.avatarOf),
                     const SizedBox(width: 8),
                     Text('${people.length} ${stage.counted}', style: const TextStyle(fontSize: 12, color: PColors.textMuted)),
                   ],
@@ -2209,7 +2233,7 @@ class _TicksState extends State<_Ticks> {
                           padding: const EdgeInsets.symmetric(vertical: 5),
                           child: Row(
                             children: [
-                              PAvatar(name: p.shownName, colorKey: p.username, size: 32),
+                              PAvatar(name: p.shownName, colorKey: p.username, size: 32, image: widget.avatarOf(p.username)),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
@@ -2312,9 +2336,10 @@ enum _ReceiptStage {
 
 /// Up to three faces, overlapping, and how many more.
 class _Faces extends StatelessWidget {
-  const _Faces(this.people);
+  const _Faces(this.people, {required this.avatarOf});
 
   final List<PersonReceiptInfo> people;
+  final ImageProvider? Function(String username) avatarOf;
 
   static const _size = 22.0;
   static const _step = 15.0;
@@ -2339,7 +2364,7 @@ class _Faces extends StatelessWidget {
                     // out of the one behind.
                     padding: const EdgeInsets.all(1.5),
                     decoration: const BoxDecoration(color: PColors.panelRaised, shape: BoxShape.circle),
-                    child: PAvatar(name: p.shownName, colorKey: p.username, size: _size - 3),
+                    child: PAvatar(name: p.shownName, colorKey: p.username, size: _size - 3, image: avatarOf(p.username)),
                   ),
                 ),
             ],

@@ -254,7 +254,14 @@ class _MemberRowState extends State<_MemberRow> {
               opacity: widget.presence == 'offline' ? 0.6 : 1,
               child: Row(
                 children: [
-                  PAvatar(name: m.shownName, colorKey: m.username, size: 32, presence: widget.presence, ringColor: bg),
+                  PAvatar(
+                    name: m.shownName,
+                    colorKey: m.username,
+                    size: 32,
+                    presence: widget.presence,
+                    ringColor: bg,
+                    image: widget.state.avatarOf(m.username),
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
@@ -357,11 +364,49 @@ class _ProfileState extends State<_Profile> {
         final name = p?.shownName ?? widget.username;
         final presence = _state.presenceOf(widget.username);
         final verified = p?.verified ?? false;
+        final banner = _state.bannerOf(widget.username);
         return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 26, 16, 16),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
           children: [
-            Center(
-              child: PAvatar(name: name, colorKey: widget.username, size: 80, presence: presence),
+            // Their banner (3 : 1, a rounded shape filled with it), the
+            // picture centred on its lower edge.
+            LayoutBuilder(
+              builder: (context, box) {
+                final height = box.maxWidth / 3;
+                return SizedBox(
+                  height: height + 48,
+                  child: Stack(
+                    alignment: Alignment.topCenter,
+                    children: [
+                      SizedBox(
+                        height: height,
+                        width: double.infinity,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: _state.bannerColorOf(widget.username),
+                            borderRadius: BorderRadius.circular(14),
+                            image: banner == null ? null : DecorationImage(image: banner, fit: BoxFit.cover, onError: (_, _) {}),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: height - 40,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(color: PColors.panel, shape: BoxShape.circle),
+                          child: PAvatar(
+                            name: name,
+                            colorKey: widget.username,
+                            size: 80,
+                            presence: presence,
+                            image: _state.avatarOf(widget.username),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 12),
             Text(name, textAlign: TextAlign.center, style: PType.heading),

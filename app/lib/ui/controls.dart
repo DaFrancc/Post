@@ -177,11 +177,22 @@ class _PIconButtonState extends State<PIconButton> {
   }
 }
 
-/// Someone's (or a group's) initials on their colour, optionally with a
-/// presence dot. Groups are rounded squares, people are circles.
+/// Someone's profile picture, or with none (or until it has arrived) the
+/// default face on their colour; a group's initials on its colour. Groups
+/// are rounded squares, people are circles. Optionally with a presence dot.
 class PAvatar extends StatelessWidget {
-  const PAvatar({super.key, required this.name, required this.colorKey, this.size = 36, this.square = false, this.presence, this.ringColor = PColors.panel});
+  const PAvatar({
+    super.key,
+    required this.name,
+    required this.colorKey,
+    this.size = 36,
+    this.square = false,
+    this.presence,
+    this.ringColor = PColors.panel,
+    this.image,
+  });
 
+  /// Who or what it is, for screen readers (and a group's initials).
   final String name;
   final String colorKey;
   final double size;
@@ -193,18 +204,50 @@ class PAvatar extends StatelessWidget {
   /// The colour behind the avatar, so the dot looks cut out of it.
   final Color ringColor;
 
+  /// Their profile picture, once it is here.
+  final ImageProvider? image;
+
   @override
   Widget build(BuildContext context) {
-    final face = Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(color: PColors.avatarFor(colorKey), borderRadius: BorderRadius.circular(square ? size * 0.33 : size / 2)),
-      child: Text(
-        initials(name),
-        style: TextStyle(fontFamily: square ? PType.display : PType.body, fontWeight: FontWeight.w600, fontSize: size * 0.36, color: PColors.onAvatar),
-      ),
-    );
+    final colour = PColors.avatarFor(colorKey);
+    final Widget face;
+    if (square) {
+      face = Container(
+        width: size,
+        height: size,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(color: colour, borderRadius: BorderRadius.circular(size * 0.33)),
+        child: Text(
+          initials(name),
+          style: TextStyle(fontFamily: PType.display, fontWeight: FontWeight.w600, fontSize: size * 0.36, color: PColors.onAvatar),
+        ),
+      );
+    } else {
+      final img = image;
+      // Decoded at the size shown, not the picture's own 512 pixels.
+      final px = (size * MediaQuery.devicePixelRatioOf(context)).round();
+      // Drawn as a filled circle, not cut out with a clip: a clip's edge is
+      // not smoothed on every renderer (Impeller without multisampling),
+      // a shape's is.
+      face = Semantics(
+        label: name,
+        image: true,
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: img == null
+              ? DefaultFace(color: colour)
+              : DecoratedBox(
+                  decoration: BoxDecoration(
+                    // Behind a see-through picture, and one that will not decode.
+                    color: colour,
+                    shape: BoxShape.circle,
+                    image: DecorationImage(image: ResizeImage.resizeIfNeeded(px, px, img), fit: BoxFit.cover, onError: (_, _) {}),
+                  ),
+                ),
+        ),
+      );
+    }
     final p = presence;
     if (p == null) return face;
     // Fixed sizes for a fixed-size avatar: the dot belongs to the picture,
@@ -233,6 +276,45 @@ class PAvatar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The picture of someone without one: a head and shoulders on a circle of
+/// their colour, never their initials.
+class DefaultFace extends StatelessWidget {
+  const DefaultFace({super.key, required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(painter: _FacePainter(color), child: const SizedBox.expand());
+}
+
+class _FacePainter extends CustomPainter {
+  const _FacePainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Its own round edge, smoothed, rather than a clip's; the glyph sits
+    // well inside it.
+    canvas.drawCircle(size.center(Offset.zero), size.shortestSide / 2, Paint()..color = color);
+    // Drawn on a 24-unit grid, the glyph 62% of the avatar, centred.
+    final s = size.shortestSide * 0.62 / 24;
+    canvas.translate((size.width - 24 * s) / 2, (size.height - 24 * s) / 2);
+    canvas.scale(s);
+    final ink = Paint()..color = PColors.onAvatar.withValues(alpha: 0.82);
+    canvas.drawCircle(const Offset(12, 9), 4.2, ink);
+    final shoulders = Path()
+      ..moveTo(3.5, 22.5)
+      ..cubicTo(3.5, 17.5, 7.3, 14.3, 12, 14.3)
+      ..cubicTo(16.7, 14.3, 20.5, 17.5, 20.5, 22.5)
+      ..close();
+    canvas.drawPath(shoulders, ink);
+  }
+
+  @override
+  bool shouldRepaint(_FacePainter old) => old.color != color;
 }
 
 /// A coloured presence dot. Offline is a hollow ring, so it reads without
