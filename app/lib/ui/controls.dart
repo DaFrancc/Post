@@ -296,21 +296,19 @@ class _FacePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Its own round edge, smoothed, rather than a clip's; the glyph sits
-    // well inside it.
-    canvas.drawCircle(size.center(Offset.zero), size.shortestSide / 2, Paint()..color = color);
-    // Drawn on a 24-unit grid, the glyph 62% of the avatar, centred.
-    final s = size.shortestSide * 0.62 / 24;
-    canvas.translate((size.width - 24 * s) / 2, (size.height - 24 * s) / 2);
-    canvas.scale(s);
-    final ink = Paint()..color = PColors.onAvatar.withValues(alpha: 0.82);
-    canvas.drawCircle(const Offset(12, 9), 4.2, ink);
-    final shoulders = Path()
-      ..moveTo(3.5, 22.5)
-      ..cubicTo(3.5, 17.5, 7.3, 14.3, 12, 14.3)
-      ..cubicTo(16.7, 14.3, 20.5, 17.5, 20.5, 22.5)
-      ..close();
-    canvas.drawPath(shoulders, ink);
+    final d = size.shortestSide;
+    final centre = size.center(Offset.zero);
+    final disc = Rect.fromCircle(center: centre, radius: d / 2);
+    // Its own round edge, smoothed, rather than a clip's.
+    canvas.drawOval(disc, Paint()..color = color);
+    // A head, and shoulders running off the bottom: their lower edge is
+    // the disc's own smooth curve, not a flat cut, which looks jagged at
+    // the sizes lists use. Large enough to stay round at 24 pixels.
+    final at = Offset(centre.dx - d / 2, centre.dy - d / 2);
+    final head = Path()..addOval(Rect.fromCircle(center: at + Offset(0.5 * d, 0.39 * d), radius: 0.175 * d));
+    final body = Path()..addOval(Rect.fromCenter(center: at + Offset(0.5 * d, 0.93 * d), width: 0.72 * d, height: 0.52 * d));
+    final figure = Path.combine(PathOperation.union, head, Path.combine(PathOperation.intersect, body, Path()..addOval(disc)));
+    canvas.drawPath(figure, Paint()..color = PColors.onAvatar.withValues(alpha: 0.82));
   }
 
   @override
