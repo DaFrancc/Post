@@ -55,7 +55,10 @@ pub fn auth_message(server_domain: &str, nonce: &[u8]) -> Vec<u8> {
 pub struct ClientFrame {
     #[prost(uint64, tag = "1")]
     pub id: u64,
-    #[prost(oneof = "Request", tags = "10, 11, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49")]
+    #[prost(
+        oneof = "Request",
+        tags = "10, 11, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52"
+    )]
     pub request: Option<Request>,
 }
 
@@ -92,6 +95,8 @@ pub enum Request {
     EndMaintenance(EndMaintenance),
     #[prost(message, tag = "31")]
     CreateInvite(CreateInvite),
+    #[prost(message, tag = "32")]
+    UploadBlob(UploadBlob),
 
     // Anonymous only.
     #[prost(message, tag = "40")]
@@ -114,6 +119,12 @@ pub enum Request {
     LinkGet(LinkGet),
     #[prost(message, tag = "49")]
     CallToken(CallToken),
+    #[prost(message, tag = "50")]
+    FetchBlob(FetchBlob),
+    #[prost(message, tag = "51")]
+    RenewBlob(RenewBlob),
+    #[prost(message, tag = "52")]
+    DeleteBlob(DeleteBlob),
 }
 
 impl Request {
@@ -136,6 +147,7 @@ impl Request {
                 | Request::PlanMaintenance(_)
                 | Request::EndMaintenance(_)
                 | Request::CreateInvite(_)
+                | Request::UploadBlob(_)
         )
     }
 }
@@ -199,7 +211,10 @@ pub struct Wake {
 pub struct Response {
     #[prost(uint64, tag = "1")]
     pub id: u64,
-    #[prost(oneof = "Reply", tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25")]
+    #[prost(
+        oneof = "Reply",
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27"
+    )]
     pub reply: Option<Reply>,
 }
 
@@ -237,6 +252,10 @@ pub enum Reply {
     Announcements(Announcements),
     #[prost(message, tag = "25")]
     Invite(Invite),
+    #[prost(message, tag = "26")]
+    BlobStored(BlobStored),
+    #[prost(message, tag = "27")]
+    Blob(Blob),
 }
 
 // ---------------------------------------------------------------- errors
@@ -913,6 +932,79 @@ pub struct CallAccess {
     pub max_participants: u32,
 }
 
+// ---------------------------------------------------------------- small blobs
+
+/// Largest small blob, in bytes of ciphertext: room for a 500 KiB banner
+/// and the encryption's overhead.
+pub const MAX_SMALL_BLOB_BYTES: usize = 512 * 1024;
+/// How long a small blob is kept unless renewed.
+pub const SMALL_BLOB_LIFETIME_MS: u64 = 90 * 24 * 3600 * 1000;
+/// Small blobs one account may upload per day.
+pub const SMALL_BLOB_UPLOADS_PER_DAY: u32 = 20;
+
+/// Store a small encrypted file, a profile picture or banner, for
+/// [`SMALL_BLOB_LIFETIME_MS`] (design section 7, "Avatar"). On a session,
+/// so it counts against the account's daily quota; the server keeps no
+/// record of whose it is. Large attachments will travel over HTTPS instead
+/// (section 9).
+#[derive(Clone, PartialEq, Message)]
+pub struct UploadBlob {
+    /// Ciphertext, at most [`MAX_SMALL_BLOB_BYTES`].
+    #[prost(bytes = "vec", tag = "1")]
+    pub data: Vec<u8>,
+    /// SHA-256 of a random 32-byte secret only the uploader keeps, which
+    /// renews or deletes the blob later from an anonymous connection.
+    #[prost(bytes = "vec", tag = "2")]
+    pub renew_hash: Vec<u8>,
+}
+
+/// A blob stored or renewed.
+#[derive(Clone, PartialEq, Message)]
+pub struct BlobStored {
+    /// 16 random bytes, chosen by the server.
+    #[prost(bytes = "vec", tag = "1")]
+    pub blob_id: Vec<u8>,
+    #[prost(uint64, tag = "2")]
+    pub expires_at_ms: u64,
+}
+
+/// Download a small blob. Its unguessable ID is the capability, and the
+/// ciphertext is useless without the key, which only travels end to end.
+/// Anonymous, so the server does not learn who looks at whose picture.
+#[derive(Clone, PartialEq, Message)]
+pub struct FetchBlob {
+    #[prost(bytes = "vec", tag = "1")]
+    pub blob_id: Vec<u8>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct Blob {
+    #[prost(bytes = "vec", tag = "1")]
+    pub data: Vec<u8>,
+    #[prost(uint64, tag = "2")]
+    pub expires_at_ms: u64,
+}
+
+/// Keep a small blob for another [`SMALL_BLOB_LIFETIME_MS`] from now.
+/// Replies `BlobStored`; `NotFound` once it has expired.
+#[derive(Clone, PartialEq, Message)]
+pub struct RenewBlob {
+    #[prost(bytes = "vec", tag = "1")]
+    pub blob_id: Vec<u8>,
+    /// The secret whose hash came with the upload.
+    #[prost(bytes = "vec", tag = "2")]
+    pub renew_secret: Vec<u8>,
+}
+
+/// Delete a small blob now, when a picture is replaced or removed.
+#[derive(Clone, PartialEq, Message)]
+pub struct DeleteBlob {
+    #[prost(bytes = "vec", tag = "1")]
+    pub blob_id: Vec<u8>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub renew_secret: Vec<u8>,
+}
+
 impl Error {
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
         Self { code: code as i32, message: message.into(), current_epoch: 0 }
@@ -975,6 +1067,10 @@ mod tests {
             Request::PlanMaintenance(PlanMaintenance::default()),
             Request::EndMaintenance(EndMaintenance::default()),
             Request::CreateInvite(CreateInvite::default()),
+            Request::UploadBlob(UploadBlob::default()),
+            Request::FetchBlob(FetchBlob::default()),
+            Request::RenewBlob(RenewBlob::default()),
+            Request::DeleteBlob(DeleteBlob::default()),
         ];
         for r in requests {
             let f = ClientFrame { id: 1, request: Some(r) };
@@ -997,6 +1093,8 @@ mod tests {
             Reply::CallAccess(CallAccess::default()),
             Reply::Announcements(Announcements::default()),
             Reply::Invite(Invite::default()),
+            Reply::BlobStored(BlobStored::default()),
+            Reply::Blob(Blob::default()),
         ];
         for r in replies {
             let f = ServerFrame { kind: Some(ServerKind::Response(Response { id: 1, reply: Some(r) })) };
@@ -1036,5 +1134,11 @@ mod tests {
         assert!(Request::EndMaintenance(EndMaintenance::default()).is_session());
         // Invites are made by a host, who is someone.
         assert!(Request::CreateInvite(CreateInvite::default()).is_session());
+        // Uploads count against an account's quota; everything after that
+        // is anonymous, so nobody's interest in a picture is recorded.
+        assert!(Request::UploadBlob(UploadBlob::default()).is_session());
+        assert!(!Request::FetchBlob(FetchBlob::default()).is_session());
+        assert!(!Request::RenewBlob(RenewBlob::default()).is_session());
+        assert!(!Request::DeleteBlob(DeleteBlob::default()).is_session());
     }
 }

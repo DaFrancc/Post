@@ -161,6 +161,19 @@ CREATE TABLE IF NOT EXISTS announcements (
     minutes        INTEGER NOT NULL DEFAULT 0,
     client_msg_id  BLOB UNIQUE
 );
+CREATE TABLE IF NOT EXISTS blobs (
+    blob_id     BLOB PRIMARY KEY,
+    size        INTEGER NOT NULL,
+    renew_hash  BLOB NOT NULL,
+    expires_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS blobs_by_expiry ON blobs(expires_at);
+CREATE TABLE IF NOT EXISTS blob_uploads (
+    account_id  BLOB NOT NULL,
+    day         INTEGER NOT NULL,
+    count       INTEGER NOT NULL,
+    PRIMARY KEY (account_id, day)
+);
 CREATE TABLE IF NOT EXISTS maintenance (
     id              INTEGER PRIMARY KEY,
     starts_at       INTEGER NOT NULL,

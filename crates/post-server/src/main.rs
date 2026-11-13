@@ -136,6 +136,14 @@ enum Command {
         releases_live_on_start: bool,
         #[command(flatten)]
         calls: CallArgs,
+        /// Where profile pictures and banners are kept, encrypted. Default:
+        /// a `blobs` folder beside the database.
+        #[arg(long, env = "POST_BLOBS_DIR")]
+        blobs_dir: Option<PathBuf>,
+        /// The most room profile pictures and banners may take together, in
+        /// MB. Each is at most half a megabyte.
+        #[arg(long, env = "POST_BLOB_STORE_MB", default_value_t = 4096)]
+        blob_store_mb: u64,
     },
     /// Create a single-use invite code.
     Invite {
@@ -311,6 +319,8 @@ async fn main() -> anyhow::Result<()> {
             releases_live_while_running,
             releases_live_on_start,
             calls,
+            blobs_dir,
+            blob_store_mb,
         } => {
             let db_key = read_key(&db)?;
             let calls = calls.config()?;
@@ -334,7 +344,12 @@ async fn main() -> anyhow::Result<()> {
                 live_on_start: releases_live_on_start,
                 ..post_server::ReleaseConfig::new(releases_dir, key)
             };
-            let config = post_server::Config { server_domain: domain.clone(), db_path: db.db, db_key, releases, calls };
+            let mut blobs = post_server::BlobConfig::beside(&db.db);
+            if let Some(dir) = blobs_dir {
+                blobs.dir = dir;
+            }
+            blobs.max_total_bytes = blob_store_mb.saturating_mul(1024 * 1024);
+            let config = post_server::Config { server_domain: domain.clone(), db_path: db.db, db_key, releases, calls, blobs };
             let running = post_server::spawn(listener, config)?;
             tracing::info!(addr = %running.addr, %domain, "postd listening");
             // SIGHUP (`systemctl reload`, `podman kill --signal HUP`): look

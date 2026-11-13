@@ -941,7 +941,9 @@ like.
 | Anonymous | Groups | `CreateGroup` (token), `Send` (application messages and proposals), `Commit`, `FetchGroups`, `Subscribe` (access key) |
 | Anonymous | KeyPackages | `ClaimKeyPackages(account)` or `(account, device, count)` (token) |
 | Anonymous | Linking | `LinkPut`, `LinkGet` (sealed rendezvous slots; section 5) |
-| Session | Later phases | `Push.Register`, `Call.Token`, blob tokens |
+| Session | Small blobs | `UploadBlob(ciphertext, renewal hash)`: profile pictures and banners, at most 512 KiB, 20 a day per account |
+| Anonymous | Small blobs | `FetchBlob(id)`, `RenewBlob(id, secret)`, `DeleteBlob(id, secret)` |
+| Session | Later phases | `Push.Register`, `Call.Token`, blob tokens for large attachments |
 
 ### What the server validates
 
@@ -974,11 +976,15 @@ directory_version(version)  -- bumped whenever an account or chain changes
 hosts(account_id PK)
 announcements(id PK, created_at, kind, text, starts_at, minutes, client_msg_id UNIQUE)
 maintenance(id PK, starts_at, minutes, reason, reminders_done, started, finished)
+blobs(blob_id PK, size, renew_hash, expires_at)  -- the ciphertext is a file named by blob_id
+blob_uploads(account_id, day, count, PRIMARY KEY (account_id, day))
 ```
 
 No table links a device or account to a group. `group_log` stores no sender.
 `token_issuance` counts tokens per device per day for rate limiting, which reveals
-how many tokens a device took, not what it spent them on.
+how many tokens a device took, not what it spent them on. `blob_uploads` likewise
+counts uploads, and no row says whose a blob is: it is renewed and deleted with a
+secret only its uploader holds, from an anonymous connection.
 
 The database itself is encrypted at rest with SQLCipher. The key comes from a file,
 a container secret or systemd credentials, never from the command line.
@@ -1081,7 +1087,8 @@ Each is built with the feature it limits.
 - Announcements: kept for good.
 - Spent tokens: kept until their token key retires (weekly rotation, one week
   overlap).
-- Blobs: 30 days.
+- Blobs: 30 days. Small blobs (profile pictures and banners): 90 days, renewed by
+  their owner.
 - Logs record IDs and errors only. No payloads, and no per-message lines at the
   default level.
 

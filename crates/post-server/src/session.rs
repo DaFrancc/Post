@@ -296,6 +296,7 @@ impl Conn {
                 tracing::info!("a host made an invite");
                 Reply::Invite(proto::Invite { code, expires_at_ms: db::now_ms() + valid_ms })
             }
+            Request::UploadBlob(r) => Reply::BlobStored(st.blobs.upload(&st.db, account, r).await?),
             Request::EndMaintenance(_) => {
                 let (_, v) = st.db.run(move |c| announce::end(c, By::Host(&account))).await?;
                 st.announced(v);
@@ -358,6 +359,14 @@ impl Conn {
                 Reply::Empty(proto::Empty {})
             }
             Request::LinkGet(r) => Reply::LinkSlot(st.links.get(&r).await?),
+            // Requests on one connection are handled one at a time, so a
+            // connection downloads one picture at a time.
+            Request::FetchBlob(r) => Reply::Blob(st.blobs.fetch(&st.db, r).await?),
+            Request::RenewBlob(r) => Reply::BlobStored(st.blobs.renew(&st.db, r).await?),
+            Request::DeleteBlob(r) => {
+                st.blobs.delete(&st.db, r).await?;
+                Reply::Empty(proto::Empty {})
+            }
             Request::CallToken(r) => {
                 let Some(calls) = &st.calls else {
                     return Err(proto::Error::new(ErrorCode::Unavailable, "this server does not offer calls"));

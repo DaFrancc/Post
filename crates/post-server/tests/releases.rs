@@ -115,7 +115,9 @@ fn config(dir: &Path, key: &HybridSigningKey, github: Option<String>) -> Release
 async fn postd(dir: &Path, releases: ReleaseConfig) -> post_server::Running {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let domain = format!("127.0.0.1:{}", listener.local_addr().expect("addr").port());
-    let config = post_server::Config { server_domain: domain, db_path: dir.join("server.db"), db_key: Zeroizing::new([5; 32]), releases, calls: None };
+    let db_path = dir.join("server.db");
+    let blobs = post_server::BlobConfig::beside(&db_path);
+    let config = post_server::Config { server_domain: domain, db_path, db_key: Zeroizing::new([5; 32]), releases, calls: None, blobs };
     post_server::spawn(listener, config).expect("server")
 }
 
