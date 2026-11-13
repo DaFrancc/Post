@@ -157,7 +157,7 @@ app/lib/
 
 | # | Phase | Document | Needs | State |
 |---|---|---|---|---|
-| 0 | Tooling | below | | not started |
+| 0 | Tooling | below | | done |
 | 1 | One generated local API | [`phase-1-api.md`](phase-1-api.md) | | not started |
 | 2 | Core file layout | to write | 1, for `lib.rs`; `engine.rs` and `store.rs` can be split alongside phase 1 | not started |
 | 3 | App foundations: data layer, kit, gallery, tests | to write once phase 1's Dart client exists | 1 | not started |
