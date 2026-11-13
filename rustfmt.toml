@@ -1,0 +1,4 @@
+# The width the code was written at: these settings change the fewest lines.
+# Generated files opt out with #[rustfmt::skip] on their `mod`.
+max_width = 140
+use_small_heuristics = "Max"

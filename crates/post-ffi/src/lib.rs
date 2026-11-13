@@ -13,4 +13,5 @@ mod keystore;
 mod spell_catalog;
 
 #[allow(unsafe_code, missing_docs, clippy::unwrap_used)]
+#[rustfmt::skip] // keeps codegen's own format
 mod frb_generated;
