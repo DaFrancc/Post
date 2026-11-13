@@ -18,6 +18,7 @@ import '../ui/profile_theme.dart';
 import '../ui/zoom.dart';
 import 'dialogs.dart';
 import 'picture_editor.dart';
+import 'profile_card.dart' show ProfileCardView, ProfileLook;
 import 'sound_settings.dart';
 import 'update.dart' show UpdateSettings;
 
@@ -56,8 +57,12 @@ class _SettingsState extends State<_Settings> {
         side: const BorderSide(color: PColors.borderStrong),
       ),
       clipBehavior: Clip.antiAlias,
-      child: SizedBox(
-        width: 820,
+      // Wider for the profile, with room for its preview beside the fields
+      // when the window allows.
+      child: AnimatedContainer(
+        duration: PMotion.fast,
+        curve: Curves.easeOutCubic,
+        width: _section == SettingsSection.profile ? math.max(820.0, math.min(1180.0, size.width - 64)) : 820,
         height: (size.height - 64).clamp(420, 640),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -218,6 +223,10 @@ class _ProfileSettingsState extends State<_ProfileSettings> {
   // Formatting shown as you type, as in the composer.
   final _bio = MarkupEditingController();
   final _bioLimit = Client.bioLimit();
+  // Colours being edited and not yet applied, for the preview. Notifiers,
+  // so a slider dragged redraws the preview alone, not the page.
+  final _bannerDraft = ValueNotifier<_Draft?>(null);
+  final _themeDraft = ValueNotifier<_Draft?>(null);
   bool _keepNote = false;
   bool _busy = false;
   bool _loaded = false;
@@ -253,6 +262,8 @@ class _ProfileSettingsState extends State<_ProfileSettings> {
     _typing.dispose();
     _note.dispose();
     _bio.dispose();
+    _bannerDraft.dispose();
+    _themeDraft.dispose();
     super.dispose();
   }
 
@@ -290,82 +301,180 @@ class _ProfileSettingsState extends State<_ProfileSettings> {
     if (!_loaded && _error == null) return const Center(child: PSpinner());
     final shownName = _name.text.trim().isEmpty ? widget.state.me.username : _name.text.trim();
     final template = _typing.text.trim().isEmpty ? r'$$NAME$$ is typing' : _typing.text.trim();
-    return _Page(
-      children: [
-        _LookEditor(state: widget.state, shownName: shownName),
-        const SizedBox(height: 26),
-        PField(
-          label: 'Display name',
-          controller: _name,
-          hint: widget.state.me.username,
-          help: 'What people see, unless they gave you a nickname. Empty shows your username.',
-          maxLength: 64,
-          enabled: !_busy,
-          onChanged: (_) => setState(() {}),
-        ),
-        const SizedBox(height: 16),
-        PField(
-          label: 'About me',
-          controller: _bio,
-          hint: 'A few words about you',
-          help: 'On your profile card. Formatting and mentions work as in messages.',
-          lines: 3,
-          inputFormatters: [BioFormatter(_bioLimit)],
-          counter: '${_bioLimit - _bio.text.runes.length}',
-          enabled: !_busy,
-          onChanged: (_) => setState(() {}),
-        ),
-        const SizedBox(height: 16),
-        PField(
-          label: 'Typing message',
-          controller: _typing,
-          hint: r'$$NAME$$ is typing',
-          help: 'What others see while you type. \$\$NAME\$\$ becomes the name they know you by. Preview: ${template.replaceAll(r'$$NAME$$', shownName)}',
-          maxLength: 120,
-          enabled: !_busy,
-          onChanged: (_) => setState(() {}),
-        ),
-        const SizedBox(height: 16),
-        PField(
-          label: 'Note',
-          controller: _note,
-          hint: 'e.g. at the crag, back sunday',
-          help: _keepNote ? 'Shown until you change it.' : 'Shown for 24 hours.',
-          maxLength: 140,
-          enabled: !_busy,
-        ),
-        const SizedBox(height: 6),
-        // Aligned with the fields' edge: no tap-target padding on the box.
-        MouseRegion(
-          cursor: _busy ? SystemMouseCursors.basic : SystemMouseCursors.click,
-          child: GestureDetector(
-            onTap: _busy ? null : () => setState(() => _keepNote = !_keepNote),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: Checkbox(
-                    value: _keepNote,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: VisualDensity.compact,
-                    onChanged: _busy ? null : (v) => setState(() => _keepNote = v ?? false),
-                  ),
+    final preview = _ProfilePreview(state: widget.state, fields: [_name, _bio, _note], look: () => _previewLook(), drafts: [_bannerDraft, _themeDraft]);
+    final fields = [
+      _LookEditor(state: widget.state, bannerDraft: _bannerDraft, themeDraft: _themeDraft),
+      const SizedBox(height: 26),
+      PField(
+        label: 'Display name',
+        controller: _name,
+        hint: widget.state.me.username,
+        help: 'What people see, unless they gave you a nickname. Empty shows your username.',
+        maxLength: 64,
+        enabled: !_busy,
+        onChanged: (_) => setState(() {}),
+      ),
+      const SizedBox(height: 16),
+      PField(
+        label: 'About me',
+        controller: _bio,
+        hint: 'A few words about you',
+        help: 'On your profile card. Formatting and mentions work as in messages.',
+        lines: 3,
+        inputFormatters: [BioFormatter(_bioLimit)],
+        counter: '${_bioLimit - _bio.text.runes.length}',
+        enabled: !_busy,
+        onChanged: (_) => setState(() {}),
+      ),
+      const SizedBox(height: 16),
+      PField(
+        label: 'Typing message',
+        controller: _typing,
+        hint: r'$$NAME$$ is typing',
+        help: 'What others see while you type. \$\$NAME\$\$ becomes the name they know you by. Preview: ${template.replaceAll(r'$$NAME$$', shownName)}',
+        maxLength: 120,
+        enabled: !_busy,
+        onChanged: (_) => setState(() {}),
+      ),
+      const SizedBox(height: 16),
+      PField(
+        label: 'Note',
+        controller: _note,
+        hint: 'e.g. at the crag, back sunday',
+        help: _keepNote ? 'Shown until you change it.' : 'Shown for 24 hours.',
+        maxLength: 140,
+        enabled: !_busy,
+      ),
+      const SizedBox(height: 6),
+      // Aligned with the fields' edge: no tap-target padding on the box.
+      MouseRegion(
+        cursor: _busy ? SystemMouseCursors.basic : SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: _busy ? null : () => setState(() => _keepNote = !_keepNote),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: Checkbox(
+                  value: _keepNote,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                  onChanged: _busy ? null : (v) => setState(() => _keepNote = v ?? false),
                 ),
-                const SizedBox(width: 10),
-                const Text('Keep the note until I change it', style: TextStyle(fontSize: 13.5, color: PColors.textMuted)),
-              ],
+              ),
+              const SizedBox(width: 10),
+              const Text('Keep the note until I change it', style: TextStyle(fontSize: 13.5, color: PColors.textMuted)),
+            ],
+          ),
+        ),
+      ),
+      if (_error != null) ...[const SizedBox(height: 12), PErrorBox(_error!)],
+      const SizedBox(height: 16),
+      Align(
+        alignment: Alignment.centerRight,
+        child: FilledButton(onPressed: _busy ? null : _save, child: _busy ? const PSpinner() : const Text('Save profile')),
+      ),
+      const SizedBox(height: 28),
+      _ArrivalPicker(state: widget.state, chosen: Arrival.parse(_was?.arrival), onChosen: (_) => unawaited(_load())),
+    ];
+    return LayoutBuilder(
+      builder: (context, box) {
+        // Room for both: the fields, and beside them the card as others
+        // see it, staying in view while the fields scroll. Else the card
+        // above the fields.
+        if (box.maxWidth < 300 + 2 * 28 + 420) {
+          return _Page(
+            children: [
+              Center(child: preview),
+              const SizedBox(height: 26),
+              ...fields,
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(child: _Page(children: fields)),
+            Container(
+              width: 300 + 2 * 24,
+              decoration: const BoxDecoration(
+                border: Border(left: BorderSide(color: PColors.border)),
+              ),
+              child: SingleChildScrollView(padding: const EdgeInsets.fromLTRB(24, 16, 24, 24), child: preview),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Your card as others would see it, with what is typed and chosen here
+  /// though not yet saved.
+  ProfileLook _previewLook() {
+    final state = widget.state;
+    final me = state.me.username;
+    final saved = ProfileLook.of(state, me);
+    final name = _name.text.trim();
+    final note = _note.text.trim();
+    final banner = _bannerDraft.value;
+    final theme = _themeDraft.value;
+    return ProfileLook(
+      username: me,
+      name: name.isEmpty ? me : name,
+      presence: saved.presence,
+      note: note.isEmpty ? null : note,
+      bio: _bio.text.trim(),
+      avatar: saved.avatar,
+      banner: saved.banner,
+      bannerFill: banner == null ? saved.bannerFill : AppState.defaultBannerFill(me, banner.fill?.carried),
+      theme: theme == null ? saved.theme : (theme.fill == null ? null : ProfileTheme(theme.fill!)),
+      sinceMs: saved.sinceMs,
+      arrival: saved.arrival,
+    );
+  }
+}
+
+/// Your profile card as others would see it while you edit it: redrawn as
+/// the fields and colours change, and nothing else.
+class _ProfilePreview extends StatelessWidget {
+  const _ProfilePreview({required this.state, required this.fields, required this.look, required this.drafts});
+
+  final AppState state;
+  final List<Listenable> fields;
+  final List<Listenable> drafts;
+  final ProfileLook Function() look;
+
+  static void _none() {}
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('PREVIEW', style: PType.label),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: 300,
+          child: ListenableBuilder(
+            listenable: Listenable.merge([state, ...fields, ...drafts]),
+            // Its own layer: redrawn without the page, and the page without it.
+            builder: (context, _) => RepaintBoundary(
+              child: ProfileCardView(
+                state: state,
+                look: look(),
+                // Drawn as others see them, but not to be pressed here. The
+                // bio still opens.
+                actions: IgnorePointer(
+                  child: ProfileCardView.peerActions(onMessage: _none, onNickname: _none, onCopy: _none),
+                ),
+              ),
             ),
           ),
         ),
-        if (_error != null) ...[const SizedBox(height: 12), PErrorBox(_error!)],
-        const SizedBox(height: 16),
-        Align(
-          alignment: Alignment.centerRight,
-          child: FilledButton(onPressed: _busy ? null : _save, child: _busy ? const PSpinner() : const Text('Save profile')),
-        ),
-        const SizedBox(height: 28),
-        _ArrivalPicker(state: widget.state, chosen: Arrival.parse(_was?.arrival), onChosen: (_) => unawaited(_load())),
+        const SizedBox(height: 8),
+        const Text('As others see your card. Changes show here before you save or apply them.', style: PType.small),
       ],
     );
   }
@@ -406,13 +515,15 @@ class BioFormatter extends TextInputFormatter {
   }
 }
 
-/// Your picture, banner and banner colour, shown as others see them on your
-/// card, each changed with a click and shared at once.
+/// Your picture, banner and colours: pictures changed with a click and
+/// shared at once; colours shown in the preview as they are edited
+/// ([bannerDraft], [themeDraft]) and shared on Apply.
 class _LookEditor extends StatefulWidget {
-  const _LookEditor({required this.state, required this.shownName});
+  const _LookEditor({required this.state, required this.bannerDraft, required this.themeDraft});
 
   final AppState state;
-  final String shownName;
+  final ValueNotifier<_Draft?> bannerDraft;
+  final ValueNotifier<_Draft?> themeDraft;
 
   @override
   State<_LookEditor> createState() => _LookEditorState();
@@ -421,10 +532,6 @@ class _LookEditor extends StatefulWidget {
 class _LookEditorState extends State<_LookEditor> {
   /// What is being changed, while it saves.
   String? _busy;
-
-  /// Colours being edited but not yet applied, shown in the preview.
-  _Draft? _bannerDraft;
-  _Draft? _themeDraft;
 
   Future<void> _run(String what, Future<void> Function() change) async {
     setState(() => _busy = what);
@@ -464,65 +571,15 @@ class _LookEditorState extends State<_LookEditor> {
       builder: (context, _) {
         final me = state.me.username;
         final p = state.personNow(me);
-        final avatar = state.avatarOf(me);
-        final banner = state.bannerOf(me);
         final hasAvatar = p?.avatar != null;
         final hasBanner = p?.banner != null;
         final savedBanner = p?.bannerFill == null ? null : Fill.of(p!.bannerFill!);
         final savedTheme = p?.theme == null ? null : Fill.of(p!.theme!);
-        // The preview shows what is being edited, before it is applied.
-        final bannerFill = _bannerDraft == null ? state.bannerFillOf(me) : AppState.defaultBannerFill(me, _bannerDraft!.fill?.carried);
-        final themeFill = _themeDraft == null ? savedTheme : _themeDraft!.fill;
-        final theme = themeFill == null ? null : ProfileTheme(themeFill);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // As others see the top of your card, in your colours.
-            ProfileFrame(
-              theme: theme,
-              body: const SizedBox(height: 8),
-              header: (inner) => SizedBox(
-                height: 168,
-                child: Stack(
-                  children: [
-                    // A rounded shape filled with the banner, not a clip: its
-                    // corners stay smooth on every renderer. The gap around
-                    // the picture cut out of it.
-                    SizedBox(
-                      height: 120,
-                      width: double.infinity,
-                      child: Punch(
-                        centre: const Offset(16 + 4 + 42, 74 + 4 + 42),
-                        radius: 42 + 4,
-                        child: BannerView(
-                          picture: banner,
-                          fill: bannerFill.gradient,
-                          radius: BorderRadius.vertical(top: Radius.circular(inner)),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      left: 16 + 4,
-                      top: 74 + 4,
-                      child: PAvatar(name: widget.shownName, colorKey: me, size: 84, image: avatar),
-                    ),
-                    Positioned(
-                      left: 120,
-                      right: 0,
-                      top: 128,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(widget.shownName, style: PType.heading, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          Text('@$me', style: PType.small),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
+            const Text('Picture and banner', style: PType.name),
+            const SizedBox(height: 10),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -549,7 +606,7 @@ class _LookEditorState extends State<_LookEditor> {
                 noneLabel: 'Your colour',
                 saved: savedBanner,
                 start: PColors.avatarFor(me),
-                onDraft: (d) => setState(() => _bannerDraft = d),
+                onDraft: (d) => widget.bannerDraft.value = d,
                 onApply: _applyBanner,
               ),
             ],
@@ -561,7 +618,7 @@ class _LookEditorState extends State<_LookEditor> {
               noneLabel: "The app's",
               saved: savedTheme,
               start: PColors.avatarFor(me),
-              onDraft: (d) => setState(() => _themeDraft = d),
+              onDraft: (d) => widget.themeDraft.value = d,
               onApply: _applyTheme,
             ),
           ],
@@ -614,17 +671,25 @@ class _FillEditor extends StatefulWidget {
   State<_FillEditor> createState() => _FillEditorState();
 }
 
+// The colours and the angle are listenables, and only what shows each one
+// listens: a slider step or a keystroke redraws its own row, the Apply
+// button and the preview, not the whole editor.
 class _FillEditorState extends State<_FillEditor> {
   final _from = TextEditingController();
   final _to = TextEditingController();
+  final _angleNow = ValueNotifier(180);
   var _kind = _FillKind.none;
-  var _angle = 180;
   var _busy = false;
+
+  int get _angle => _angleNow.value;
 
   @override
   void initState() {
     super.initState();
     _load(widget.saved);
+    for (final l in [_from, _to, _angleNow]) {
+      l.addListener(_tellDraft);
+    }
   }
 
   @override
@@ -638,6 +703,7 @@ class _FillEditorState extends State<_FillEditor> {
   void dispose() {
     _from.dispose();
     _to.dispose();
+    _angleNow.dispose();
     super.dispose();
   }
 
@@ -645,7 +711,20 @@ class _FillEditorState extends State<_FillEditor> {
 
   static Color? _parse(String s) => s.length == 6 ? Color(0xFF000000 | int.parse(s, radix: 16)) : null;
 
+  /// Filling the fields from what is saved: nothing to tell the preview
+  /// (and it may be mid-build).
+  var _loading = false;
+
   void _load(Fill? f) {
+    _loading = true;
+    try {
+      _fill(f);
+    } finally {
+      _loading = false;
+    }
+  }
+
+  void _fill(Fill? f) {
     _kind = f == null ? _FillKind.none : (f.solid ? _FillKind.solid : _FillKind.gradient);
     final first = f?.colors.first ?? widget.start;
     // A second colour to start from: the first, a little round the wheel.
@@ -653,7 +732,7 @@ class _FillEditorState extends State<_FillEditor> {
     final second = f != null && !f.solid ? f.colors[1] : hsv.withHue((hsv.hue + 50) % 360).toColor();
     _from.text = _hex(first);
     _to.text = _hex(second);
-    _angle = f != null && !f.solid ? f.angle : 180;
+    _angleNow.value = f != null && !f.solid ? f.angle : 180;
   }
 
   /// What the fields hold; null for none. Unchanged if a colour is not
@@ -673,10 +752,16 @@ class _FillEditorState extends State<_FillEditor> {
     _FillKind.gradient => _parse(_from.text) != null && _parse(_to.text) != null,
   };
 
-  void _changed() {
-    setState(() {});
+  /// Tell the preview what is being edited now.
+  void _tellDraft() {
+    if (_loading) return;
     final d = _draft;
     widget.onDraft(d == widget.saved ? null : _Draft(d));
+  }
+
+  void _choose(_FillKind k) {
+    setState(() => _kind = k);
+    _tellDraft();
   }
 
   Future<void> _apply() async {
@@ -693,7 +778,6 @@ class _FillEditorState extends State<_FillEditor> {
 
   @override
   Widget build(BuildContext context) {
-    final changed = _complete && _draft != widget.saved;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -709,60 +793,60 @@ class _FillEditorState extends State<_FillEditor> {
             const ButtonSegment(value: _FillKind.gradient, label: Text('Gradient')),
           ],
           selected: {_kind},
-          onSelectionChanged: _busy
-              ? null
-              : (s) {
-                  _kind = s.single;
-                  _changed();
-                },
+          onSelectionChanged: _busy ? null : (s) => _choose(s.single),
         ),
         if (_kind != _FillKind.none) ...[
           const SizedBox(height: 12),
-          _HexField(label: _kind == _FillKind.gradient ? 'From' : 'Colour', controller: _from, enabled: !_busy, onChanged: _changed),
+          _HexField(label: _kind == _FillKind.gradient ? 'From' : 'Colour', controller: _from, enabled: !_busy),
         ],
         if (_kind == _FillKind.gradient) ...[
           const SizedBox(height: 8),
-          _HexField(label: 'To', controller: _to, enabled: !_busy, onChanged: _changed),
+          _HexField(label: 'To', controller: _to, enabled: !_busy),
           const SizedBox(height: 4),
-          Row(
-            children: [
-              const SizedBox(
-                width: 56,
-                child: Text('Angle', style: TextStyle(fontSize: 13.5, color: PColors.textMuted)),
-              ),
-              SizedBox(
-                width: 240,
-                child: Slider(
-                  value: _angle.toDouble(),
-                  max: 359,
-                  divisions: 359,
-                  label: '$_angle°',
-                  onChanged: _busy
-                      ? null
-                      : (v) {
-                          _angle = v.round();
-                          _changed();
-                        },
+          ValueListenableBuilder(
+            valueListenable: _angleNow,
+            builder: (context, angle, _) => Row(
+              children: [
+                const SizedBox(
+                  width: 56,
+                  child: Text('Angle', style: TextStyle(fontSize: 13.5, color: PColors.textMuted)),
                 ),
-              ),
-              // Which way it runs, and how far round.
-              Transform.rotate(
-                angle: _angle * math.pi / 180,
-                child: const Icon(Icons.arrow_upward_rounded, size: 18, color: PColors.textMuted),
-              ),
-              const SizedBox(width: 6),
-              SizedBox(
-                width: 40,
-                child: Text('$_angle°', style: const TextStyle(fontSize: 13.5, color: PColors.textMuted)),
-              ),
-            ],
+                SizedBox(
+                  width: 240,
+                  // Smooth, without divisions: 359 of them would each be
+                  // drawn as a tick mark on every frame of a drag.
+                  child: Slider(
+                    value: angle.toDouble(),
+                    max: 359,
+                    // Whole degrees: only a new one redraws anything.
+                    onChanged: _busy ? null : (v) => _angleNow.value = v.round(),
+                  ),
+                ),
+                // Which way it runs, and how far round.
+                Transform.rotate(
+                  angle: angle * math.pi / 180,
+                  child: const Icon(Icons.arrow_upward_rounded, size: 18, color: PColors.textMuted),
+                ),
+                const SizedBox(width: 6),
+                SizedBox(
+                  width: 40,
+                  child: Text('$angle°', style: const TextStyle(fontSize: 13.5, color: PColors.textMuted)),
+                ),
+              ],
+            ),
           ),
         ],
         const SizedBox(height: 10),
-        FilledButton(
-          style: PButtons.tonal,
-          onPressed: changed && !_busy ? () => unawaited(_apply()) : null,
-          child: _busy ? const PSpinner() : const Text('Apply'),
+        ListenableBuilder(
+          listenable: Listenable.merge([_from, _to, _angleNow]),
+          builder: (context, _) {
+            final changed = _complete && _draft != widget.saved;
+            return FilledButton(
+              style: PButtons.tonal,
+              onPressed: changed && !_busy ? () => unawaited(_apply()) : null,
+              child: _busy ? const PSpinner() : const Text('Apply'),
+            );
+          },
         ),
       ],
     );
@@ -770,34 +854,39 @@ class _FillEditorState extends State<_FillEditor> {
 }
 
 /// A colour typed as six RGB hex digits, beside a rounded square showing
-/// it (hatched until all six are there).
+/// it (a placeholder until all six are there). The square follows the
+/// text by itself.
 class _HexField extends StatelessWidget {
-  const _HexField({required this.label, required this.controller, required this.enabled, required this.onChanged});
+  const _HexField({required this.label, required this.controller, required this.enabled});
 
   final String label;
   final TextEditingController controller;
   final bool enabled;
-  final VoidCallback onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final text = controller.text;
-    final colour = text.length == 6 ? Color(0xFF000000 | int.parse(text, radix: 16)) : null;
     return Row(
       children: [
         SizedBox(
           width: 56,
           child: Text(label, style: const TextStyle(fontSize: 13.5, color: PColors.textMuted)),
         ),
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: colour ?? PColors.sunken,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: PColors.borderStrong),
-          ),
-          child: colour == null ? const Icon(Icons.more_horiz_rounded, size: 16, color: PColors.textFaint) : null,
+        ValueListenableBuilder(
+          valueListenable: controller,
+          builder: (context, value, _) {
+            final text = value.text;
+            final colour = text.length == 6 ? Color(0xFF000000 | int.parse(text, radix: 16)) : null;
+            return Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: colour ?? PColors.sunken,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: PColors.borderStrong),
+              ),
+              child: colour == null ? const Icon(Icons.more_horiz_rounded, size: 16, color: PColors.textFaint) : null,
+            );
+          },
         ),
         const SizedBox(width: 10),
         SizedBox(
@@ -806,7 +895,6 @@ class _HexField extends StatelessWidget {
             controller: controller,
             enabled: enabled,
             autocorrect: false,
-            onChanged: (_) => onChanged(),
             inputFormatters: [_HexFormatter()],
             style: const TextStyle(fontSize: 14.5, color: PColors.text, fontFamily: PType.mono),
             decoration: const InputDecoration(prefixText: '#', hintText: 'rrggbb', counterText: ''),

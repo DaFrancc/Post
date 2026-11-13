@@ -26,6 +26,62 @@ Future<void> showProfileCard(BuildContext anchor, AppState state, String usernam
   child: _ProfileCard(state: state, username: username),
 );
 
+/// Everything a profile card shows of someone: as this device knows them
+/// ([ProfileLook.of]), or as you are editing yourself (the preview in
+/// Settings).
+class ProfileLook {
+  const ProfileLook({
+    required this.username,
+    required this.name,
+    this.otherName,
+    required this.presence,
+    this.note,
+    this.bio = '',
+    this.avatar,
+    this.banner,
+    required this.bannerFill,
+    this.theme,
+    this.sinceMs,
+    required this.arrival,
+    this.verified = false,
+  });
+
+  /// As this device knows [username] now.
+  factory ProfileLook.of(AppState state, String username) {
+    final p = state.personNow(username);
+    return ProfileLook(
+      username: username,
+      name: p?.shownName ?? username,
+      // The name they chose, when a nickname shows instead.
+      otherName: p != null && p.nickname.isNotEmpty && p.displayName.isNotEmpty && p.displayName != p.nickname ? p.displayName : null,
+      presence: state.presenceOf(username),
+      note: p?.note,
+      bio: p?.bio ?? '',
+      avatar: state.avatarOf(username),
+      banner: state.bannerOf(username),
+      bannerFill: state.bannerFillOf(username),
+      theme: state.themeOf(username),
+      sinceMs: p?.sinceMs?.toInt(),
+      arrival: Arrival.parse(p?.arrival),
+      verified: p?.verified ?? false,
+    );
+  }
+
+  final String username;
+  final String name;
+  final String? otherName;
+  final String presence;
+  final String? note;
+  final String bio;
+  final PictureRef? avatar;
+  final PictureRef? banner;
+  final Fill bannerFill;
+  final ProfileTheme? theme;
+  final int? sinceMs;
+  final Arrival arrival;
+  final bool verified;
+}
+
 class _ProfileCard extends StatelessWidget {
   const _ProfileCard({required this.state, required this.username});
 
@@ -34,7 +90,44 @@ class _ProfileCard extends StatelessWidget {
 
   bool get _me => username == state.me.username;
 
-  static const _fact = TextStyle(fontSize: 12, color: PColors.textFaint);
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: state,
+      builder: (context, _) => ProfileCardView(
+        state: state,
+        look: ProfileLook.of(state, username),
+        // Another person's card in place of this one.
+        onMention: (u, at) {
+          final nav = Navigator.of(context);
+          nav.pop();
+          unawaited(showProfileCard(nav.context, state, u, at: at));
+        },
+        actions: _me
+            ? SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () {
+                    // The card's own context goes with it.
+                    final nav = Navigator.of(context);
+                    nav.pop();
+                    unawaited(showSettings(nav.context, state));
+                  },
+                  child: const Text('Edit profile'),
+                ),
+              )
+            : ProfileCardView.peerActions(
+                onMessage: () => unawaited(_message(context)),
+                onNickname: () {
+                  final nav = Navigator.of(context);
+                  nav.pop();
+                  unawaited(setNickname(nav.context, state, username));
+                },
+                onCopy: () => unawaited(copyText(context, username, what: 'Username copied')),
+              ),
+      ),
+    );
+  }
 
   Future<void> _message(BuildContext context) async {
     // The card's own context goes with it.
@@ -49,18 +142,46 @@ class _ProfileCard extends StatelessWidget {
       if (outer.mounted) showToast(outer, errorText(e), error: true);
     }
   }
+}
+
+/// A profile card showing [look], with [actions] along its foot.
+class ProfileCardView extends StatelessWidget {
+  const ProfileCardView({super.key, required this.state, required this.look, required this.actions, this.onMention});
+
+  final AppState state;
+  final ProfileLook look;
+  final Widget actions;
+
+  /// A mention in the bio clicked, and where (window coordinates).
+  final void Function(String username, Offset at)? onMention;
+
+  static const _fact = TextStyle(fontSize: 12, color: PColors.textFaint);
+
+  /// What a card offers for someone else: message them, give them a
+  /// nickname, copy their username. Null callbacks: shown, not working (a
+  /// preview).
+  static Widget peerActions({VoidCallback? onMessage, VoidCallback? onNickname, VoidCallback? onCopy}) => Row(
+    children: [
+      Expanded(
+        child: FilledButton.icon(onPressed: onMessage, icon: const Icon(Icons.chat_bubble_outline_rounded, size: 16), label: const Text('Message')),
+      ),
+      const SizedBox(width: 6),
+      PIconButton(icon: Icons.edit_outlined, tooltip: 'Set nickname', onPressed: onNickname),
+      PIconButton(icon: Icons.alternate_email_rounded, tooltip: 'Copy username', onPressed: onCopy),
+    ],
+  );
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: state,
-      builder: (context, _) {
-        final p = state.personNow(username);
-        final name = p?.shownName ?? username;
-        final presence = state.presenceOf(username);
-        final theme = state.themeOf(username);
-        // What the boxes sit on.
-        final well = theme == null ? PColors.sunken : Colors.black.withValues(alpha: 0.28);
+    final look = this.look;
+    final name = look.name;
+    final username = look.username;
+    final presence = look.presence;
+    final theme = look.theme;
+    // What the boxes sit on.
+    final well = theme == null ? PColors.sunken : Colors.black.withValues(alpha: 0.28);
+    return Builder(
+      builder: (context) {
         return ProfileFrame(
           theme: theme,
           header: (inner) => SizedBox(
@@ -78,8 +199,8 @@ class _ProfileCard extends StatelessWidget {
                     centre: const Offset(12 + 4 + 40, 56 + 4 + 40),
                     radius: 40 + 4,
                     child: BannerView(
-                      picture: state.bannerOf(username),
-                      fill: state.bannerFillOf(username).gradient,
+                      picture: look.banner,
+                      fill: look.bannerFill.gradient,
                       radius: BorderRadius.vertical(top: Radius.circular(inner)),
                     ),
                   ),
@@ -87,9 +208,9 @@ class _ProfileCard extends StatelessWidget {
                 Positioned(
                   left: 12 + 4,
                   top: 56 + 4,
-                  child: PAvatar(name: name, colorKey: username, size: 80, presence: presence, image: state.avatarOf(username)),
+                  child: PAvatar(name: name, colorKey: username, size: 80, presence: presence, image: look.avatar),
                 ),
-                if (p?.verified ?? false)
+                if (look.verified)
                   Positioned(
                     right: 12,
                     top: 110,
@@ -122,10 +243,7 @@ class _ProfileCard extends StatelessWidget {
               children: [
                 Text(name, maxLines: 2, overflow: TextOverflow.ellipsis, style: PType.heading),
                 const SizedBox(height: 2),
-                Text(
-                  ['@$username', if (p != null && p.nickname.isNotEmpty && p.displayName.isNotEmpty && p.displayName != p.nickname) p.displayName].join(' · '),
-                  style: PType.small,
-                ),
+                Text(['@$username', ?look.otherName].join(' · '), style: PType.small),
                 const SizedBox(height: 10),
                 Row(
                   children: [
@@ -134,7 +252,7 @@ class _ProfileCard extends StatelessWidget {
                     Text(presenceLabel(presence), style: const TextStyle(fontSize: 13, color: PColors.textMuted)),
                   ],
                 ),
-                if (p?.note case final note?) ...[
+                if (look.note case final note?) ...[
                   const SizedBox(height: 10),
                   Container(
                     width: double.infinity,
@@ -143,71 +261,21 @@ class _ProfileCard extends StatelessWidget {
                     child: Text(note, style: const TextStyle(fontSize: 13, height: 1.4, color: PColors.textBody)),
                   ),
                 ],
-                if (p != null && p.bio.isNotEmpty) ...[
+                if (look.bio.isNotEmpty) ...[
                   const SizedBox(height: 10),
-                  ProfileBio(
-                    state: state,
-                    bio: p.bio,
-                    background: well,
-                    maxHeight: 132,
-                    // Another person's card in place of this one.
-                    onMention: (u, at) {
-                      final nav = Navigator.of(context);
-                      nav.pop();
-                      unawaited(showProfileCard(nav.context, state, u, at: at));
-                    },
-                  ),
+                  ProfileBio(state: state, bio: look.bio, background: well, maxHeight: 132, onMention: onMention),
                 ],
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 14,
                   runSpacing: 2,
                   children: [
-                    if (p?.sinceMs case final since?) Text('On Post since ${monthYear(since.toInt())}', style: _fact),
-                    Text('Messages arrive: ${Arrival.parse(p?.arrival).label}', style: _fact),
+                    if (look.sinceMs case final since?) Text('On Post since ${monthYear(since)}', style: _fact),
+                    Text('Messages arrive: ${look.arrival.label}', style: _fact),
                   ],
                 ),
                 const SizedBox(height: 14),
-                if (_me)
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: () {
-                        // The card's own context goes with it.
-                        final nav = Navigator.of(context);
-                        nav.pop();
-                        unawaited(showSettings(nav.context, state));
-                      },
-                      child: const Text('Edit profile'),
-                    ),
-                  )
-                else
-                  Row(
-                    children: [
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: () => unawaited(_message(context)),
-                          icon: const Icon(Icons.chat_bubble_outline_rounded, size: 16),
-                          label: const Text('Message'),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      PIconButton(
-                        icon: Icons.edit_outlined,
-                        tooltip: 'Set nickname',
-                        onPressed: () {
-                          final nav = Navigator.of(context);
-                          nav.pop();
-                          unawaited(setNickname(nav.context, state, username));
-                        },
-                      ),
-                      PIconButton(
-                        icon: Icons.alternate_email_rounded,
-                        tooltip: 'Copy username',
-                        onPressed: () => unawaited(copyText(context, username, what: 'Username copied')),
-                      ),
-                    ],
-                  ),
+                actions,
               ],
             ),
           ),
