@@ -1,4 +1,8 @@
 # The width the code was written at: these settings change the fewest lines.
-# Generated files opt out with #[rustfmt::skip] on their `mod`.
 max_width = 140
 use_small_heuristics = "Max"
+# What cargo fmt takes from Cargo.toml, stated for tools that run rustfmt
+# directly: flutter_rust_bridge_codegen formats frb_generated.rs this way, so
+# its output already passes `cargo fmt --check`.
+edition = "2024"
+style_edition = "2024"

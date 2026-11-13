@@ -183,8 +183,9 @@ Small and independent; no design document. Each item is one commit.
 1. **Rust formatting.** Commit `rustfmt.toml` with `max_width = 140` and
    `use_small_heuristics = "Max"` (the settings the code was evidently written
    with: they leave the fewest differences). Format once in a commit of its
-   own and list that commit in `.git-blame-ignore-revs`. Generated files
-   (`frb_generated.rs`) keep their generator's format and are excluded.
+   own and list that commit in `.git-blame-ignore-revs`. (Done: the settings
+   also state edition 2024, so `flutter_rust_bridge_codegen`, which runs
+   rustfmt itself, writes `frb_generated.rs` already formatted.)
 2. **Dart formatting.** Set `formatter: page_width:` in
    `app/analysis_options.yaml` to the width the code already uses (nearly all
    lines fit 160), and format once the same way. The generated bridge

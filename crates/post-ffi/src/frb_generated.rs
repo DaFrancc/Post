@@ -30,7 +30,7 @@
 use crate::api::client::*;
 use crate::api::spell::*;
 use flutter_rust_bridge::for_generated::byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
-use flutter_rust_bridge::for_generated::{transform_result_dco, Lifetimeable, Lockable};
+use flutter_rust_bridge::for_generated::{Lifetimeable, Lockable, transform_result_dco};
 use flutter_rust_bridge::{Handler, IntoIntoDart};
 
 // Section: boilerplate
@@ -62,18 +62,9 @@ fn wire__crate__api__client__Client_add_members_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             let api_usernames = <Vec<String>>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -81,28 +72,17 @@ fn wire__crate__api__client__Client_add_members_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::add_members(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_usernames,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::add_members(&*api_that_guard, api_conversation, api_usernames).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -124,43 +104,26 @@ fn wire__crate__api__client__Client_announce_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_text = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::announce(&*api_that_guard, api_text)
-                                .await?;
+                        let output_ok = crate::api::client::Client::announce(&*api_that_guard, api_text).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -182,42 +145,25 @@ fn wire__crate__api__client__Client_announcement_summary_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::announcement_summary(&*api_that_guard)
-                                .await?;
+                        let output_ok = crate::api::client::Client::announcement_summary(&*api_that_guard).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -239,43 +185,26 @@ fn wire__crate__api__client__Client_announcements_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_limit = <u32>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::announcements(&*api_that_guard, api_limit)
-                                .await?;
+                        let output_ok = crate::api::client::Client::announcements(&*api_that_guard, api_limit).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -297,18 +226,9 @@ fn wire__crate__api__client__Client_begin_link_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_server = <String>::sse_decode(&mut deserializer);
             let api_device_name = <String>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -316,28 +236,17 @@ fn wire__crate__api__client__Client_begin_link_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::begin_link(
-                            &*api_that_guard,
-                            api_server,
-                            api_device_name,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::begin_link(&*api_that_guard, api_server, api_device_name).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -358,15 +267,8 @@ fn wire__crate__api__client__Client_bio_limit_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             deserializer.end();
             transform_result_sse::<_, ()>((move || {
                 let output_ok = Ok::<_, ()>(crate::api::client::Client::bio_limit())?;
@@ -388,18 +290,9 @@ fn wire__crate__api__client__Client_call_keys_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             let api_call = <String>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -407,28 +300,17 @@ fn wire__crate__api__client__Client_call_keys_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::call_keys(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_call,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::call_keys(&*api_that_guard, api_conversation, api_call).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -450,35 +332,20 @@ fn wire__crate__api__client__Client_calls_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
@@ -505,45 +372,26 @@ fn wire__crate__api__client__Client_check_update_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_current_version = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::check_update(
-                            &*api_that_guard,
-                            api_current_version,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::check_update(&*api_that_guard, api_current_version).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -565,43 +413,26 @@ fn wire__crate__api__client__Client_conversation_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_id = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::conversation(&*api_that_guard, api_id)
-                                .await?;
+                        let output_ok = crate::api::client::Client::conversation(&*api_that_guard, api_id).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -623,41 +454,25 @@ fn wire__crate__api__client__Client_conversations_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::conversations(&*api_that_guard).await?;
+                        let output_ok = crate::api::client::Client::conversations(&*api_that_guard).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -679,18 +494,9 @@ fn wire__crate__api__client__Client_create_group_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_name = <String>::sse_decode(&mut deserializer);
             let api_usernames = <Vec<String>>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -698,28 +504,17 @@ fn wire__crate__api__client__Client_create_group_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::create_group(
-                            &*api_that_guard,
-                            api_name,
-                            api_usernames,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::create_group(&*api_that_guard, api_name, api_usernames).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -741,18 +536,9 @@ fn wire__crate__api__client__Client_create_invite_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_bot = <bool>::sse_decode(&mut deserializer);
             let api_days = <u32>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -760,28 +546,17 @@ fn wire__crate__api__client__Client_create_invite_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::create_invite(
-                            &*api_that_guard,
-                            api_bot,
-                            api_days,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::create_invite(&*api_that_guard, api_bot, api_days).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -803,18 +578,9 @@ fn wire__crate__api__client__Client_decline_call_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             let api_call = <String>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -822,28 +588,17 @@ fn wire__crate__api__client__Client_decline_call_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::decline_call(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_call,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::decline_call(&*api_that_guard, api_conversation, api_call).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -865,18 +620,9 @@ fn wire__crate__api__client__Client_delete_message_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             let api_message_id = <String>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -884,28 +630,18 @@ fn wire__crate__api__client__Client_delete_message_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::delete_message(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_message_id,
-                        )
-                        .await?;
+                        let output_ok =
+                            crate::api::client::Client::delete_message(&*api_that_guard, api_conversation, api_message_id).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -927,41 +663,25 @@ fn wire__crate__api__client__Client_delete_profile_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::delete_profile(&*api_that_guard).await?;
+                        let output_ok = crate::api::client::Client::delete_profile(&*api_that_guard).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -983,41 +703,25 @@ fn wire__crate__api__client__Client_devices_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::devices(&*api_that_guard).await?;
+                        let output_ok = crate::api::client::Client::devices(&*api_that_guard).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1039,50 +743,30 @@ fn wire__crate__api__client__Client_download_update_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_current_version = <String>::sse_decode(&mut deserializer);
-            let api_sink = <StreamSink<
-                crate::api::client::UpdateProgress,
-                flutter_rust_bridge::for_generated::SseCodec,
-            >>::sse_decode(&mut deserializer);
+            let api_sink = <StreamSink<crate::api::client::UpdateProgress, flutter_rust_bridge::for_generated::SseCodec>>::sse_decode(
+                &mut deserializer,
+            );
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::download_update(
-                            &*api_that_guard,
-                            api_current_version,
-                            api_sink,
-                        )
-                        .await?;
+                        let output_ok =
+                            crate::api::client::Client::download_update(&*api_that_guard, api_current_version, api_sink).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1104,18 +788,9 @@ fn wire__crate__api__client__Client_edit_message_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             let api_message_id = <String>::sse_decode(&mut deserializer);
             let api_text = <String>::sse_decode(&mut deserializer);
@@ -1124,29 +799,18 @@ fn wire__crate__api__client__Client_edit_message_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::edit_message(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_message_id,
-                            api_text,
-                        )
-                        .await?;
+                        let output_ok =
+                            crate::api::client::Client::edit_message(&*api_that_guard, api_conversation, api_message_id, api_text).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1168,41 +832,25 @@ fn wire__crate__api__client__Client_end_maintenance_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::end_maintenance(&*api_that_guard).await?;
+                        let output_ok = crate::api::client::Client::end_maintenance(&*api_that_guard).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1224,39 +872,22 @@ fn wire__crate__api__client__Client_events_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
-            let api_sink = <StreamSink<
-                crate::api::client::AppEvent,
-                flutter_rust_bridge::for_generated::SseCodec,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
+            let api_sink =
+                <StreamSink<crate::api::client::AppEvent, flutter_rust_bridge::for_generated::SseCodec>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, ()>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
@@ -1285,41 +916,25 @@ fn wire__crate__api__client__Client_finish_link_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::finish_link(&*api_that_guard).await?;
+                        let output_ok = crate::api::client::Client::finish_link(&*api_that_guard).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1341,42 +956,25 @@ fn wire__crate__api__client__Client_identity_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, ()>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = Ok::<_, ()>(
-                            crate::api::client::Client::identity(&*api_that_guard).await,
-                        )?;
+                        let output_ok = Ok::<_, ()>(crate::api::client::Client::identity(&*api_that_guard).await)?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1398,45 +996,26 @@ fn wire__crate__api__client__Client_install_update_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_current_version = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::install_update(
-                            &*api_that_guard,
-                            api_current_version,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::install_update(&*api_that_guard, api_current_version).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1458,42 +1037,25 @@ fn wire__crate__api__client__Client_is_connected_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, ()>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = Ok::<_, ()>(
-                            crate::api::client::Client::is_connected(&*api_that_guard).await,
-                        )?;
+                        let output_ok = Ok::<_, ()>(crate::api::client::Client::is_connected(&*api_that_guard).await)?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1515,18 +1077,9 @@ fn wire__crate__api__client__Client_join_call_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             let api_call = <String>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -1534,28 +1087,17 @@ fn wire__crate__api__client__Client_join_call_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::join_call(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_call,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::join_call(&*api_that_guard, api_conversation, api_call).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1577,18 +1119,9 @@ fn wire__crate__api__client__Client_leave_call_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             let api_call = <String>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -1596,28 +1129,17 @@ fn wire__crate__api__client__Client_leave_call_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::leave_call(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_call,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::leave_call(&*api_that_guard, api_conversation, api_call).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1639,45 +1161,26 @@ fn wire__crate__api__client__Client_leave_group_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::leave_group(
-                            &*api_that_guard,
-                            api_conversation,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::leave_group(&*api_that_guard, api_conversation).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1699,43 +1202,26 @@ fn wire__crate__api__client__Client_link_approve_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_code = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::link_approve(&*api_that_guard, api_code)
-                                .await?;
+                        let output_ok = crate::api::client::Client::link_approve(&*api_that_guard, api_code).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1757,43 +1243,26 @@ fn wire__crate__api__client__Client_link_inspect_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_code = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::link_inspect(&*api_that_guard, api_code)
-                                .await?;
+                        let output_ok = crate::api::client::Client::link_inspect(&*api_that_guard, api_code).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1815,41 +1284,25 @@ fn wire__crate__api__client__Client_log_out_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::log_out(&*api_that_guard).await?;
+                        let output_ok = crate::api::client::Client::log_out(&*api_that_guard).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1871,42 +1324,25 @@ fn wire__crate__api__client__Client_mark_announcements_read_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::mark_announcements_read(&*api_that_guard)
-                                .await?;
+                        let output_ok = crate::api::client::Client::mark_announcements_read(&*api_that_guard).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1928,45 +1364,26 @@ fn wire__crate__api__client__Client_mark_read_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::mark_read(
-                            &*api_that_guard,
-                            api_conversation,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::mark_read(&*api_that_guard, api_conversation).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -1988,43 +1405,26 @@ fn wire__crate__api__client__Client_members_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::members(&*api_that_guard, api_conversation)
-                                .await?;
+                        let output_ok = crate::api::client::Client::members(&*api_that_guard, api_conversation).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -2046,18 +1446,9 @@ fn wire__crate__api__client__Client_message_receipts_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             let api_message = <String>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -2065,28 +1456,18 @@ fn wire__crate__api__client__Client_message_receipts_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::message_receipts(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_message,
-                        )
-                        .await?;
+                        let output_ok =
+                            crate::api::client::Client::message_receipts(&*api_that_guard, api_conversation, api_message).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -2108,18 +1489,9 @@ fn wire__crate__api__client__Client_message_versions_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             let api_message_id = <String>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -2127,28 +1499,18 @@ fn wire__crate__api__client__Client_message_versions_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::message_versions(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_message_id,
-                        )
-                        .await?;
+                        let output_ok =
+                            crate::api::client::Client::message_versions(&*api_that_guard, api_conversation, api_message_id).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -2170,18 +1532,9 @@ fn wire__crate__api__client__Client_messages_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             let api_limit = <u32>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -2189,28 +1542,17 @@ fn wire__crate__api__client__Client_messages_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::messages(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_limit,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::messages(&*api_that_guard, api_conversation, api_limit).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -2232,18 +1574,9 @@ fn wire__crate__api__client__Client_notices_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <Option<String>>::sse_decode(&mut deserializer);
             let api_limit = <u32>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -2251,28 +1584,17 @@ fn wire__crate__api__client__Client_notices_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::notices(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_limit,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::notices(&*api_that_guard, api_conversation, api_limit).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -2294,23 +1616,15 @@ fn wire__crate__api__client__Client_open_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_profile_dir = <String>::sse_decode(&mut deserializer);
             let api_key_file = <Option<String>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
-                        let output_ok =
-                            crate::api::client::Client::open(api_profile_dir, api_key_file).await?;
+                        let output_ok = crate::api::client::Client::open(api_profile_dir, api_key_file).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -2332,41 +1646,25 @@ fn wire__crate__api__client__Client_own_presence_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::own_presence(&*api_that_guard).await?;
+                        let output_ok = crate::api::client::Client::own_presence(&*api_that_guard).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -2388,43 +1686,26 @@ fn wire__crate__api__client__Client_person_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_username = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::person(&*api_that_guard, api_username)
-                                .await?;
+                        let output_ok = crate::api::client::Client::person(&*api_that_guard, api_username).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -2446,29 +1727,17 @@ fn wire__crate__api__client__Client_picture_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_id = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, crate::api::error::PostError>((move || {
                     let mut api_that_guard = None;
-                    let decode_indices_ =
-                        flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
-                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                &api_that, 0, false,
-                            ),
-                        ]);
+                    let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                        flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                    ]);
                     for i in decode_indices_ {
                         match i {
                             0 => api_that_guard = Some(api_that.lockable_decode_sync_ref()),
@@ -2495,15 +1764,8 @@ fn wire__crate__api__client__Client_picture_limits_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_kind = <crate::api::client::PictureKind>::sse_decode(&mut deserializer);
             deserializer.end();
             transform_result_sse::<_, ()>((move || {
@@ -2526,18 +1788,9 @@ fn wire__crate__api__client__Client_picture_scaled_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_id = <String>::sse_decode(&mut deserializer);
             let api_width = <u32>::sse_decode(&mut deserializer);
             let api_height = <u32>::sse_decode(&mut deserializer);
@@ -2546,29 +1799,17 @@ fn wire__crate__api__client__Client_picture_scaled_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::picture_scaled(
-                            &*api_that_guard,
-                            api_id,
-                            api_width,
-                            api_height,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::picture_scaled(&*api_that_guard, api_id, api_width, api_height).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -2590,18 +1831,9 @@ fn wire__crate__api__client__Client_plan_maintenance_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_starts_at_ms = <i64>::sse_decode(&mut deserializer);
             let api_minutes = <u32>::sse_decode(&mut deserializer);
             let api_reason = <String>::sse_decode(&mut deserializer);
@@ -2611,18 +1843,12 @@ fn wire__crate__api__client__Client_plan_maintenance_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
@@ -2656,43 +1882,26 @@ fn wire__crate__api__client__Client_presence_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_username = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::presence(&*api_that_guard, api_username)
-                                .await?;
+                        let output_ok = crate::api::client::Client::presence(&*api_that_guard, api_username).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -2714,41 +1923,25 @@ fn wire__crate__api__client__Client_read_receipts_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::read_receipts(&*api_that_guard).await?;
+                        let output_ok = crate::api::client::Client::read_receipts(&*api_that_guard).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -2770,41 +1963,25 @@ fn wire__crate__api__client__Client_refresh_keys_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::refresh_keys(&*api_that_guard).await?;
+                        let output_ok = crate::api::client::Client::refresh_keys(&*api_that_guard).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -2826,18 +2003,9 @@ fn wire__crate__api__client__Client_register_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_server = <String>::sse_decode(&mut deserializer);
             let api_invite = <String>::sse_decode(&mut deserializer);
             let api_username = <String>::sse_decode(&mut deserializer);
@@ -2846,29 +2014,18 @@ fn wire__crate__api__client__Client_register_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::register(
-                            &*api_that_guard,
-                            api_server,
-                            api_invite,
-                            api_username,
-                        )
-                        .await?;
+                        let output_ok =
+                            crate::api::client::Client::register(&*api_that_guard, api_server, api_invite, api_username).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -2890,43 +2047,26 @@ fn wire__crate__api__client__Client_remove_device_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_device = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::remove_device(&*api_that_guard, api_device)
-                                .await?;
+                        let output_ok = crate::api::client::Client::remove_device(&*api_that_guard, api_device).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -2948,18 +2088,9 @@ fn wire__crate__api__client__Client_remove_members_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             let api_usernames = <Vec<String>>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -2967,28 +2098,18 @@ fn wire__crate__api__client__Client_remove_members_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::remove_members(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_usernames,
-                        )
-                        .await?;
+                        let output_ok =
+                            crate::api::client::Client::remove_members(&*api_that_guard, api_conversation, api_usernames).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3010,43 +2131,26 @@ fn wire__crate__api__client__Client_remove_picture_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_kind = <crate::api::client::PictureKind>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::remove_picture(&*api_that_guard, api_kind)
-                                .await?;
+                        let output_ok = crate::api::client::Client::remove_picture(&*api_that_guard, api_kind).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3068,18 +2172,9 @@ fn wire__crate__api__client__Client_rename_device_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_device = <String>::sse_decode(&mut deserializer);
             let api_name = <String>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -3087,28 +2182,17 @@ fn wire__crate__api__client__Client_rename_device_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::rename_device(
-                            &*api_that_guard,
-                            api_device,
-                            api_name,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::rename_device(&*api_that_guard, api_device, api_name).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3130,18 +2214,9 @@ fn wire__crate__api__client__Client_rename_group_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             let api_name = <String>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -3149,28 +2224,17 @@ fn wire__crate__api__client__Client_rename_group_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::rename_group(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_name,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::rename_group(&*api_that_guard, api_conversation, api_name).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3192,18 +2256,9 @@ fn wire__crate__api__client__Client_ring_call_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             let api_call = <String>::sse_decode(&mut deserializer);
             let api_usernames = <Vec<String>>::sse_decode(&mut deserializer);
@@ -3212,29 +2267,18 @@ fn wire__crate__api__client__Client_ring_call_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::ring_call(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_call,
-                            api_usernames,
-                        )
-                        .await?;
+                        let output_ok =
+                            crate::api::client::Client::ring_call(&*api_that_guard, api_conversation, api_call, api_usernames).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3256,35 +2300,20 @@ fn wire__crate__api__client__Client_run_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, ()>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
@@ -3313,45 +2342,26 @@ fn wire__crate__api__client__Client_safety_number_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_username = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::safety_number(
-                            &*api_that_guard,
-                            api_username,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::safety_number(&*api_that_guard, api_username).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3373,42 +2383,26 @@ fn wire__crate__api__client__Client_search_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_query = <crate::api::client::SearchOptions>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::search(&*api_that_guard, api_query).await?;
+                        let output_ok = crate::api::client::Client::search(&*api_that_guard, api_query).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3430,18 +2424,9 @@ fn wire__crate__api__client__Client_send_text_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             let api_text = <String>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -3449,28 +2434,17 @@ fn wire__crate__api__client__Client_send_text_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::send_text(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_text,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::send_text(&*api_that_guard, api_conversation, api_text).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3492,45 +2466,26 @@ fn wire__crate__api__client__Client_send_typing_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::send_typing(
-                            &*api_that_guard,
-                            api_conversation,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::send_typing(&*api_that_guard, api_conversation).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3552,18 +2507,9 @@ fn wire__crate__api__client__Client_set_admin_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             let api_username = <String>::sse_decode(&mut deserializer);
             let api_admin = <bool>::sse_decode(&mut deserializer);
@@ -3572,29 +2518,18 @@ fn wire__crate__api__client__Client_set_admin_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::set_admin(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_username,
-                            api_admin,
-                        )
-                        .await?;
+                        let output_ok =
+                            crate::api::client::Client::set_admin(&*api_that_guard, api_conversation, api_username, api_admin).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3616,43 +2551,26 @@ fn wire__crate__api__client__Client_set_banner_fill_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_fill = <Option<crate::api::client::ColorFill>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::set_banner_fill(&*api_that_guard, api_fill)
-                                .await?;
+                        let output_ok = crate::api::client::Client::set_banner_fill(&*api_that_guard, api_fill).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3674,18 +2592,9 @@ fn wire__crate__api__client__Client_set_conversation_name_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             let api_name = <String>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -3693,28 +2602,18 @@ fn wire__crate__api__client__Client_set_conversation_name_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::set_conversation_name(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_name,
-                        )
-                        .await?;
+                        let output_ok =
+                            crate::api::client::Client::set_conversation_name(&*api_that_guard, api_conversation, api_name).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3736,18 +2635,9 @@ fn wire__crate__api__client__Client_set_nickname_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_username = <String>::sse_decode(&mut deserializer);
             let api_nickname = <String>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -3755,28 +2645,17 @@ fn wire__crate__api__client__Client_set_nickname_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::set_nickname(
-                            &*api_that_guard,
-                            api_username,
-                            api_nickname,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::set_nickname(&*api_that_guard, api_username, api_nickname).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3798,18 +2677,9 @@ fn wire__crate__api__client__Client_set_picture_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_kind = <crate::api::client::PictureKind>::sse_decode(&mut deserializer);
             let api_path = <String>::sse_decode(&mut deserializer);
             let api_crop = <Option<crate::api::client::PictureCrop>>::sse_decode(&mut deserializer);
@@ -3818,29 +2688,17 @@ fn wire__crate__api__client__Client_set_picture_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::set_picture(
-                            &*api_that_guard,
-                            api_kind,
-                            api_path,
-                            api_crop,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::set_picture(&*api_that_guard, api_kind, api_path, api_crop).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3862,43 +2720,26 @@ fn wire__crate__api__client__Client_set_presence_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_choice = <crate::api::client::PresenceChoice>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::set_presence(&*api_that_guard, api_choice)
-                                .await?;
+                        let output_ok = crate::api::client::Client::set_presence(&*api_that_guard, api_choice).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3920,43 +2761,26 @@ fn wire__crate__api__client__Client_set_profile_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_change = <crate::api::client::ProfileChange>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::set_profile(&*api_that_guard, api_change)
-                                .await?;
+                        let output_ok = crate::api::client::Client::set_profile(&*api_that_guard, api_change).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -3978,45 +2802,26 @@ fn wire__crate__api__client__Client_set_read_receipts_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_enabled = <bool>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::set_read_receipts(
-                            &*api_that_guard,
-                            api_enabled,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::set_read_receipts(&*api_that_guard, api_enabled).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -4038,18 +2843,9 @@ fn wire__crate__api__client__Client_set_setting_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_key = <String>::sse_decode(&mut deserializer);
             let api_value = <Option<String>>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -4057,28 +2853,17 @@ fn wire__crate__api__client__Client_set_setting_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::set_setting(
-                            &*api_that_guard,
-                            api_key,
-                            api_value,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::set_setting(&*api_that_guard, api_key, api_value).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -4100,43 +2885,26 @@ fn wire__crate__api__client__Client_set_theme_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_fill = <Option<crate::api::client::ColorFill>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::set_theme(&*api_that_guard, api_fill)
-                                .await?;
+                        let output_ok = crate::api::client::Client::set_theme(&*api_that_guard, api_fill).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -4158,18 +2926,9 @@ fn wire__crate__api__client__Client_set_verified_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_username = <String>::sse_decode(&mut deserializer);
             let api_verified = <bool>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -4177,28 +2936,17 @@ fn wire__crate__api__client__Client_set_verified_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::set_verified(
-                            &*api_that_guard,
-                            api_username,
-                            api_verified,
-                        )
-                        .await?;
+                        let output_ok = crate::api::client::Client::set_verified(&*api_that_guard, api_username, api_verified).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -4220,42 +2968,26 @@ fn wire__crate__api__client__Client_setting_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_key = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::setting(&*api_that_guard, api_key).await?;
+                        let output_ok = crate::api::client::Client::setting(&*api_that_guard, api_key).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -4277,18 +3009,9 @@ fn wire__crate__api__client__Client_start_call_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_conversation = <String>::sse_decode(&mut deserializer);
             let api_video = <bool>::sse_decode(&mut deserializer);
             let api_ring = <Vec<String>>::sse_decode(&mut deserializer);
@@ -4297,29 +3020,18 @@ fn wire__crate__api__client__Client_start_call_impl(
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok = crate::api::client::Client::start_call(
-                            &*api_that_guard,
-                            api_conversation,
-                            api_video,
-                            api_ring,
-                        )
-                        .await?;
+                        let output_ok =
+                            crate::api::client::Client::start_call(&*api_that_guard, api_conversation, api_video, api_ring).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -4341,43 +3053,26 @@ fn wire__crate__api__client__Client_start_dm_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             let api_username = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
                         let api_that_guard = api_that_guard.unwrap();
-                        let output_ok =
-                            crate::api::client::Client::start_dm(&*api_that_guard, api_username)
-                                .await?;
+                        let output_ok = crate::api::client::Client::start_dm(&*api_that_guard, api_username).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -4399,35 +3094,20 @@ fn wire__crate__api__client__Client_sync_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
                         let mut api_that_guard = None;
-                        let decode_indices_ =
-                            flutter_rust_bridge::for_generated::lockable_compute_decode_order(
-                                vec![flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                    &api_that, 0, false,
-                                )],
-                            );
+                        let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                        ]);
                         for i in decode_indices_ {
                             match i {
-                                0 => {
-                                    api_that_guard =
-                                        Some(api_that.lockable_decode_async_ref().await)
-                                }
+                                0 => api_that_guard = Some(api_that.lockable_decode_async_ref().await),
                                 _ => unreachable!(),
                             }
                         }
@@ -4454,29 +3134,17 @@ fn wire__crate__api__spell__Speller_add_word_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Speller>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Speller>>>::sse_decode(&mut deserializer);
             let api_word = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let mut api_that_guard = None;
-                    let decode_indices_ =
-                        flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
-                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                &api_that, 0, false,
-                            ),
-                        ]);
+                    let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                        flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                    ]);
                     for i in decode_indices_ {
                         match i {
                             0 => api_that_guard = Some(api_that.lockable_decode_sync_ref()),
@@ -4506,29 +3174,17 @@ fn wire__crate__api__spell__Speller_check_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Speller>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Speller>>>::sse_decode(&mut deserializer);
             let api_text = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let mut api_that_guard = None;
-                    let decode_indices_ =
-                        flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
-                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                &api_that, 0, false,
-                            ),
-                        ]);
+                    let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                        flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                    ]);
                     for i in decode_indices_ {
                         match i {
                             0 => api_that_guard = Some(api_that.lockable_decode_sync_ref()),
@@ -4536,10 +3192,7 @@ fn wire__crate__api__spell__Speller_check_impl(
                         }
                     }
                     let api_that_guard = api_that_guard.unwrap();
-                    let output_ok = Ok::<_, ()>(crate::api::spell::Speller::check(
-                        &*api_that_guard,
-                        api_text,
-                    ))?;
+                    let output_ok = Ok::<_, ()>(crate::api::spell::Speller::check(&*api_that_guard, api_text))?;
                     std::result::Result::Ok(output_ok)
                 })())
             }
@@ -4559,28 +3212,16 @@ fn wire__crate__api__spell__Speller_languages_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Speller>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Speller>>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let mut api_that_guard = None;
-                    let decode_indices_ =
-                        flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
-                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                &api_that, 0, false,
-                            ),
-                        ]);
+                    let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                        flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                    ]);
                     for i in decode_indices_ {
                         match i {
                             0 => api_that_guard = Some(api_that.lockable_decode_sync_ref()),
@@ -4588,8 +3229,7 @@ fn wire__crate__api__spell__Speller_languages_impl(
                         }
                     }
                     let api_that_guard = api_that_guard.unwrap();
-                    let output_ok =
-                        Ok::<_, ()>(crate::api::spell::Speller::languages(&*api_that_guard))?;
+                    let output_ok = Ok::<_, ()>(crate::api::spell::Speller::languages(&*api_that_guard))?;
                     std::result::Result::Ok(output_ok)
                 })())
             }
@@ -4609,15 +3249,8 @@ fn wire__crate__api__spell__Speller_load_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_dir = <String>::sse_decode(&mut deserializer);
             let api_languages = <Vec<String>>::sse_decode(&mut deserializer);
             let api_words = <Vec<String>>::sse_decode(&mut deserializer);
@@ -4625,9 +3258,7 @@ fn wire__crate__api__spell__Speller_load_impl(
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
-                        let output_ok =
-                            crate::api::spell::Speller::load(api_dir, api_languages, api_words)
-                                .await?;
+                        let output_ok = crate::api::spell::Speller::load(api_dir, api_languages, api_words).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -4649,29 +3280,17 @@ fn wire__crate__api__spell__Speller_remove_word_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Speller>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Speller>>>::sse_decode(&mut deserializer);
             let api_word = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let mut api_that_guard = None;
-                    let decode_indices_ =
-                        flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
-                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                &api_that, 0, false,
-                            ),
-                        ]);
+                    let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                        flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                    ]);
                     for i in decode_indices_ {
                         match i {
                             0 => api_that_guard = Some(api_that.lockable_decode_sync_ref()),
@@ -4701,29 +3320,17 @@ fn wire__crate__api__spell__Speller_suggest_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
-            let api_that = <RustOpaqueMoi<
-                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Speller>,
-            >>::sse_decode(&mut deserializer);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Speller>>>::sse_decode(&mut deserializer);
             let api_word = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let mut api_that_guard = None;
-                    let decode_indices_ =
-                        flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
-                            flutter_rust_bridge::for_generated::LockableOrderInfo::new(
-                                &api_that, 0, false,
-                            ),
-                        ]);
+                    let decode_indices_ = flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                        flutter_rust_bridge::for_generated::LockableOrderInfo::new(&api_that, 0, false),
+                    ]);
                     for i in decode_indices_ {
                         match i {
                             0 => api_that_guard = Some(api_that.lockable_decode_sync_ref()),
@@ -4731,10 +3338,7 @@ fn wire__crate__api__spell__Speller_suggest_impl(
                         }
                     }
                     let api_that_guard = api_that_guard.unwrap();
-                    let output_ok = Ok::<_, ()>(crate::api::spell::Speller::suggest(
-                        &*api_that_guard,
-                        api_word,
-                    ))?;
+                    let output_ok = Ok::<_, ()>(crate::api::spell::Speller::suggest(&*api_that_guard, api_word))?;
                     std::result::Result::Ok(output_ok)
                 })())
             }
@@ -4754,15 +3358,8 @@ fn wire__crate__api__client__init_app_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, ()>((move || {
@@ -4788,15 +3385,8 @@ fn wire__crate__api__spell__spell_install_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_dir = <String>::sse_decode(&mut deserializer);
             let api_code = <String>::sse_decode(&mut deserializer);
             let api_aff = <Vec<u8>>::sse_decode(&mut deserializer);
@@ -4805,9 +3395,7 @@ fn wire__crate__api__spell__spell_install_impl(
             move |context| async move {
                 transform_result_sse::<_, crate::api::error::PostError>(
                     (move || async move {
-                        let output_ok =
-                            crate::api::spell::spell_install(api_dir, api_code, api_aff, api_dic)
-                                .await?;
+                        let output_ok = crate::api::spell::spell_install(api_dir, api_code, api_aff, api_dic).await?;
                         std::result::Result::Ok(output_ok)
                     })()
                     .await,
@@ -4829,15 +3417,8 @@ fn wire__crate__api__spell__spell_languages_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_dir = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
@@ -4862,15 +3443,8 @@ fn wire__crate__api__spell__spell_remove_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_dir = <String>::sse_decode(&mut deserializer);
             let api_code = <String>::sse_decode(&mut deserializer);
             deserializer.end();
@@ -4896,15 +3470,8 @@ fn wire__crate__api__spell__spell_urls_impl(
             mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
         },
         move || {
-            let message = unsafe {
-                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
-                    ptr_,
-                    rust_vec_len_,
-                    data_len_,
-                )
-            };
-            let mut deserializer =
-                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_code = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
@@ -4919,12 +3486,8 @@ fn wire__crate__api__spell__spell_urls_impl(
 
 // Section: related_funcs
 
-flutter_rust_bridge::frb_generated_moi_arc_impl_value!(
-    flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>
-);
-flutter_rust_bridge::frb_generated_moi_arc_impl_value!(
-    flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Speller>
-);
+flutter_rust_bridge::frb_generated_moi_arc_impl_value!(flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>);
+flutter_rust_bridge::frb_generated_moi_arc_impl_value!(flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Speller>);
 
 // Section: dart2rust
 
@@ -4939,9 +3502,7 @@ impl SseDecode for flutter_rust_bridge::for_generated::anyhow::Error {
 impl SseDecode for Client {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        let mut inner = <RustOpaqueMoi<
-            flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>,
-        >>::sse_decode(deserializer);
+        let mut inner = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_decode(deserializer);
         return flutter_rust_bridge::for_generated::rust_auto_opaque_decode_owned(inner);
     }
 }
@@ -4949,9 +3510,7 @@ impl SseDecode for Client {
 impl SseDecode for Speller {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        let mut inner = <RustOpaqueMoi<
-            flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Speller>,
-        >>::sse_decode(deserializer);
+        let mut inner = <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Speller>>>::sse_decode(deserializer);
         return flutter_rust_bridge::for_generated::rust_auto_opaque_decode_owned(inner);
     }
 }
@@ -4972,9 +3531,7 @@ impl SseDecode for RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpa
     }
 }
 
-impl SseDecode
-    for StreamSink<crate::api::client::AppEvent, flutter_rust_bridge::for_generated::SseCodec>
-{
+impl SseDecode for StreamSink<crate::api::client::AppEvent, flutter_rust_bridge::for_generated::SseCodec> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut inner = <String>::sse_decode(deserializer);
@@ -4982,9 +3539,7 @@ impl SseDecode
     }
 }
 
-impl SseDecode
-    for StreamSink<crate::api::client::UpdateProgress, flutter_rust_bridge::for_generated::SseCodec>
-{
+impl SseDecode for StreamSink<crate::api::client::UpdateProgress, flutter_rust_bridge::for_generated::SseCodec> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut inner = <String>::sse_decode(deserializer);
@@ -5042,11 +3597,9 @@ impl SseDecode for crate::api::client::AnnouncementSummary {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_server = <String>::sse_decode(deserializer);
         let mut var_unread = <u32>::sse_decode(deserializer);
-        let mut var_latest =
-            <Option<crate::api::client::AnnouncementInfo>>::sse_decode(deserializer);
+        let mut var_latest = <Option<crate::api::client::AnnouncementInfo>>::sse_decode(deserializer);
         let mut var_host = <bool>::sse_decode(deserializer);
-        let mut var_maintenance =
-            <Option<crate::api::client::MaintenanceInfo>>::sse_decode(deserializer);
+        let mut var_maintenance = <Option<crate::api::client::MaintenanceInfo>>::sse_decode(deserializer);
         return crate::api::client::AnnouncementSummary {
             server: var_server,
             unread: var_unread,
@@ -5064,12 +3617,7 @@ impl SseDecode for crate::api::client::AppEvent {
         let mut var_conversation = <Option<String>>::sse_decode(deserializer);
         let mut var_username = <Option<String>>::sse_decode(deserializer);
         let mut var_text = <Option<String>>::sse_decode(deserializer);
-        return crate::api::client::AppEvent {
-            kind: var_kind,
-            conversation: var_conversation,
-            username: var_username,
-            text: var_text,
-        };
+        return crate::api::client::AppEvent { kind: var_kind, conversation: var_conversation, username: var_username, text: var_text };
     }
 }
 
@@ -5088,8 +3636,7 @@ impl SseDecode for crate::api::client::CallInfo {
         let mut var_startedBy = <String>::sse_decode(deserializer);
         let mut var_startedAtMs = <i64>::sse_decode(deserializer);
         let mut var_video = <bool>::sse_decode(deserializer);
-        let mut var_participants =
-            <Vec<crate::api::client::CallParticipantInfo>>::sse_decode(deserializer);
+        let mut var_participants = <Vec<crate::api::client::CallParticipantInfo>>::sse_decode(deserializer);
         let mut var_ringing = <bool>::sse_decode(deserializer);
         let mut var_joined = <bool>::sse_decode(deserializer);
         let mut var_ended = <bool>::sse_decode(deserializer);
@@ -5132,10 +3679,7 @@ impl SseDecode for crate::api::client::CallKey {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_participantId = <String>::sse_decode(deserializer);
         let mut var_key = <Vec<u8>>::sse_decode(deserializer);
-        return crate::api::client::CallKey {
-            participant_id: var_participantId,
-            key: var_key,
-        };
+        return crate::api::client::CallKey { participant_id: var_participantId, key: var_key };
     }
 }
 
@@ -5144,10 +3688,7 @@ impl SseDecode for crate::api::client::CallKeySet {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_keyIndex = <u32>::sse_decode(deserializer);
         let mut var_keys = <Vec<crate::api::client::CallKey>>::sse_decode(deserializer);
-        return crate::api::client::CallKeySet {
-            key_index: var_keyIndex,
-            keys: var_keys,
-        };
+        return crate::api::client::CallKeySet { key_index: var_keyIndex, keys: var_keys };
     }
 }
 
@@ -5172,10 +3713,7 @@ impl SseDecode for crate::api::client::ColorFill {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_colors = <Vec<u32>>::sse_decode(deserializer);
         let mut var_angle = <u32>::sse_decode(deserializer);
-        return crate::api::client::ColorFill {
-            colors: var_colors,
-            angle: var_angle,
-        };
+        return crate::api::client::ColorFill { colors: var_colors, angle: var_angle };
     }
 }
 
@@ -5190,8 +3728,7 @@ impl SseDecode for crate::api::client::ConversationInfo {
         let mut var_following = <bool>::sse_decode(deserializer);
         let mut var_unread = <u32>::sse_decode(deserializer);
         let mut var_mentions = <u32>::sse_decode(deserializer);
-        let mut var_lastMessage =
-            <Option<crate::api::client::MessageInfo>>::sse_decode(deserializer);
+        let mut var_lastMessage = <Option<crate::api::client::MessageInfo>>::sse_decode(deserializer);
         return crate::api::client::ConversationInfo {
             id: var_id,
             is_group: var_isGroup,
@@ -5212,11 +3749,7 @@ impl SseDecode for crate::api::client::DeviceInfo {
         let mut var_id = <String>::sse_decode(deserializer);
         let mut var_name = <String>::sse_decode(deserializer);
         let mut var_thisDevice = <bool>::sse_decode(deserializer);
-        return crate::api::client::DeviceInfo {
-            id: var_id,
-            name: var_name,
-            this_device: var_thisDevice,
-        };
+        return crate::api::client::DeviceInfo { id: var_id, name: var_name, this_device: var_thisDevice };
     }
 }
 
@@ -5305,12 +3838,7 @@ impl SseDecode for crate::api::client::InviteInfo {
         let mut var_server = <String>::sse_decode(deserializer);
         let mut var_expiresAtMs = <i64>::sse_decode(deserializer);
         let mut var_bot = <bool>::sse_decode(deserializer);
-        return crate::api::client::InviteInfo {
-            code: var_code,
-            server: var_server,
-            expires_at_ms: var_expiresAtMs,
-            bot: var_bot,
-        };
+        return crate::api::client::InviteInfo { code: var_code, server: var_server, expires_at_ms: var_expiresAtMs, bot: var_bot };
     }
 }
 
@@ -5319,10 +3847,7 @@ impl SseDecode for crate::api::client::LinkRequestInfo {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_deviceId = <String>::sse_decode(deserializer);
         let mut var_name = <String>::sse_decode(deserializer);
-        return crate::api::client::LinkRequestInfo {
-            device_id: var_deviceId,
-            name: var_name,
-        };
+        return crate::api::client::LinkRequestInfo { device_id: var_deviceId, name: var_name };
     }
 }
 
@@ -5344,9 +3869,7 @@ impl SseDecode for Vec<crate::api::client::AnnouncementInfo> {
         let mut len_ = <i32>::sse_decode(deserializer);
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
-            ans_.push(<crate::api::client::AnnouncementInfo>::sse_decode(
-                deserializer,
-            ));
+            ans_.push(<crate::api::client::AnnouncementInfo>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -5382,9 +3905,7 @@ impl SseDecode for Vec<crate::api::client::CallParticipantInfo> {
         let mut len_ = <i32>::sse_decode(deserializer);
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
-            ans_.push(<crate::api::client::CallParticipantInfo>::sse_decode(
-                deserializer,
-            ));
+            ans_.push(<crate::api::client::CallParticipantInfo>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -5396,9 +3917,7 @@ impl SseDecode for Vec<crate::api::client::ConversationInfo> {
         let mut len_ = <i32>::sse_decode(deserializer);
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
-            ans_.push(<crate::api::client::ConversationInfo>::sse_decode(
-                deserializer,
-            ));
+            ans_.push(<crate::api::client::ConversationInfo>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -5446,9 +3965,7 @@ impl SseDecode for Vec<crate::api::client::MessageVersionInfo> {
         let mut len_ = <i32>::sse_decode(deserializer);
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
-            ans_.push(<crate::api::client::MessageVersionInfo>::sse_decode(
-                deserializer,
-            ));
+            ans_.push(<crate::api::client::MessageVersionInfo>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -5484,9 +4001,7 @@ impl SseDecode for Vec<crate::api::client::PersonReceiptInfo> {
         let mut len_ = <i32>::sse_decode(deserializer);
         let mut ans_ = Vec::with_capacity(len_ as usize);
         for idx_ in 0..len_ {
-            ans_.push(<crate::api::client::PersonReceiptInfo>::sse_decode(
-                deserializer,
-            ));
+            ans_.push(<crate::api::client::PersonReceiptInfo>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -5621,12 +4136,7 @@ impl SseDecode for crate::api::client::MessageVersionInfo {
         let mut var_body = <String>::sse_decode(deserializer);
         let mut var_atMs = <i64>::sse_decode(deserializer);
         let mut var_pending = <bool>::sse_decode(deserializer);
-        return crate::api::client::MessageVersionInfo {
-            version: var_version,
-            body: var_body,
-            at_ms: var_atMs,
-            pending: var_pending,
-        };
+        return crate::api::client::MessageVersionInfo { version: var_version, body: var_body, at_ms: var_atMs, pending: var_pending };
     }
 }
 
@@ -5635,10 +4145,7 @@ impl SseDecode for crate::api::spell::Misspelling {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_start = <u32>::sse_decode(deserializer);
         let mut var_end = <u32>::sse_decode(deserializer);
-        return crate::api::spell::Misspelling {
-            start: var_start,
-            end: var_end,
-        };
+        return crate::api::spell::Misspelling { start: var_start, end: var_end };
     }
 }
 
@@ -5648,11 +4155,7 @@ impl SseDecode for crate::api::client::NoticeInfo {
         let mut var_atMs = <i64>::sse_decode(deserializer);
         let mut var_text = <String>::sse_decode(deserializer);
         let mut var_kind = <crate::api::client::NoticeKind>::sse_decode(deserializer);
-        return crate::api::client::NoticeInfo {
-            at_ms: var_atMs,
-            text: var_text,
-            kind: var_kind,
-        };
+        return crate::api::client::NoticeInfo { at_ms: var_atMs, text: var_text, kind: var_kind };
     }
 }
 
@@ -5684,9 +4187,7 @@ impl SseDecode for Option<crate::api::client::AnnouncementInfo> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
-            return Some(<crate::api::client::AnnouncementInfo>::sse_decode(
-                deserializer,
-            ));
+            return Some(<crate::api::client::AnnouncementInfo>::sse_decode(deserializer));
         } else {
             return None;
         }
@@ -5719,9 +4220,7 @@ impl SseDecode for Option<crate::api::client::MaintenanceInfo> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
-            return Some(<crate::api::client::MaintenanceInfo>::sse_decode(
-                deserializer,
-            ));
+            return Some(<crate::api::client::MaintenanceInfo>::sse_decode(deserializer));
         } else {
             return None;
         }
@@ -5825,11 +4324,7 @@ impl SseDecode for crate::api::client::PersonReceiptInfo {
         let mut var_username = <String>::sse_decode(deserializer);
         let mut var_shownName = <String>::sse_decode(deserializer);
         let mut var_state = <crate::api::client::ReceiptState>::sse_decode(deserializer);
-        return crate::api::client::PersonReceiptInfo {
-            username: var_username,
-            shown_name: var_shownName,
-            state: var_state,
-        };
+        return crate::api::client::PersonReceiptInfo { username: var_username, shown_name: var_shownName, state: var_state };
     }
 }
 
@@ -5840,12 +4335,7 @@ impl SseDecode for crate::api::client::PictureCrop {
         let mut var_y = <f64>::sse_decode(deserializer);
         let mut var_width = <f64>::sse_decode(deserializer);
         let mut var_height = <f64>::sse_decode(deserializer);
-        return crate::api::client::PictureCrop {
-            x: var_x,
-            y: var_y,
-            width: var_width,
-            height: var_height,
-        };
+        return crate::api::client::PictureCrop { x: var_x, y: var_y, width: var_width, height: var_height };
     }
 }
 
@@ -5882,10 +4372,7 @@ impl SseDecode for crate::api::error::PostError {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_kind = <crate::api::error::ErrorKind>::sse_decode(deserializer);
         let mut var_message = <String>::sse_decode(deserializer);
-        return crate::api::error::PostError {
-            kind: var_kind,
-            message: var_message,
-        };
+        return crate::api::error::PostError { kind: var_kind, message: var_message };
     }
 }
 
@@ -5955,10 +4442,7 @@ impl SseDecode for crate::api::client::SearchFound {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_total = <u32>::sse_decode(deserializer);
         let mut var_messages = <Vec<crate::api::client::MessageInfo>>::sse_decode(deserializer);
-        return crate::api::client::SearchFound {
-            total: var_total,
-            messages: var_messages,
-        };
+        return crate::api::client::SearchFound { total: var_total, messages: var_messages };
     }
 }
 
@@ -5997,12 +4481,7 @@ impl SseDecode for crate::api::spell::SpellLanguage {
         let mut var_name = <String>::sse_decode(deserializer);
         let mut var_bytes = <u64>::sse_decode(deserializer);
         let mut var_installed = <bool>::sse_decode(deserializer);
-        return crate::api::spell::SpellLanguage {
-            code: var_code,
-            name: var_name,
-            bytes: var_bytes,
-            installed: var_installed,
-        };
+        return crate::api::spell::SpellLanguage { code: var_code, name: var_name, bytes: var_bytes, installed: var_installed };
     }
 }
 
@@ -6057,10 +4536,7 @@ impl SseDecode for crate::api::client::UpdateProgress {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_done = <u64>::sse_decode(deserializer);
         let mut var_total = <u64>::sse_decode(deserializer);
-        return crate::api::client::UpdateProgress {
-            done: var_done,
-            total: var_total,
-        };
+        return crate::api::client::UpdateProgress { done: var_done, total: var_total };
     }
 }
 
@@ -6082,46 +4558,27 @@ fn pde_ffi_dispatcher_primary_impl(
     match func_id {
         1 => wire__crate__api__client__Client_add_members_impl(port, ptr, rust_vec_len, data_len),
         2 => wire__crate__api__client__Client_announce_impl(port, ptr, rust_vec_len, data_len),
-        3 => wire__crate__api__client__Client_announcement_summary_impl(
-            port,
-            ptr,
-            rust_vec_len,
-            data_len,
-        ),
+        3 => wire__crate__api__client__Client_announcement_summary_impl(port, ptr, rust_vec_len, data_len),
         4 => wire__crate__api__client__Client_announcements_impl(port, ptr, rust_vec_len, data_len),
         5 => wire__crate__api__client__Client_begin_link_impl(port, ptr, rust_vec_len, data_len),
         7 => wire__crate__api__client__Client_call_keys_impl(port, ptr, rust_vec_len, data_len),
         8 => wire__crate__api__client__Client_calls_impl(port, ptr, rust_vec_len, data_len),
         9 => wire__crate__api__client__Client_check_update_impl(port, ptr, rust_vec_len, data_len),
         10 => wire__crate__api__client__Client_conversation_impl(port, ptr, rust_vec_len, data_len),
-        11 => {
-            wire__crate__api__client__Client_conversations_impl(port, ptr, rust_vec_len, data_len)
-        }
+        11 => wire__crate__api__client__Client_conversations_impl(port, ptr, rust_vec_len, data_len),
         12 => wire__crate__api__client__Client_create_group_impl(port, ptr, rust_vec_len, data_len),
-        13 => {
-            wire__crate__api__client__Client_create_invite_impl(port, ptr, rust_vec_len, data_len)
-        }
+        13 => wire__crate__api__client__Client_create_invite_impl(port, ptr, rust_vec_len, data_len),
         14 => wire__crate__api__client__Client_decline_call_impl(port, ptr, rust_vec_len, data_len),
-        15 => {
-            wire__crate__api__client__Client_delete_message_impl(port, ptr, rust_vec_len, data_len)
-        }
-        16 => {
-            wire__crate__api__client__Client_delete_profile_impl(port, ptr, rust_vec_len, data_len)
-        }
+        15 => wire__crate__api__client__Client_delete_message_impl(port, ptr, rust_vec_len, data_len),
+        16 => wire__crate__api__client__Client_delete_profile_impl(port, ptr, rust_vec_len, data_len),
         17 => wire__crate__api__client__Client_devices_impl(port, ptr, rust_vec_len, data_len),
-        18 => {
-            wire__crate__api__client__Client_download_update_impl(port, ptr, rust_vec_len, data_len)
-        }
+        18 => wire__crate__api__client__Client_download_update_impl(port, ptr, rust_vec_len, data_len),
         19 => wire__crate__api__client__Client_edit_message_impl(port, ptr, rust_vec_len, data_len),
-        20 => {
-            wire__crate__api__client__Client_end_maintenance_impl(port, ptr, rust_vec_len, data_len)
-        }
+        20 => wire__crate__api__client__Client_end_maintenance_impl(port, ptr, rust_vec_len, data_len),
         21 => wire__crate__api__client__Client_events_impl(port, ptr, rust_vec_len, data_len),
         22 => wire__crate__api__client__Client_finish_link_impl(port, ptr, rust_vec_len, data_len),
         23 => wire__crate__api__client__Client_identity_impl(port, ptr, rust_vec_len, data_len),
-        24 => {
-            wire__crate__api__client__Client_install_update_impl(port, ptr, rust_vec_len, data_len)
-        }
+        24 => wire__crate__api__client__Client_install_update_impl(port, ptr, rust_vec_len, data_len),
         25 => wire__crate__api__client__Client_is_connected_impl(port, ptr, rust_vec_len, data_len),
         26 => wire__crate__api__client__Client_join_call_impl(port, ptr, rust_vec_len, data_len),
         27 => wire__crate__api__client__Client_leave_call_impl(port, ptr, rust_vec_len, data_len),
@@ -6129,88 +4586,42 @@ fn pde_ffi_dispatcher_primary_impl(
         29 => wire__crate__api__client__Client_link_approve_impl(port, ptr, rust_vec_len, data_len),
         30 => wire__crate__api__client__Client_link_inspect_impl(port, ptr, rust_vec_len, data_len),
         31 => wire__crate__api__client__Client_log_out_impl(port, ptr, rust_vec_len, data_len),
-        32 => wire__crate__api__client__Client_mark_announcements_read_impl(
-            port,
-            ptr,
-            rust_vec_len,
-            data_len,
-        ),
+        32 => wire__crate__api__client__Client_mark_announcements_read_impl(port, ptr, rust_vec_len, data_len),
         33 => wire__crate__api__client__Client_mark_read_impl(port, ptr, rust_vec_len, data_len),
         34 => wire__crate__api__client__Client_members_impl(port, ptr, rust_vec_len, data_len),
-        35 => wire__crate__api__client__Client_message_receipts_impl(
-            port,
-            ptr,
-            rust_vec_len,
-            data_len,
-        ),
-        36 => wire__crate__api__client__Client_message_versions_impl(
-            port,
-            ptr,
-            rust_vec_len,
-            data_len,
-        ),
+        35 => wire__crate__api__client__Client_message_receipts_impl(port, ptr, rust_vec_len, data_len),
+        36 => wire__crate__api__client__Client_message_versions_impl(port, ptr, rust_vec_len, data_len),
         37 => wire__crate__api__client__Client_messages_impl(port, ptr, rust_vec_len, data_len),
         38 => wire__crate__api__client__Client_notices_impl(port, ptr, rust_vec_len, data_len),
         39 => wire__crate__api__client__Client_open_impl(port, ptr, rust_vec_len, data_len),
         40 => wire__crate__api__client__Client_own_presence_impl(port, ptr, rust_vec_len, data_len),
         41 => wire__crate__api__client__Client_person_impl(port, ptr, rust_vec_len, data_len),
         42 => wire__crate__api__client__Client_picture_impl(port, ptr, rust_vec_len, data_len),
-        44 => {
-            wire__crate__api__client__Client_picture_scaled_impl(port, ptr, rust_vec_len, data_len)
-        }
-        45 => wire__crate__api__client__Client_plan_maintenance_impl(
-            port,
-            ptr,
-            rust_vec_len,
-            data_len,
-        ),
+        44 => wire__crate__api__client__Client_picture_scaled_impl(port, ptr, rust_vec_len, data_len),
+        45 => wire__crate__api__client__Client_plan_maintenance_impl(port, ptr, rust_vec_len, data_len),
         46 => wire__crate__api__client__Client_presence_impl(port, ptr, rust_vec_len, data_len),
-        47 => {
-            wire__crate__api__client__Client_read_receipts_impl(port, ptr, rust_vec_len, data_len)
-        }
+        47 => wire__crate__api__client__Client_read_receipts_impl(port, ptr, rust_vec_len, data_len),
         48 => wire__crate__api__client__Client_refresh_keys_impl(port, ptr, rust_vec_len, data_len),
         49 => wire__crate__api__client__Client_register_impl(port, ptr, rust_vec_len, data_len),
-        50 => {
-            wire__crate__api__client__Client_remove_device_impl(port, ptr, rust_vec_len, data_len)
-        }
-        51 => {
-            wire__crate__api__client__Client_remove_members_impl(port, ptr, rust_vec_len, data_len)
-        }
-        52 => {
-            wire__crate__api__client__Client_remove_picture_impl(port, ptr, rust_vec_len, data_len)
-        }
-        53 => {
-            wire__crate__api__client__Client_rename_device_impl(port, ptr, rust_vec_len, data_len)
-        }
+        50 => wire__crate__api__client__Client_remove_device_impl(port, ptr, rust_vec_len, data_len),
+        51 => wire__crate__api__client__Client_remove_members_impl(port, ptr, rust_vec_len, data_len),
+        52 => wire__crate__api__client__Client_remove_picture_impl(port, ptr, rust_vec_len, data_len),
+        53 => wire__crate__api__client__Client_rename_device_impl(port, ptr, rust_vec_len, data_len),
         54 => wire__crate__api__client__Client_rename_group_impl(port, ptr, rust_vec_len, data_len),
         55 => wire__crate__api__client__Client_ring_call_impl(port, ptr, rust_vec_len, data_len),
         56 => wire__crate__api__client__Client_run_impl(port, ptr, rust_vec_len, data_len),
-        57 => {
-            wire__crate__api__client__Client_safety_number_impl(port, ptr, rust_vec_len, data_len)
-        }
+        57 => wire__crate__api__client__Client_safety_number_impl(port, ptr, rust_vec_len, data_len),
         58 => wire__crate__api__client__Client_search_impl(port, ptr, rust_vec_len, data_len),
         59 => wire__crate__api__client__Client_send_text_impl(port, ptr, rust_vec_len, data_len),
         60 => wire__crate__api__client__Client_send_typing_impl(port, ptr, rust_vec_len, data_len),
         61 => wire__crate__api__client__Client_set_admin_impl(port, ptr, rust_vec_len, data_len),
-        62 => {
-            wire__crate__api__client__Client_set_banner_fill_impl(port, ptr, rust_vec_len, data_len)
-        }
-        63 => wire__crate__api__client__Client_set_conversation_name_impl(
-            port,
-            ptr,
-            rust_vec_len,
-            data_len,
-        ),
+        62 => wire__crate__api__client__Client_set_banner_fill_impl(port, ptr, rust_vec_len, data_len),
+        63 => wire__crate__api__client__Client_set_conversation_name_impl(port, ptr, rust_vec_len, data_len),
         64 => wire__crate__api__client__Client_set_nickname_impl(port, ptr, rust_vec_len, data_len),
         65 => wire__crate__api__client__Client_set_picture_impl(port, ptr, rust_vec_len, data_len),
         66 => wire__crate__api__client__Client_set_presence_impl(port, ptr, rust_vec_len, data_len),
         67 => wire__crate__api__client__Client_set_profile_impl(port, ptr, rust_vec_len, data_len),
-        68 => wire__crate__api__client__Client_set_read_receipts_impl(
-            port,
-            ptr,
-            rust_vec_len,
-            data_len,
-        ),
+        68 => wire__crate__api__client__Client_set_read_receipts_impl(port, ptr, rust_vec_len, data_len),
         69 => wire__crate__api__client__Client_set_setting_impl(port, ptr, rust_vec_len, data_len),
         70 => wire__crate__api__client__Client_set_theme_impl(port, ptr, rust_vec_len, data_len),
         71 => wire__crate__api__client__Client_set_verified_impl(port, ptr, rust_vec_len, data_len),
@@ -6252,8 +4663,7 @@ fn pde_ffi_dispatcher_sync_impl(
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for FrbWrapper<Client> {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        flutter_rust_bridge::for_generated::rust_auto_opaque_encode::<_, MoiArc<_>>(self.0)
-            .into_dart()
+        flutter_rust_bridge::for_generated::rust_auto_opaque_encode::<_, MoiArc<_>>(self.0).into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for FrbWrapper<Client> {}
@@ -6267,8 +4677,7 @@ impl flutter_rust_bridge::IntoIntoDart<FrbWrapper<Client>> for Client {
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for FrbWrapper<Speller> {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        flutter_rust_bridge::for_generated::rust_auto_opaque_encode::<_, MoiArc<_>>(self.0)
-            .into_dart()
+        flutter_rust_bridge::for_generated::rust_auto_opaque_encode::<_, MoiArc<_>>(self.0).into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for FrbWrapper<Speller> {}
@@ -6293,13 +4702,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::AnnouncementInfo {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::AnnouncementInfo
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::AnnouncementInfo>
-    for crate::api::client::AnnouncementInfo
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::AnnouncementInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::AnnouncementInfo> for crate::api::client::AnnouncementInfo {
     fn into_into_dart(self) -> crate::api::client::AnnouncementInfo {
         self
     }
@@ -6319,13 +4723,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::AnnouncementKind {
         }
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::AnnouncementKind
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::AnnouncementKind>
-    for crate::api::client::AnnouncementKind
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::AnnouncementKind {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::AnnouncementKind> for crate::api::client::AnnouncementKind {
     fn into_into_dart(self) -> crate::api::client::AnnouncementKind {
         self
     }
@@ -6343,13 +4742,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::AnnouncementSummary {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::AnnouncementSummary
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::AnnouncementSummary>
-    for crate::api::client::AnnouncementSummary
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::AnnouncementSummary {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::AnnouncementSummary> for crate::api::client::AnnouncementSummary {
     fn into_into_dart(self) -> crate::api::client::AnnouncementSummary {
         self
     }
@@ -6367,9 +4761,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::AppEvent {
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::AppEvent {}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::AppEvent>
-    for crate::api::client::AppEvent
-{
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::AppEvent> for crate::api::client::AppEvent {
     fn into_into_dart(self) -> crate::api::client::AppEvent {
         self
     }
@@ -6392,9 +4784,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::CallInfo {
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::CallInfo {}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::CallInfo>
-    for crate::api::client::CallInfo
-{
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::CallInfo> for crate::api::client::CallInfo {
     fn into_into_dart(self) -> crate::api::client::CallInfo {
         self
     }
@@ -6413,13 +4803,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::CallJoinInfo {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::CallJoinInfo
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::CallJoinInfo>
-    for crate::api::client::CallJoinInfo
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::CallJoinInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::CallJoinInfo> for crate::api::client::CallJoinInfo {
     fn into_into_dart(self) -> crate::api::client::CallJoinInfo {
         self
     }
@@ -6427,17 +4812,11 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::client::CallJoinInfo>
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::client::CallKey {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        [
-            self.participant_id.into_into_dart().into_dart(),
-            self.key.into_into_dart().into_dart(),
-        ]
-        .into_dart()
+        [self.participant_id.into_into_dart().into_dart(), self.key.into_into_dart().into_dart()].into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::CallKey {}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::CallKey>
-    for crate::api::client::CallKey
-{
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::CallKey> for crate::api::client::CallKey {
     fn into_into_dart(self) -> crate::api::client::CallKey {
         self
     }
@@ -6445,20 +4824,11 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::client::CallKey>
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::client::CallKeySet {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        [
-            self.key_index.into_into_dart().into_dart(),
-            self.keys.into_into_dart().into_dart(),
-        ]
-        .into_dart()
+        [self.key_index.into_into_dart().into_dart(), self.keys.into_into_dart().into_dart()].into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::CallKeySet
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::CallKeySet>
-    for crate::api::client::CallKeySet
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::CallKeySet {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::CallKeySet> for crate::api::client::CallKeySet {
     fn into_into_dart(self) -> crate::api::client::CallKeySet {
         self
     }
@@ -6475,13 +4845,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::CallParticipantInfo {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::CallParticipantInfo
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::CallParticipantInfo>
-    for crate::api::client::CallParticipantInfo
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::CallParticipantInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::CallParticipantInfo> for crate::api::client::CallParticipantInfo {
     fn into_into_dart(self) -> crate::api::client::CallParticipantInfo {
         self
     }
@@ -6489,17 +4854,11 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::client::CallParticipantInfo>
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::client::ColorFill {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        [
-            self.colors.into_into_dart().into_dart(),
-            self.angle.into_into_dart().into_dart(),
-        ]
-        .into_dart()
+        [self.colors.into_into_dart().into_dart(), self.angle.into_into_dart().into_dart()].into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::ColorFill {}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::ColorFill>
-    for crate::api::client::ColorFill
-{
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::ColorFill> for crate::api::client::ColorFill {
     fn into_into_dart(self) -> crate::api::client::ColorFill {
         self
     }
@@ -6521,13 +4880,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::ConversationInfo {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::ConversationInfo
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::ConversationInfo>
-    for crate::api::client::ConversationInfo
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::ConversationInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::ConversationInfo> for crate::api::client::ConversationInfo {
     fn into_into_dart(self) -> crate::api::client::ConversationInfo {
         self
     }
@@ -6535,21 +4889,12 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::client::ConversationInfo>
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::client::DeviceInfo {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        [
-            self.id.into_into_dart().into_dart(),
-            self.name.into_into_dart().into_dart(),
-            self.this_device.into_into_dart().into_dart(),
-        ]
-        .into_dart()
+        [self.id.into_into_dart().into_dart(), self.name.into_into_dart().into_dart(), self.this_device.into_into_dart().into_dart()]
+            .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::DeviceInfo
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::DeviceInfo>
-    for crate::api::client::DeviceInfo
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::DeviceInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::DeviceInfo> for crate::api::client::DeviceInfo {
     fn into_into_dart(self) -> crate::api::client::DeviceInfo {
         self
     }
@@ -6572,9 +4917,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::error::ErrorKind {
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::error::ErrorKind {}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::error::ErrorKind>
-    for crate::api::error::ErrorKind
-{
+impl flutter_rust_bridge::IntoIntoDart<crate::api::error::ErrorKind> for crate::api::error::ErrorKind {
     fn into_into_dart(self) -> crate::api::error::ErrorKind {
         self
     }
@@ -6598,9 +4941,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::EventKind {
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::EventKind {}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::EventKind>
-    for crate::api::client::EventKind
-{
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::EventKind> for crate::api::client::EventKind {
     fn into_into_dart(self) -> crate::api::client::EventKind {
         self
     }
@@ -6619,9 +4960,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::Identity {
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::Identity {}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::Identity>
-    for crate::api::client::Identity
-{
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::Identity> for crate::api::client::Identity {
     fn into_into_dart(self) -> crate::api::client::Identity {
         self
     }
@@ -6638,13 +4977,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::InviteInfo {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::InviteInfo
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::InviteInfo>
-    for crate::api::client::InviteInfo
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::InviteInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::InviteInfo> for crate::api::client::InviteInfo {
     fn into_into_dart(self) -> crate::api::client::InviteInfo {
         self
     }
@@ -6652,20 +4986,11 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::client::InviteInfo>
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::client::LinkRequestInfo {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        [
-            self.device_id.into_into_dart().into_dart(),
-            self.name.into_into_dart().into_dart(),
-        ]
-        .into_dart()
+        [self.device_id.into_into_dart().into_dart(), self.name.into_into_dart().into_dart()].into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::LinkRequestInfo
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::LinkRequestInfo>
-    for crate::api::client::LinkRequestInfo
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::LinkRequestInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::LinkRequestInfo> for crate::api::client::LinkRequestInfo {
     fn into_into_dart(self) -> crate::api::client::LinkRequestInfo {
         self
     }
@@ -6682,13 +5007,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::MaintenanceInfo {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::MaintenanceInfo
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::MaintenanceInfo>
-    for crate::api::client::MaintenanceInfo
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::MaintenanceInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::MaintenanceInfo> for crate::api::client::MaintenanceInfo {
     fn into_into_dart(self) -> crate::api::client::MaintenanceInfo {
         self
     }
@@ -6706,13 +5026,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::MemberInfo {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::MemberInfo
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::MemberInfo>
-    for crate::api::client::MemberInfo
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::MemberInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::MemberInfo> for crate::api::client::MemberInfo {
     fn into_into_dart(self) -> crate::api::client::MemberInfo {
         self
     }
@@ -6740,13 +5055,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::MessageInfo {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::MessageInfo
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::MessageInfo>
-    for crate::api::client::MessageInfo
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::MessageInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::MessageInfo> for crate::api::client::MessageInfo {
     fn into_into_dart(self) -> crate::api::client::MessageInfo {
         self
     }
@@ -6762,13 +5072,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::MessageReceiptsInfo {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::MessageReceiptsInfo
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::MessageReceiptsInfo>
-    for crate::api::client::MessageReceiptsInfo
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::MessageReceiptsInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::MessageReceiptsInfo> for crate::api::client::MessageReceiptsInfo {
     fn into_into_dart(self) -> crate::api::client::MessageReceiptsInfo {
         self
     }
@@ -6785,13 +5090,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::MessageVersionInfo {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::MessageVersionInfo
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::MessageVersionInfo>
-    for crate::api::client::MessageVersionInfo
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::MessageVersionInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::MessageVersionInfo> for crate::api::client::MessageVersionInfo {
     fn into_into_dart(self) -> crate::api::client::MessageVersionInfo {
         self
     }
@@ -6799,20 +5099,11 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::client::MessageVersionInfo>
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::spell::Misspelling {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        [
-            self.start.into_into_dart().into_dart(),
-            self.end.into_into_dart().into_dart(),
-        ]
-        .into_dart()
+        [self.start.into_into_dart().into_dart(), self.end.into_into_dart().into_dart()].into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::spell::Misspelling
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::spell::Misspelling>
-    for crate::api::spell::Misspelling
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::spell::Misspelling {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::spell::Misspelling> for crate::api::spell::Misspelling {
     fn into_into_dart(self) -> crate::api::spell::Misspelling {
         self
     }
@@ -6820,21 +5111,12 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::spell::Misspelling>
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::client::NoticeInfo {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        [
-            self.at_ms.into_into_dart().into_dart(),
-            self.text.into_into_dart().into_dart(),
-            self.kind.into_into_dart().into_dart(),
-        ]
-        .into_dart()
+        [self.at_ms.into_into_dart().into_dart(), self.text.into_into_dart().into_dart(), self.kind.into_into_dart().into_dart()]
+            .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::NoticeInfo
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::NoticeInfo>
-    for crate::api::client::NoticeInfo
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::NoticeInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::NoticeInfo> for crate::api::client::NoticeInfo {
     fn into_into_dart(self) -> crate::api::client::NoticeInfo {
         self
     }
@@ -6850,13 +5132,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::NoticeKind {
         }
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::NoticeKind
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::NoticeKind>
-    for crate::api::client::NoticeKind
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::NoticeKind {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::NoticeKind> for crate::api::client::NoticeKind {
     fn into_into_dart(self) -> crate::api::client::NoticeKind {
         self
     }
@@ -6883,13 +5160,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::PersonInfo {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::PersonInfo
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::PersonInfo>
-    for crate::api::client::PersonInfo
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::PersonInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::PersonInfo> for crate::api::client::PersonInfo {
     fn into_into_dart(self) -> crate::api::client::PersonInfo {
         self
     }
@@ -6897,21 +5169,12 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::client::PersonInfo>
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::client::PersonReceiptInfo {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        [
-            self.username.into_into_dart().into_dart(),
-            self.shown_name.into_into_dart().into_dart(),
-            self.state.into_into_dart().into_dart(),
-        ]
-        .into_dart()
+        [self.username.into_into_dart().into_dart(), self.shown_name.into_into_dart().into_dart(), self.state.into_into_dart().into_dart()]
+            .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::PersonReceiptInfo
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::PersonReceiptInfo>
-    for crate::api::client::PersonReceiptInfo
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::PersonReceiptInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::PersonReceiptInfo> for crate::api::client::PersonReceiptInfo {
     fn into_into_dart(self) -> crate::api::client::PersonReceiptInfo {
         self
     }
@@ -6928,13 +5191,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::PictureCrop {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::PictureCrop
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::PictureCrop>
-    for crate::api::client::PictureCrop
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::PictureCrop {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::PictureCrop> for crate::api::client::PictureCrop {
     fn into_into_dart(self) -> crate::api::client::PictureCrop {
         self
     }
@@ -6949,13 +5207,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::PictureKind {
         }
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::PictureKind
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::PictureKind>
-    for crate::api::client::PictureKind
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::PictureKind {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::PictureKind> for crate::api::client::PictureKind {
     fn into_into_dart(self) -> crate::api::client::PictureKind {
         self
     }
@@ -6972,13 +5225,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::PictureLimits {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::PictureLimits
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::PictureLimits>
-    for crate::api::client::PictureLimits
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::PictureLimits {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::PictureLimits> for crate::api::client::PictureLimits {
     fn into_into_dart(self) -> crate::api::client::PictureLimits {
         self
     }
@@ -6986,17 +5234,11 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::client::PictureLimits>
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::error::PostError {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        [
-            self.kind.into_into_dart().into_dart(),
-            self.message.into_into_dart().into_dart(),
-        ]
-        .into_dart()
+        [self.kind.into_into_dart().into_dart(), self.message.into_into_dart().into_dart()].into_dart()
     }
 }
 impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::error::PostError {}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::error::PostError>
-    for crate::api::error::PostError
-{
+impl flutter_rust_bridge::IntoIntoDart<crate::api::error::PostError> for crate::api::error::PostError {
     fn into_into_dart(self) -> crate::api::error::PostError {
         self
     }
@@ -7013,13 +5255,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::PresenceChoice {
         }
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::PresenceChoice
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::PresenceChoice>
-    for crate::api::client::PresenceChoice
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::PresenceChoice {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::PresenceChoice> for crate::api::client::PresenceChoice {
     fn into_into_dart(self) -> crate::api::client::PresenceChoice {
         self
     }
@@ -7036,13 +5273,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::PresenceState {
         }
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::PresenceState
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::PresenceState>
-    for crate::api::client::PresenceState
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::PresenceState {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::PresenceState> for crate::api::client::PresenceState {
     fn into_into_dart(self) -> crate::api::client::PresenceState {
         self
     }
@@ -7061,13 +5293,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::ProfileChange {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::ProfileChange
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::ProfileChange>
-    for crate::api::client::ProfileChange
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::ProfileChange {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::ProfileChange> for crate::api::client::ProfileChange {
     fn into_into_dart(self) -> crate::api::client::ProfileChange {
         self
     }
@@ -7083,13 +5310,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::ReceiptState {
         }
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::ReceiptState
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::ReceiptState>
-    for crate::api::client::ReceiptState
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::ReceiptState {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::ReceiptState> for crate::api::client::ReceiptState {
     fn into_into_dart(self) -> crate::api::client::ReceiptState {
         self
     }
@@ -7097,20 +5319,11 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::client::ReceiptState>
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::client::SearchFound {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        [
-            self.total.into_into_dart().into_dart(),
-            self.messages.into_into_dart().into_dart(),
-        ]
-        .into_dart()
+        [self.total.into_into_dart().into_dart(), self.messages.into_into_dart().into_dart()].into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::SearchFound
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::SearchFound>
-    for crate::api::client::SearchFound
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::SearchFound {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::SearchFound> for crate::api::client::SearchFound {
     fn into_into_dart(self) -> crate::api::client::SearchFound {
         self
     }
@@ -7133,13 +5346,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::SearchOptions {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::SearchOptions
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::SearchOptions>
-    for crate::api::client::SearchOptions
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::SearchOptions {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::SearchOptions> for crate::api::client::SearchOptions {
     fn into_into_dart(self) -> crate::api::client::SearchOptions {
         self
     }
@@ -7156,13 +5364,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::spell::SpellLanguage {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::spell::SpellLanguage
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::spell::SpellLanguage>
-    for crate::api::spell::SpellLanguage
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::spell::SpellLanguage {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::spell::SpellLanguage> for crate::api::spell::SpellLanguage {
     fn into_into_dart(self) -> crate::api::spell::SpellLanguage {
         self
     }
@@ -7181,13 +5384,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::UpdateInfo {
         .into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::UpdateInfo
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::UpdateInfo>
-    for crate::api::client::UpdateInfo
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::UpdateInfo {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::UpdateInfo> for crate::api::client::UpdateInfo {
     fn into_into_dart(self) -> crate::api::client::UpdateInfo {
         self
     }
@@ -7195,20 +5393,11 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::client::UpdateInfo>
 // Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::client::UpdateProgress {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
-        [
-            self.done.into_into_dart().into_dart(),
-            self.total.into_into_dart().into_dart(),
-        ]
-        .into_dart()
+        [self.done.into_into_dart().into_dart(), self.total.into_into_dart().into_dart()].into_dart()
     }
 }
-impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
-    for crate::api::client::UpdateProgress
-{
-}
-impl flutter_rust_bridge::IntoIntoDart<crate::api::client::UpdateProgress>
-    for crate::api::client::UpdateProgress
-{
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::client::UpdateProgress {}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::client::UpdateProgress> for crate::api::client::UpdateProgress {
     fn into_into_dart(self) -> crate::api::client::UpdateProgress {
         self
     }
@@ -7224,14 +5413,20 @@ impl SseEncode for flutter_rust_bridge::for_generated::anyhow::Error {
 impl SseEncode for Client {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_encode(flutter_rust_bridge::for_generated::rust_auto_opaque_encode::<_, MoiArc<_>>(self), serializer);
+        <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>>::sse_encode(
+            flutter_rust_bridge::for_generated::rust_auto_opaque_encode::<_, MoiArc<_>>(self),
+            serializer,
+        );
     }
 }
 
 impl SseEncode for Speller {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Speller>>>::sse_encode(flutter_rust_bridge::for_generated::rust_auto_opaque_encode::<_, MoiArc<_>>(self), serializer);
+        <RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Speller>>>::sse_encode(
+            flutter_rust_bridge::for_generated::rust_auto_opaque_encode::<_, MoiArc<_>>(self),
+            serializer,
+        );
     }
 }
 
@@ -7253,18 +5448,14 @@ impl SseEncode for RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpa
     }
 }
 
-impl SseEncode
-    for StreamSink<crate::api::client::AppEvent, flutter_rust_bridge::for_generated::SseCodec>
-{
+impl SseEncode for StreamSink<crate::api::client::AppEvent, flutter_rust_bridge::for_generated::SseCodec> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         unimplemented!("")
     }
 }
 
-impl SseEncode
-    for StreamSink<crate::api::client::UpdateProgress, flutter_rust_bridge::for_generated::SseCodec>
-{
+impl SseEncode for StreamSink<crate::api::client::UpdateProgress, flutter_rust_bridge::for_generated::SseCodec> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         unimplemented!("")
@@ -8097,10 +6288,7 @@ impl SseEncode for crate::api::client::UpdateProgress {
 impl SseEncode for usize {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        serializer
-            .cursor
-            .write_u64::<NativeEndian>(self as _)
-            .unwrap();
+        serializer.cursor.write_u64::<NativeEndian>(self as _).unwrap();
     }
 }
 
@@ -8114,10 +6302,8 @@ mod io {
     use super::*;
     use crate::api::client::*;
     use crate::api::spell::*;
-    use flutter_rust_bridge::for_generated::byteorder::{
-        NativeEndian, ReadBytesExt, WriteBytesExt,
-    };
-    use flutter_rust_bridge::for_generated::{transform_result_dco, Lifetimeable, Lockable};
+    use flutter_rust_bridge::for_generated::byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
+    use flutter_rust_bridge::for_generated::{Lifetimeable, Lockable, transform_result_dco};
     use flutter_rust_bridge::{Handler, IntoIntoDart};
 
     // Section: boilerplate
@@ -8166,12 +6352,10 @@ mod web {
     use super::*;
     use crate::api::client::*;
     use crate::api::spell::*;
-    use flutter_rust_bridge::for_generated::byteorder::{
-        NativeEndian, ReadBytesExt, WriteBytesExt,
-    };
+    use flutter_rust_bridge::for_generated::byteorder::{NativeEndian, ReadBytesExt, WriteBytesExt};
     use flutter_rust_bridge::for_generated::wasm_bindgen;
     use flutter_rust_bridge::for_generated::wasm_bindgen::prelude::*;
-    use flutter_rust_bridge::for_generated::{transform_result_dco, Lifetimeable, Lockable};
+    use flutter_rust_bridge::for_generated::{Lifetimeable, Lockable, transform_result_dco};
     use flutter_rust_bridge::{Handler, IntoIntoDart};
 
     // Section: boilerplate
