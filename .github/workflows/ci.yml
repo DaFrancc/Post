@@ -1,0 +1,56 @@
+# The checks and tests, on pull requests and on pushes to main and refactor
+# (docs/architecture.md, phase 0). Other branches are left to
+# scripts/ci-local.sh, to keep Actions minutes down. The same scripts run
+# locally:
+#
+#   scripts/check.sh   formatting, clippy with warnings as errors, flutter analyze
+#   scripts/test.sh    every Rust test and the app's unit tests
+name: CI
+
+on:
+  push:
+    branches: [main, refactor]
+  pull_request:
+
+# A newer push to the same branch or pull request replaces a run in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      # SQLCipher (bundled) links the system OpenSSL.
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # The first build of the workspace takes minutes; later runs reuse it.
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+
+      - name: Dart packages
+        working-directory: app
+        run: flutter pub get
+
+      - name: Check
+        run: scripts/check.sh
+
+      - name: Test
+        run: scripts/test.sh
