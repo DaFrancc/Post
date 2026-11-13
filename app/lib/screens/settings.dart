@@ -416,13 +416,7 @@ class _LookEditorState extends State<_LookEditor> {
                   SizedBox(
                     height: 120,
                     width: double.infinity,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: state.bannerColorOf(me),
-                        borderRadius: BorderRadius.circular(14),
-                        image: banner == null ? null : DecorationImage(image: banner, fit: BoxFit.cover, onError: (_, _) {}),
-                      ),
-                    ),
+                    child: BannerView(picture: banner, color: state.bannerColorOf(me), radius: BorderRadius.circular(14)),
                   ),
                   Positioned(
                     left: 16,
@@ -1284,6 +1278,7 @@ class _InviteSettingsState extends State<_InviteSettings> {
                   const Text('WORKS FOR', style: PType.label),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<int>(
+                    mouseCursor: SystemMouseCursors.click,
                     initialValue: _days,
                     items: [for (final d in _lengths) DropdownMenuItem(value: d, child: Text(d == 1 ? '1 day' : '$d days'))],
                     onChanged: _busy ? null : (v) => setState(() => _days = v ?? _days),

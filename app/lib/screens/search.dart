@@ -850,7 +850,7 @@ class _Card extends StatefulWidget {
   final MessageInfo m;
 
   /// The sender's picture, if it is here.
-  final ImageProvider? image;
+  final PictureRef? image;
   final VoidCallback onTap;
 
   @override

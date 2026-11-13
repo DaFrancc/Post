@@ -1315,7 +1315,7 @@ class _Beginning extends StatelessWidget {
   final ConversationInfo conversation;
 
   /// The other person's picture, in a DM.
-  final ImageProvider? image;
+  final PictureRef? image;
 
   @override
   Widget build(BuildContext context) {
@@ -1361,7 +1361,7 @@ class _MentionList extends StatelessWidget {
   /// What has been typed after the `@`, picked out in each username.
   final String query;
   final String Function(String username) presenceOf;
-  final ImageProvider? Function(String username) avatarOf;
+  final PictureRef? Function(String username) avatarOf;
   final ValueChanged<int> onHover;
   final ValueChanged<MemberInfo> onPick;
 
@@ -1665,7 +1665,7 @@ class _MessageTile extends StatefulWidget {
   final Future<MessageReceiptsInfo> Function() receipts;
 
   /// Someone's profile picture, if it is here.
-  final ImageProvider? Function(String username) avatarOf;
+  final PictureRef? Function(String username) avatarOf;
 
   /// The sender's avatar or name was clicked: given what was clicked, to
   /// show their card beside it.
@@ -2084,7 +2084,7 @@ class _Ticks extends StatefulWidget {
 
   final MessageInfo m;
   final Future<MessageReceiptsInfo> Function() load;
-  final ImageProvider? Function(String username) avatarOf;
+  final PictureRef? Function(String username) avatarOf;
 
   @override
   State<_Ticks> createState() => _TicksState();
@@ -2339,7 +2339,7 @@ class _Faces extends StatelessWidget {
   const _Faces(this.people, {required this.avatarOf});
 
   final List<PersonReceiptInfo> people;
-  final ImageProvider? Function(String username) avatarOf;
+  final PictureRef? Function(String username) avatarOf;
 
   static const _size = 22.0;
   static const _step = 15.0;

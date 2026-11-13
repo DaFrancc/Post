@@ -10,6 +10,9 @@ import 'package:flutter/services.dart';
 
 import '../theme.dart';
 import 'format.dart';
+import 'picture_view.dart';
+
+export 'picture_view.dart' show BannerView, PictureRef;
 
 /// A labelled text field with an error or help line under it.
 class PField extends StatelessWidget {
@@ -205,7 +208,7 @@ class PAvatar extends StatelessWidget {
   final Color ringColor;
 
   /// Their profile picture, once it is here.
-  final ImageProvider? image;
+  final PictureRef? image;
 
   @override
   Widget build(BuildContext context) {
@@ -224,27 +227,15 @@ class PAvatar extends StatelessWidget {
       );
     } else {
       final img = image;
-      // Decoded at the size shown, not the picture's own 512 pixels.
-      final px = (size * MediaQuery.devicePixelRatioOf(context)).round();
-      // Drawn as a filled circle, not cut out with a clip: a clip's edge is
-      // not smoothed on every renderer (Impeller without multisampling),
-      // a shape's is.
+      // The picture, scaled for exactly these pixels and drawn as a smooth
+      // circle (see PictureView); the default face until it is ready.
       face = Semantics(
         label: name,
         image: true,
         child: SizedBox(
           width: size,
           height: size,
-          child: img == null
-              ? DefaultFace(color: colour)
-              : DecoratedBox(
-                  decoration: BoxDecoration(
-                    // Behind a see-through picture, and one that will not decode.
-                    color: colour,
-                    shape: BoxShape.circle,
-                    image: DecorationImage(image: ResizeImage.resizeIfNeeded(px, px, img), fit: BoxFit.cover, onError: (_, _) {}),
-                  ),
-                ),
+          child: img == null ? DefaultFace(color: colour) : PictureView(picture: img, circle: true, placeholder: DefaultFace(color: colour)),
         ),
       );
     }
@@ -299,16 +290,29 @@ class _FacePainter extends CustomPainter {
     final d = size.shortestSide;
     final centre = size.center(Offset.zero);
     final disc = Rect.fromCircle(center: centre, radius: d / 2);
-    // Its own round edge, smoothed, rather than a clip's.
-    canvas.drawOval(disc, Paint()..color = color);
-    // A head, and shoulders running off the bottom: their lower edge is
-    // the disc's own smooth curve, not a flat cut, which looks jagged at
-    // the sizes lists use. Large enough to stay round at 24 pixels.
+    // The figure's colour, mixed with the disc's beforehand: drawn opaque,
+    // so nothing shows through it.
+    final ink = Color.alphaBlend(PColors.onAvatar.withValues(alpha: 0.82), color);
     final at = Offset(centre.dx - d / 2, centre.dy - d / 2);
-    final head = Path()..addOval(Rect.fromCircle(center: at + Offset(0.5 * d, 0.39 * d), radius: 0.175 * d));
-    final body = Path()..addOval(Rect.fromCenter(center: at + Offset(0.5 * d, 0.93 * d), width: 0.72 * d, height: 0.52 * d));
-    final figure = Path.combine(PathOperation.union, head, Path.combine(PathOperation.intersect, body, Path()..addOval(disc)));
-    canvas.drawPath(figure, Paint()..color = PColors.onAvatar.withValues(alpha: 0.82));
+    // A head, and shoulders running off the bottom, so their lower edge is
+    // the disc's own smooth curve rather than a flat cut, which looks
+    // jagged at list sizes. Large enough to stay round at 24 pixels.
+    final head = Rect.fromCircle(center: at + Offset(0.5 * d, 0.39 * d), radius: 0.175 * d);
+    final body = Rect.fromCenter(center: at + Offset(0.5 * d, 0.93 * d), width: 0.72 * d, height: 0.52 * d);
+    // In a layer of its own: the disc, then the shoulders painted only onto
+    // it (srcATop). The disc's edge is drawn once, so its half-covered edge
+    // pixels take the shoulders' colour, with none of the disc's peeking
+    // between two smoothed edges as a thin ring.
+    canvas.saveLayer(disc, Paint());
+    canvas.drawOval(disc, Paint()..color = color);
+    canvas.drawOval(
+      body,
+      Paint()
+        ..color = ink
+        ..blendMode = BlendMode.srcATop,
+    );
+    canvas.drawOval(head, Paint()..color = ink);
+    canvas.restore();
   }
 
   @override

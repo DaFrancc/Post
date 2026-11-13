@@ -10,6 +10,7 @@ import 'package:post/src/rust/api/error.dart';
 
 import '../theme.dart';
 import '../ui/arrival.dart';
+import '../ui/picture_view.dart';
 import '../version.dart';
 import 'calls.dart';
 import 'search_spec.dart';
@@ -525,38 +526,17 @@ class AppState extends ChangeNotifier {
 
   // ---------------------------------------------------------------- pictures
 
-  final _pictures = <String, MemoryImage>{};
-  final _picturesLoading = <String>{};
+  /// Scaled copies of pictures, made as they are drawn.
+  late final pictures = PictureCache(client);
 
-  /// A profile picture or banner by its ID, or null until it has loaded
-  /// (listeners are told when it has).
-  ImageProvider? picture(String? id) {
-    if (id == null) return null;
-    final known = _pictures[id];
-    if (known != null) return known;
-    if (_picturesLoading.add(id)) unawaited(_loadPicture(id));
-    return null;
-  }
+  PictureRef? _picture(String? id) => id == null ? null : PictureRef(id, pictures);
 
-  Future<void> _loadPicture(String id) async {
-    try {
-      final bytes = await client.picture(id: id);
-      if (bytes != null) {
-        _pictures[id] = MemoryImage(bytes);
-        notifyListeners();
-      }
-    } catch (_) {
-      // Not here after all: the default shows.
-    } finally {
-      _picturesLoading.remove(id);
-    }
-  }
-
-  /// Someone's profile picture, or null for the default face.
-  ImageProvider? avatarOf(String username) => picture(personNow(username)?.avatar);
+  /// Someone's profile picture, or null for the default face. Non-null
+  /// once their picture is on this device.
+  PictureRef? avatarOf(String username) => _picture(personNow(username)?.avatar);
 
   /// Someone's banner image, or null for their banner colour.
-  ImageProvider? bannerOf(String username) => picture(personNow(username)?.banner);
+  PictureRef? bannerOf(String username) => _picture(personNow(username)?.banner);
 
   /// The colour across the top of someone's profile when they have no
   /// banner image: the one they chose, else a tint of their own colour.

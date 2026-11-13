@@ -179,6 +179,62 @@ fn encode_within(kind: PictureKind, mut img: DynamicImage) -> Result<Picture> {
     }
 }
 
+/// A picture this device holds (already checked), cropped from its middle
+/// to the shape of `width`×`height` and scaled to exactly that many pixels:
+/// RGBA, row by row.
+///
+/// This is how a picture should reach a screen, especially a small one,
+/// and what Discord's image servers and Signal's thumbnailing do: shrunk
+/// once, from the original, to the pixels it will fill, with a sharp
+/// filter (Catmull-Rom), in linear light with alpha premultiplied, so
+/// edges stay crisp and colours do not muddy. Letting a GPU sample a picture
+/// many times its shown size instead skips most of its pixels, and fine
+/// detail breaks up.
+pub fn scaled(bytes: &[u8], width: u32, height: u32) -> Result<Vec<u8>> {
+    let refuse = || Error::Picture("a held picture could not be read".into());
+    if width == 0 || height == 0 || width > 4096 || height > 4096 {
+        return Err(Error::Picture("a picture can be drawn at 1 to 4096 pixels".into()));
+    }
+    let mut reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format().map_err(|_| refuse())?;
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_SOURCE_SIDE);
+    limits.max_image_height = Some(MAX_SOURCE_SIDE);
+    reader.limits(limits);
+    let img = reader.decode().map_err(|_| refuse())?;
+    let img = crop_to_shape(&img, f64::from(width) / f64::from(height), None);
+
+    // Into linear light, premultiplied, as floats.
+    let to_linear: Vec<f32> = (0..=255u8).map(|v| srgb_to_linear(f32::from(v) / 255.0)).collect();
+    let src = img.to_rgba8();
+    let linear = image::ImageBuffer::<image::Rgba<f32>, Vec<f32>>::from_fn(src.width(), src.height(), |x, y| {
+        let [r, g, b, a] = src.get_pixel(x, y).0;
+        let a = f32::from(a) / 255.0;
+        image::Rgba([to_linear[r as usize] * a, to_linear[g as usize] * a, to_linear[b as usize] * a, a])
+    });
+    // Catmull-Rom: nearly as sharp as Lanczos, with far less ringing. In
+    // linear light, Lanczos left a dark halo around bright shapes, plain
+    // to see on small avatars with hard edges (logos, drawings).
+    let out = image::imageops::resize(&linear, width, height, FilterType::CatmullRom);
+    // Back to sRGB bytes. The filter overshoots a little at edges: clamp.
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for p in out.pixels() {
+        let [r, g, b, a] = p.0;
+        let a = a.clamp(0.0, 1.0);
+        let un = |c: f32| if a > 0.0 { (c / a).clamp(0.0, 1.0) } else { 0.0 };
+        let byte = |v: f32| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+        rgba.extend_from_slice(&[byte(linear_to_srgb(un(r))), byte(linear_to_srgb(un(g))), byte(linear_to_srgb(un(b))), byte(a)]);
+    }
+    Ok(rgba)
+}
+
+fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+}
+
+fn linear_to_srgb(c: f32) -> f32 {
+    if c <= 0.003_130_8 { c * 12.92 } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 }
+}
+
 /// Check a received picture before it is kept or shown: within the size
 /// limit, PNG or JPEG, and decoding (fully) to no more than the largest
 /// allowed size. Returns its size in pixels.
@@ -255,6 +311,28 @@ mod tests {
         let p = prepare(PictureKind::Avatar, &png(&img), None).expect("prepare");
         assert_eq!(p.mime, "image/png");
         assert_eq!((p.width, p.height), (300, 300), "small enough already: not enlarged");
+    }
+
+    #[test]
+    fn pictures_scale_to_exact_pixels_without_muddying() {
+        // Fine black and white stripes average to mid grey in linear light,
+        // which is about 188 in sRGB, not the 128 a naive average gives.
+        let stripes = DynamicImage::ImageRgb8(RgbImage::from_fn(512, 512, |x, _| if x % 2 == 0 { Rgb([0, 0, 0]) } else { Rgb([255, 255, 255]) }));
+        let small = scaled(&png(&stripes), 32, 32).expect("scaled");
+        assert_eq!(small.len(), 32 * 32 * 4);
+        let grey = small[4 * (16 * 32 + 16)];
+        assert!((180..=196).contains(&grey), "{grey}");
+        assert_eq!(small[4 * (16 * 32 + 16) + 3], 255, "opaque stays opaque");
+        // A banner is cropped to the shape asked for, not squashed.
+        let wide = scaled(&png(&noisy(1500, 500)), 300, 100).expect("banner");
+        assert_eq!(wide.len(), 300 * 100 * 4);
+        // See-through edges do not pick up a dark fringe.
+        let dot = DynamicImage::ImageRgba8(RgbaImage::from_fn(64, 64, |x, _| Rgba([255, 255, 255, if x < 32 { 0 } else { 255 }])));
+        let out = scaled(&png(&dot), 16, 16).expect("scaled");
+        for px in out.chunks(4).filter(|p| p[3] > 0) {
+            assert!(px[0] > 240, "fringe: {px:?}");
+        }
+        assert!(scaled(&png(&dot), 0, 16).is_err());
     }
 
     #[test]

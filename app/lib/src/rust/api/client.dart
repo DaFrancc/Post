@@ -199,6 +199,16 @@ abstract class Client implements RustOpaqueInterface {
   static PictureLimits pictureLimits({required PictureKind kind}) =>
       RustLib.instance.api.crateApiClientClientPictureLimits(kind: kind);
 
+  /// A picture this device has, scaled to exactly `width`×`height` pixels
+  /// (the device pixels it will fill), cropped from its middle to that
+  /// shape: RGBA bytes, row by row. Shrunk well, once, here, so the app
+  /// draws it pixel for pixel.
+  Future<Uint8List?> pictureScaled({
+    required String id,
+    required int width,
+    required int height,
+  });
+
   /// As a host: plan maintenance. `starts_at_ms` 0 starts it now.
   Future<void> planMaintenance({
     required PlatformInt64 startsAtMs,

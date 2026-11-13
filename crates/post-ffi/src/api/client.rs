@@ -1090,6 +1090,14 @@ impl Client {
         Ok(self.core.picture(&id)?)
     }
 
+    /// A picture this device has, scaled to exactly `width`×`height` pixels
+    /// (the device pixels it will fill), cropped from its middle to that
+    /// shape: RGBA bytes, row by row. Shrunk well, once, here, so the app
+    /// draws it pixel for pixel.
+    pub async fn picture_scaled(&self, id: String, width: u32, height: u32) -> Result<Option<Vec<u8>>, PostError> {
+        Ok(self.core.picture_scaled(&id, width, height).await?)
+    }
+
     /// Set (or clear, with "") a private nickname for someone.
     pub async fn set_nickname(&self, username: String, nickname: String) -> Result<(), PostError> {
         Ok(self.core.set_nickname(&username, nickname.trim()).await?)

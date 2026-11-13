@@ -381,13 +381,7 @@ class _ProfileState extends State<_Profile> {
                       SizedBox(
                         height: height,
                         width: double.infinity,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: _state.bannerColorOf(widget.username),
-                            borderRadius: BorderRadius.circular(14),
-                            image: banner == null ? null : DecorationImage(image: banner, fit: BoxFit.cover, onError: (_, _) {}),
-                          ),
-                        ),
+                        child: BannerView(picture: banner, color: _state.bannerColorOf(widget.username), radius: BorderRadius.circular(14)),
                       ),
                       Positioned(
                         top: height - 40,

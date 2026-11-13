@@ -1593,6 +1593,16 @@ impl Core {
         self.read(|c| store::picture(c, &sha))
     }
 
+    /// A picture this device has, ready to draw at exactly `width`×`height`
+    /// pixels (see [`picture::scaled`]): RGBA, row by row.
+    pub async fn picture_scaled(&self, id: &str, width: u32, height: u32) -> Result<Option<Vec<u8>>> {
+        let Some(bytes) = self.picture(id)? else { return Ok(None) };
+        tokio::task::spawn_blocking(move || picture::scaled(&bytes, width, height))
+            .await
+            .map_err(|_| Error::Picture("scaling a picture failed".into()))?
+            .map(Some)
+    }
+
     /// Set (or clear, with an empty name) your display name in one conversation.
     pub async fn set_conversation_name(&self, conversation: ConversationId, name: &str) -> Result<()> {
         let body = content::Body::ConversationName(content::ConversationName { name: name.into() });

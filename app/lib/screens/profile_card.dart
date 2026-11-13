@@ -77,15 +77,10 @@ class _ProfileCard extends StatelessWidget {
                     SizedBox(
                       height: 100,
                       width: double.infinity,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: state.bannerColorOf(username),
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
-                          image: switch (state.bannerOf(username)) {
-                            final banner? => DecorationImage(image: banner, fit: BoxFit.cover, onError: (_, _) {}),
-                            null => null,
-                          },
-                        ),
+                      child: BannerView(
+                        picture: state.bannerOf(username),
+                        color: state.bannerColorOf(username),
+                        radius: const BorderRadius.vertical(top: Radius.circular(15)),
                       ),
                     ),
                     Positioned(
