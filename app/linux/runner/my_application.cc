@@ -26,7 +26,8 @@ G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 // replaces this path). Until the engine waits: after each paint, paint
 // once more on the next frame, by when the frame is complete. One extra
 // paint at the end of each burst of frames; Flutter's next frame and this
-// paint merge when it is busy. Remove once Flutter is upgraded past it.
+// paint merge when it is busy. Remove once Flutter is upgraded past it:
+// test/workarounds_test.dart fails on a Flutter upgrade as the reminder.
 static gboolean repaint_pending = FALSE;
 static void repaint_once_more(GdkFrameClock*, gpointer view) {
   if (repaint_pending) {

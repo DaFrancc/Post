@@ -61,6 +61,13 @@ jobs:
           flutter pub get
           flutter build linux --release --dart-define=POST_VERSION="$VERSION"
 
+      # The app's unit tests. Among them, test/workarounds_test.dart fails
+      # when the Flutter above is moved on, until each workaround for a
+      # Flutter bug has been checked against it.
+      - name: Test
+        working-directory: app
+        run: flutter test
+
       - name: Pack
         run: app/linux/packaging/package.sh "$VERSION" dist
 
