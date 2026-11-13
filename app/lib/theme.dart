@@ -220,14 +220,18 @@ abstract final class PButtons {
   /// The main action.
   static final primary = tactile(face: PColors.accent, onFace: PColors.onAccent);
 
+  // Faces are light enough that the edge under them, a third darker, still
+  // stands out from the near-black panels behind: a darker face had an
+  // edge the panels swallowed, and looked flat beside the blue one.
+
   /// Anything else: Cancel, Back.
-  static final secondary = tactile(face: const Color(0xFF1C1F33), onFace: PColors.textBody, border: const Color(0xFF2E3250));
+  static final secondary = tactile(face: const Color(0xFF282C46), onFace: PColors.textBody);
 
   /// An accent action that is not the main one.
-  static final tonal = tactile(face: const Color(0xFF2B3560), onFace: const Color(0xFFD9E2FF));
+  static final tonal = tactile(face: const Color(0xFF2E3966), onFace: const Color(0xFFD9E2FF));
 
   /// Something that removes or ends: deleting, logging out.
-  static final danger = tactile(face: const Color(0xFF3A1A24), onFace: const Color(0xFFFF8EA2));
+  static final danger = tactile(face: const Color(0xFF4C1F2D), onFace: const Color(0xFFFF9AAC));
 
   /// A tactile button in [face], with [onFace] for its label. A disabled
   /// one fades and lies flat, unless [fadeDisabled] is false (a button
@@ -319,6 +323,9 @@ class _TactileFace extends StatelessWidget {
 /// full-size button, 2 for a compact one, so small buttons are not heavy.
 double _edgeDepth(double height) => height >= 36 ? 3 : 2;
 
+/// Room above a resting face for it to rise into under the pointer.
+const double _rise = 1;
+
 /// Moves the label with the face: down by the edge's depth when pressed,
 /// up a fraction of it when risen.
 class _Lifted extends SingleChildRenderObjectWidget {
@@ -343,7 +350,12 @@ class _RenderLifted extends RenderProxyBox {
     markNeedsPaint();
   }
 
-  double get _shift => (1 - _travel.up) * _edgeDepth(size.height);
+  /// The label sits centred on the face (see [_TactilePainter]), which is
+  /// above the edge, and moves with it.
+  double get _shift {
+    final depth = _edgeDepth(size.height);
+    return (_rise - depth) / 2 + (1 - _travel.up) * depth;
+  }
 
   @override
   void paint(PaintingContext context, Offset offset) => super.paint(context, offset + Offset(0, _shift));
@@ -389,18 +401,21 @@ class _TactilePainter extends CustomPainter {
     // Every size of button follows one rule: corners rounded to 30% of
     // its height (12 pixels at full size), an edge of 3 pixels (2 when
     // compact), the face travelling the edge's depth.
+    //
+    // All of it inside the button's own box: the face resting just below
+    // its top (room to rise), the edge filling its bottom. A button clips
+    // what it draws to its outline when it has a background like this
+    // one (an outlined button always does), and an edge hanging below the
+    // box was cut off there: grey buttons lost theirs.
     final depth = _edgeDepth(size.height);
-    final radius = Radius.circular(math.min(12, size.height * 0.3));
-    final rest = RRect.fromRectAndRadius(Offset.zero & size, radius);
+    final faceHeight = size.height - depth - _rise;
+    final radius = Radius.circular(math.min(12, faceHeight * 0.3));
+    final rest = RRect.fromRectAndRadius(Rect.fromLTWH(0, _rise, size.width, faceHeight), radius);
     final shift = (1 - travel.up) * depth;
     final top = rest.shift(Offset(0, shift));
     if (!disabled) {
-      // A soft shadow and the edge stay where the button rests; only the
-      // face moves, down on to the edge or up off it.
-      final shadow = Paint()
-        ..color = const Color(0x59000000)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, travel.up < 0.5 ? 1.5 : 5);
-      canvas.drawRRect(rest.shift(Offset(0, depth + 1)), shadow);
+      // The edge stays where the button rests; only the face moves, down
+      // on to it or up off it.
       canvas.drawRRect(rest.shift(Offset(0, depth)), Paint()..color = _edge(face));
     }
     final colour = disabled && fadeDisabled ? face.withValues(alpha: face.a * 0.45) : Color.lerp(face, _lit(face), travel.lit)!;
@@ -517,7 +532,8 @@ ThemeData postTheme() {
       style: PButtons.primary.merge(
         FilledButton.styleFrom(
           visualDensity: VisualDensity.standard,
-          minimumSize: const Size(40, 40),
+          // A 40-pixel face, its 3-pixel edge, and a pixel to rise into.
+          minimumSize: const Size(44, 44),
           padding: const EdgeInsets.symmetric(horizontal: 20),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           textStyle: const TextStyle(fontFamily: PType.body, fontWeight: FontWeight.w600, fontSize: 14),
@@ -528,7 +544,7 @@ ThemeData postTheme() {
       style: PButtons.secondary.merge(
         OutlinedButton.styleFrom(
           visualDensity: VisualDensity.standard,
-          minimumSize: const Size(40, 40),
+          minimumSize: const Size(44, 44),
           padding: const EdgeInsets.symmetric(horizontal: 18),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           textStyle: const TextStyle(fontFamily: PType.body, fontWeight: FontWeight.w500, fontSize: 14),
