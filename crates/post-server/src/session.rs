@@ -90,11 +90,8 @@ fn verify_login(chain: &Chain, device: &DeviceId, domain: &str, nonce: &[u8], ed
 }
 
 fn wrong_connection(session: bool) -> proto::Error {
-    let msg = if session {
-        "conversation requests must use an anonymous connection"
-    } else {
-        "device requests must use a logged-in session"
-    };
+    let msg =
+        if session { "conversation requests must use an anonymous connection" } else { "device requests must use a logged-in session" };
     proto::Error::new(ErrorCode::WrongConnection, msg)
 }
 
@@ -126,8 +123,12 @@ pub(crate) async fn run(mut socket: WebSocket, state: Arc<State>) {
             }
         }
     } else {
-        let mut conn =
-            Conn { state: state.clone(), id, inbox, kind: Kind::Anonymous { subscribed: Vec::new(), limiter: Limiter::new(), links_created: 0 } };
+        let mut conn = Conn {
+            state: state.clone(),
+            id,
+            inbox,
+            kind: Kind::Anonymous { subscribed: Vec::new(), limiter: Limiter::new(), links_created: 0 },
+        };
         let r = conn.handle(request).await.unwrap_or_else(Reply::Error);
         if !reply(&mut socket, first.id, r).await {
             conn.close();
@@ -242,8 +243,7 @@ impl Conn {
             }
             Request::UploadKeyPackages(r) => {
                 let last = (!r.last_resort.is_empty()).then_some(r.last_resort);
-                let remaining =
-                    st.db.run(move |c| db::upload_key_packages(c, &account, &device, &r.key_packages, last.as_deref())).await?;
+                let remaining = st.db.run(move |c| db::upload_key_packages(c, &account, &device, &r.key_packages, last.as_deref())).await?;
                 Reply::KeyPackageCount(proto::KeyPackageCount { remaining })
             }
             Request::FetchMailbox(r) => Reply::Mailbox(st.db.run(move |c| db::fetch_mailbox(c, &device, r.limit)).await?),

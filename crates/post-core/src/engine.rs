@@ -30,13 +30,13 @@ use tokio::sync::broadcast;
 use zeroize::Zeroizing;
 
 use crate::content::{self, Body, Content};
-use crate::picture::{Picture, PictureKind};
-use crate::{blob, calls, ephemeral};
 use crate::link::{self as linking, Channel, LinkCode};
 use crate::net::{ServerConn, expect_reply};
+use crate::picture::{Picture, PictureKind};
 use crate::provider::Provider;
 use crate::store::{self, KIND_DM, KIND_GROUP, KIND_SELF, NewMessage};
 use crate::{ConversationId, Error, Event, MessageId, Presence, PresenceSetting, Result};
+use crate::{blob, calls, ephemeral};
 
 /// Exporter label for group access keys (design section 8).
 pub const ACCESS_LABEL: &str = "post/group-access/v1";
@@ -56,7 +56,8 @@ const KP_BACKOFF: std::time::Duration = std::time::Duration::from_secs(600);
 /// account's last leaf never is, so an account stays a member while all its
 /// devices are away.
 fn stale_and_replaceable(stale: &HashSet<DeviceId>, leaves: &[(LeafNodeIndex, LeafIdentity)], leaf: &LeafIdentity) -> bool {
-    stale.contains(&leaf.device) && leaves.iter().any(|(_, l)| l.account == leaf.account && l.device != leaf.device && !stale.contains(&l.device))
+    stale.contains(&leaf.device)
+        && leaves.iter().any(|(_, l)| l.account == leaf.account && l.device != leaf.device && !stale.contains(&l.device))
 }
 
 /// How often a device replaces its own leaf in each group (design section 6,
@@ -659,7 +660,10 @@ impl Engine {
         // Countersign only a link that adds exactly this device.
         let parsed = Link::decode(&answer.link)?;
         let adds_me = matches!(&parsed.op, Op::AddDevice { device } if *device == link.keys.entry(link.bot));
-        let account = parsed.account_id.filter(|_| adds_me).ok_or_else(|| Error::Protocol("the other device sent a link that does not add this one".into()))?;
+        let account = parsed
+            .account_id
+            .filter(|_| adds_me)
+            .ok_or_else(|| Error::Protocol("the other device sent a link that does not add this one".into()))?;
         validate_username(&answer.username).map_err(|_| Error::Protocol("the other device sent an invalid username".into()))?;
 
         // Keys are saved before the countersignature leaves: once it does,
@@ -903,7 +907,10 @@ impl Engine {
     /// Download what changed in the directory and verify it.
     pub async fn sync_directory(&mut self) -> Result<()> {
         let since = store::meta_u64(&self.conn, "dir_version")?;
-        let upd = expect_reply!(self.session()?.request(Request::Directory(proto::Directory { since_version: since })).await?, Reply::DirectoryUpdate)?;
+        let upd = expect_reply!(
+            self.session()?.request(Request::Directory(proto::Directory { since_version: since })).await?,
+            Reply::DirectoryUpdate
+        )?;
         let domain = self.me()?.domain.clone();
         for a in upd.accounts {
             let Ok(account) = store::account_id(&a.account_id) else { continue };
@@ -997,9 +1004,7 @@ impl Engine {
             tx.commit()?;
             (one_time, last_resort)
         };
-        self.session()?
-            .request(Request::UploadKeyPackages(proto::UploadKeyPackages { key_packages: one_time, last_resort }))
-            .await?;
+        self.session()?.request(Request::UploadKeyPackages(proto::UploadKeyPackages { key_packages: one_time, last_resort })).await?;
         store::meta_delete(&self.conn, "kp_target")?;
         Ok(())
     }
@@ -1039,7 +1044,8 @@ impl Engine {
         }
         let tx = self.conn.transaction()?;
         for ((msg, blinded), sig) in pending.iter().zip(issued.blind_signatures) {
-            let sig = pk.finalize(&BlindSignature(sig), blinded, msg).map_err(|_| Error::Protocol("server returned an invalid token".into()))?;
+            let sig =
+                pk.finalize(&BlindSignature(sig), blinded, msg).map_err(|_| Error::Protocol("server returned an invalid token".into()))?;
             let randomizer = blinded.msg_randomizer.ok_or_else(|| Error::Protocol("token randomizer missing".into()))?;
             let token = proto::Token {
                 version: proto::TOKEN_VERSION_RSABSSA_SHA384,
@@ -1087,11 +1093,8 @@ impl Engine {
     /// than this one.
     async fn claim(&mut self, account: AccountId) -> Result<Vec<KeyPackage>> {
         let token = self.take_token().await?;
-        let req = Request::ClaimKeyPackages(proto::ClaimKeyPackages {
-            token: Some(token),
-            account_id: account.0.to_vec(),
-            ..Default::default()
-        });
+        let req =
+            Request::ClaimKeyPackages(proto::ClaimKeyPackages { token: Some(token), account_id: account.0.to_vec(), ..Default::default() });
         let claimed = expect_reply!(self.anon()?.request(req).await?, Reply::ClaimedKeyPackages)?;
         let crypto = post_mls::crypto();
         let me = self.me()?.device;
@@ -1437,7 +1440,8 @@ impl Engine {
             let (_, welcome, _) = group.add_members(&provider, &me.signer, &kps).map_err(mls)?;
             let staged = group.pending_commit().ok_or(Error::Corrupt("pending commit"))?;
             let access = staged.export_secret(provider.crypto(), ACCESS_LABEL, &[], 32).map_err(mls)?;
-            let welcome_to = kps.iter().filter_map(|kp| post_mls::leaf_identity(kp.leaf_node()).ok()).map(|l| l.device.0.to_vec()).collect();
+            let welcome_to =
+                kps.iter().filter_map(|kp| post_mls::leaf_identity(kp.leaf_node()).ok()).map(|l| l.device.0.to_vec()).collect();
             let req = proto::CreateGroup {
                 token: None,
                 group_id: gid.to_vec(),
@@ -1515,14 +1519,12 @@ impl Engine {
                 let mut group = load_group(&provider, &gid)?;
                 tracing::info!(epoch = group.epoch().as_u64(), replacing = group.pending_commit().is_some(), "making a commit");
                 let access_key = access_key_of(&group, &provider)?;
-                let welcome_to = adds
-                    .iter()
-                    .filter_map(|kp| post_mls::leaf_identity(kp.leaf_node()).ok())
-                    .map(|l| l.device.0.to_vec())
-                    .collect();
+                let welcome_to =
+                    adds.iter().filter_map(|kp| post_mls::leaf_identity(kp.leaf_node()).ok()).map(|l| l.device.0.to_vec()).collect();
                 let mut builder = group.commit_builder().force_self_update(refresh).propose_adds(adds).propose_removals(removes);
                 if let Some(meta) = &meta {
-                    builder = builder.propose_group_context_extensions(post_mls::group_context_extensions(meta).map_err(mls)?).map_err(mls)?;
+                    builder =
+                        builder.propose_group_context_extensions(post_mls::group_context_extensions(meta).map_err(mls)?).map_err(mls)?;
                 }
                 let bundle = builder
                     .load_psks(provider.storage())
@@ -1876,7 +1878,10 @@ impl Engine {
         let tx = self.conn.transaction()?;
         // Queued unencrypted: it is encrypted when it reaches the front of
         // the outbox (`flush_outbox`), so generations follow send order.
-        store::outbox_push(&tx, &store::OutboxRow { client_msg_id: id.to_vec(), group_id: gid.to_vec(), content: bytes, ciphertext: Vec::new() })?;
+        store::outbox_push(
+            &tx,
+            &store::OutboxRow { client_msg_id: id.to_vec(), group_id: gid.to_vec(), content: bytes, ciphertext: Vec::new() },
+        )?;
         store::record_own_send(&tx, &gid, &id)?;
         let outcome = match &body {
             Body::Text(t) => {
@@ -2000,7 +2005,12 @@ impl Engine {
         };
         store::outbox_replace_ciphertext(&tx, &row.client_msg_id, &ciphertext)?;
         tx.commit()?;
-        Ok(store::OutboxRow { client_msg_id: row.client_msg_id.clone(), group_id: row.group_id.clone(), content: row.content.clone(), ciphertext })
+        Ok(store::OutboxRow {
+            client_msg_id: row.client_msg_id.clone(),
+            group_id: row.group_id.clone(),
+            content: row.content.clone(),
+            ciphertext,
+        })
     }
 
     // ------------------------------------------------------------ receiving
@@ -2163,7 +2173,8 @@ impl Engine {
     async fn sync_mailbox(&mut self) -> Result<usize> {
         let mut joined = 0;
         loop {
-            let mb = expect_reply!(self.session()?.request(Request::FetchMailbox(proto::FetchMailbox { limit: 0 })).await?, Reply::Mailbox)?;
+            let mb =
+                expect_reply!(self.session()?.request(Request::FetchMailbox(proto::FetchMailbox { limit: 0 })).await?, Reply::Mailbox)?;
             let Some(last) = mb.entries.last().map(|e| e.seq) else { break };
             for e in &mb.entries {
                 if self.process_welcome(e).await? {
@@ -2254,7 +2265,10 @@ impl Engine {
                         // than that, or the group is gone. Stop following it;
                         // a member adding it back brings it in again.
                         store::stop_following(&self.conn, &gid)?;
-                        self.notice(Some(&gid), "this device was away too long to catch up with this conversation; a member can add you back")?;
+                        self.notice(
+                            Some(&gid),
+                            "this device was away too long to catch up with this conversation; a member can add you back",
+                        )?;
                     } else {
                         tracing::debug!(error = %e, "group fetch refused");
                     }
@@ -2506,7 +2520,8 @@ impl Engine {
 
     /// Send read receipts or stop, on all this account's devices.
     pub async fn set_read_receipts(&mut self, on: bool) -> Result<()> {
-        let entry = content::SettingEntry { key: content::SETTING_READ_RECEIPTS.into(), value: if on { String::new() } else { "0".into() } };
+        let entry =
+            content::SettingEntry { key: content::SETTING_READ_RECEIPTS.into(), value: if on { String::new() } else { "0".into() } };
         self.sync_to_own_devices(content::SelfSync { settings: vec![entry], ..Default::default() }).await?;
         // Turned on: say how far we have read now, rather than at the next
         // message.
@@ -2672,7 +2687,12 @@ impl Engine {
         }
         let participant = random16()?;
         let access = self.call_access(gid, call_id, participant).await?;
-        let event = content::CallEvent { kind: content::CallKind::Join as i32, call_id: call_id.to_vec(), participant_id: participant.to_vec(), ..Default::default() };
+        let event = content::CallEvent {
+            kind: content::CallKind::Join as i32,
+            call_id: call_id.to_vec(),
+            participant_id: participant.to_vec(),
+            ..Default::default()
+        };
         self.send_body(gid, Body::Call(event)).await?;
         self.call_join(call_id, participant, access)
     }
@@ -2691,7 +2711,12 @@ impl Engine {
             // CLI): in a DM, hanging up from any device ends the call.
             return if is_dm { self.send_body(gid, Body::Call(end)).await.map(|_| ()) } else { Err(Error::NotFound("call")) };
         };
-        let leave = content::CallEvent { kind: content::CallKind::Leave as i32, call_id: call_id.to_vec(), participant_id: participant.to_vec(), ..Default::default() };
+        let leave = content::CallEvent {
+            kind: content::CallKind::Leave as i32,
+            call_id: call_id.to_vec(),
+            participant_id: participant.to_vec(),
+            ..Default::default()
+        };
         self.send_body(gid, Body::Call(leave)).await?;
         let still_live = self.calls.lock().unwrap_or_else(|p| p.into_inner()).get(&call_id).is_some();
         if is_dm && still_live {
@@ -2932,7 +2957,9 @@ impl Engine {
                 let key = Zeroizing::new(group.export_secret(provider.crypto(), ephemeral::EXPORTER_LABEL, &[], 32).map_err(mls)?);
                 let ctx = ephemeral::Context { group_id: &gid, epoch: group.epoch().as_u64(), key };
                 let leaf_key = |a: &AccountId, d: &DeviceId| {
-                    group.members().find_map(|m| leaf_of_member(&m).ok().filter(|l| l.account == *a && l.device == *d).map(|l| l.signature_key))
+                    group
+                        .members()
+                        .find_map(|m| leaf_of_member(&m).ok().filter(|l| l.account == *a && l.device == *d).map(|l| l.signature_key))
                 };
                 ctx.open(&payload, leaf_key, store::now_ms())
             };
@@ -3154,7 +3181,9 @@ impl Engine {
         let now = store::now_ms();
         let mine = self.me()?.account;
         let profile = store::profile(&self.conn, &mine.0)?.unwrap_or_default();
-        let shown = |blob: &[u8]| [PictureKind::Avatar, PictureKind::Banner].into_iter().find(|k| profile.image(*k).is_some_and(|i| i.blob_id == blob));
+        let shown = |blob: &[u8]| {
+            [PictureKind::Avatar, PictureKind::Banner].into_iter().find(|k| profile.image(*k).is_some_and(|i| i.blob_id == blob))
+        };
         let own = store::own_pictures(&self.conn)?;
         for o in &own {
             let Some(kind) = shown(&o.blob_id) else {
@@ -3693,15 +3722,12 @@ fn check_commit(
     let members: Vec<LeafIdentity> = group.members().filter_map(|m| leaf_of_member(&m).ok()).collect();
     let current: HashSet<AccountId> = members.iter().map(|l| l.account).collect();
     for add in staged.add_proposals() {
-        let leaf = post_mls::leaf_identity(add.add_proposal().key_package().leaf_node()).map_err(|_| reject("an added device has an invalid credential"))?;
+        let leaf = post_mls::leaf_identity(add.add_proposal().key_package().leaf_node())
+            .map_err(|_| reject("an added device has an invalid credential"))?;
         authorize(chains, std::slice::from_ref(&leaf))?;
         if !current.contains(&leaf.account) {
             // A DM's two accounts are fixed, and a self group never gains another account.
-            let allowed = if is_dm {
-                old.admins.iter().any(|a| a[..] == leaf.account.0)
-            } else {
-                is_admin && !is_self
-            };
+            let allowed = if is_dm { old.admins.iter().any(|a| a[..] == leaf.account.0) } else { is_admin && !is_self };
             if !allowed {
                 return Err(reject("someone who is not an admin tried to add a person"));
             }
@@ -3748,7 +3774,11 @@ fn check_commit(
             .members()
             .filter(|m| !removed.contains(&m.index))
             .filter_map(|m| leaf_of_member(&m).ok().map(|l| l.account))
-            .chain(staged.add_proposals().filter_map(|a| post_mls::leaf_identity(a.add_proposal().key_package().leaf_node()).ok().map(|l| l.account)))
+            .chain(
+                staged
+                    .add_proposals()
+                    .filter_map(|a| post_mls::leaf_identity(a.add_proposal().key_package().leaf_node()).ok().map(|l| l.account)),
+            )
             .collect();
         if !new.admins.iter().any(|a| store::account_id(a).is_ok_and(|a| after.contains(&a))) {
             return Err(reject("a change would have left the group with no admin"));
@@ -3898,7 +3928,10 @@ mod tests {
     fn large_snapshots_split_into_messages_that_fit() {
         let s = content::SelfSync {
             nicknames: (0..2000u32)
-                .map(|i| content::NicknameEntry { account: [(i % 256) as u8; 32].to_vec(), name: "a long nickname, sixty-four characters or so, well, nearly".into() })
+                .map(|i| content::NicknameEntry {
+                    account: [(i % 256) as u8; 32].to_vec(),
+                    name: "a long nickname, sixty-four characters or so, well, nearly".into(),
+                })
                 .collect(),
             read: (0..3000u32).map(|i| content::ReadEntry { group: [(i % 256) as u8; 16].to_vec(), seq: u64::from(i) }).collect(),
             announcements_read: 7,

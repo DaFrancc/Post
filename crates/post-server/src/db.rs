@@ -240,10 +240,7 @@ pub fn open(path: &Path, key: &[u8; 32]) -> rusqlite::Result<Connection> {
 
 /// Current Unix time in milliseconds.
 pub fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 /// Today as days since the Unix epoch. Dates, not times, are stored where a
@@ -357,8 +354,7 @@ pub fn register(
         }
         _ => return Err(err(ErrorCode::InviteInvalid, "invite is unknown, used or expired")),
     }
-    let taken: bool =
-        tx.query_row("SELECT EXISTS(SELECT 1 FROM accounts WHERE username = ?1)", [chain.username()], |r| r.get(0)).db()?;
+    let taken: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM accounts WHERE username = ?1)", [chain.username()], |r| r.get(0)).db()?;
     if taken {
         return Err(err(ErrorCode::UsernameTaken, "username is taken"));
     }
@@ -375,8 +371,11 @@ pub fn register(
         params![&device.id.0[..], &account.0[..], &device.entry.mls_sig_pub[..], today()],
     )
     .db()?;
-    tx.execute("UPDATE invites SET used_by = ?1, used_at = ?2 WHERE code_hash = ?3", params![&account.0[..], now, invite_hash(invite_code)])
-        .db()?;
+    tx.execute(
+        "UPDATE invites SET used_by = ?1, used_at = ?2 WHERE code_hash = ?3",
+        params![&account.0[..], now, invite_hash(invite_code)],
+    )
+    .db()?;
     tx.commit().db()?;
     Ok((account, device.id))
 }
@@ -464,8 +463,7 @@ pub fn append_chain(conn: &mut Connection, account: &AccountId, link: &[u8]) -> 
     let before: Vec<_> = chain.devices().to_vec();
     chain.append(link).map_err(|e| err(ErrorCode::ChainRejected, e.to_string()))?;
     let seq = chain.next_seq() - 1;
-    tx.execute("INSERT INTO chain_links (account_id, seq, link) VALUES (?1, ?2, ?3)", params![&account.0[..], sql_i64(seq), link])
-        .db()?;
+    tx.execute("INSERT INTO chain_links (account_id, seq, link) VALUES (?1, ?2, ?3)", params![&account.0[..], sql_i64(seq), link]).db()?;
     let mut removed = Vec::new();
     for d in chain.devices() {
         match before.iter().find(|b| b.id == d.id) {
@@ -525,9 +523,8 @@ pub fn upload_key_packages(
 ) -> Result<u32> {
     let crypto = post_mls::crypto();
     let tx = write_tx(conn)?;
-    let mls_key: Vec<u8> = tx
-        .query_row("SELECT mls_sig_pub FROM devices WHERE device_id = ?1 AND active = 1", [&device.0[..]], |r| r.get(0))
-        .db()?;
+    let mls_key: Vec<u8> =
+        tx.query_row("SELECT mls_sig_pub FROM devices WHERE device_id = ?1 AND active = 1", [&device.0[..]], |r| r.get(0)).db()?;
     let check = |bytes: &[u8], want_last_resort: bool| -> Result<()> {
         let v = validate_key_package(bytes, &crypto).map_err(|e| err(ErrorCode::KeyPackageInvalid, e.to_string()))?;
         if v.leaf.account != *account || v.leaf.device != *device || v.leaf.signature_key != mls_key {
@@ -578,11 +575,7 @@ pub fn claim_key_packages(conn: &mut Connection, req: &proto::ClaimKeyPackages) 
     }
     let tx = write_tx(conn)?;
     let exists: bool = tx
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM accounts WHERE account_id = ?1 AND disabled_at IS NULL)",
-            [&req.account_id],
-            |r| r.get(0),
-        )
+        .query_row("SELECT EXISTS(SELECT 1 FROM accounts WHERE account_id = ?1 AND disabled_at IS NULL)", [&req.account_id], |r| r.get(0))
         .db()?;
     if !exists {
         return Err(err(ErrorCode::NotFound, "no such account"));
@@ -676,9 +669,8 @@ fn deliver_welcome(tx: &Connection, welcome: &[u8], welcome_to: &[Vec<u8>]) -> R
     let mut out = Vec::with_capacity(welcome_to.len());
     for d in welcome_to {
         let id = device_id(d)?;
-        let active: bool = tx
-            .query_row("SELECT EXISTS(SELECT 1 FROM devices WHERE device_id = ?1 AND active = 1)", [d], |r| r.get(0))
-            .db()?;
+        let active: bool =
+            tx.query_row("SELECT EXISTS(SELECT 1 FROM devices WHERE device_id = ?1 AND active = 1)", [d], |r| r.get(0)).db()?;
         if !active {
             return Err(err(ErrorCode::NotFound, "Welcome recipient unknown or inactive"));
         }
@@ -722,8 +714,7 @@ pub fn create_group(conn: &mut Connection, req: &proto::CreateGroup) -> Result<V
     check_len(&req.group_id, 16, "group id")?;
     check_len(&req.access_hash, 32, "access hash")?;
     let tx = write_tx(conn)?;
-    let exists: bool =
-        tx.query_row("SELECT EXISTS(SELECT 1 FROM groups WHERE group_id = ?1)", [&req.group_id], |r| r.get(0)).db()?;
+    let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM groups WHERE group_id = ?1)", [&req.group_id], |r| r.get(0)).db()?;
     if exists {
         // Checked before spending, so a creator retrying after a lost reply
         // keeps its token. Group IDs are random, so this is that retry.
@@ -782,16 +773,22 @@ fn check_header(header: &Header, group: &[u8], epoch: u64, want: ContentType) ->
 }
 
 fn existing_entry(tx: &Connection, group: &[u8], client_msg_id: &[u8]) -> Result<Option<(u64, u64, i32)>> {
-    tx.query_row(
-        "SELECT seq, epoch, kind FROM group_log WHERE group_id = ?1 AND client_msg_id = ?2",
-        params![group, client_msg_id],
-        |r| Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64, r.get(2)?)),
-    )
+    tx.query_row("SELECT seq, epoch, kind FROM group_log WHERE group_id = ?1 AND client_msg_id = ?2", params![group, client_msg_id], |r| {
+        Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64, r.get(2)?))
+    })
     .optional()
     .db()
 }
 
-fn append_log(tx: &Connection, group: &[u8], seq: u64, epoch: u64, kind: proto::EntryKind, client_msg_id: &[u8], payload: &[u8]) -> Result<()> {
+fn append_log(
+    tx: &Connection,
+    group: &[u8],
+    seq: u64,
+    epoch: u64,
+    kind: proto::EntryKind,
+    client_msg_id: &[u8],
+    payload: &[u8],
+) -> Result<()> {
     tx.execute(
         "INSERT INTO group_log (group_id, seq, epoch, kind, client_msg_id, payload, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![group, sql_i64(seq), sql_i64(epoch), kind as i32, client_msg_id, payload, sql_i64(now_ms())],
@@ -959,8 +956,9 @@ mod tests {
         let c = open(&path, &key).expect("open migrates");
         let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).expect("version");
         assert_eq!(version as usize, MIGRATIONS.len() + 1);
-        let has_stale: bool =
-            c.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('devices') WHERE name = 'stale')", [], |r| r.get(0)).expect("column");
+        let has_stale: bool = c
+            .query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('devices') WHERE name = 'stale')", [], |r| r.get(0))
+            .expect("column");
         assert!(has_stale);
         drop(c);
         // Opening again changes nothing; a newer schema is refused.

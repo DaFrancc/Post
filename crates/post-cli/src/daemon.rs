@@ -128,8 +128,8 @@ where
 /// Serve clients on a Unix socket at `path`, readable only by this user.
 #[cfg(unix)]
 pub async fn serve_socket(core: Core, path: &std::path::Path) -> anyhow::Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
     use anyhow::Context as _;
+    use std::os::unix::fs::PermissionsExt as _;
 
     if path.exists() {
         // A socket left by a daemon that died. Refuse if one is still live.

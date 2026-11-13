@@ -173,7 +173,9 @@ impl Manifest {
         if self.min_version()? > version {
             return Err(Error::Invalid("min_version is newer than the release"));
         }
-        if self.platform.is_empty() || !self.platform.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_') {
+        if self.platform.is_empty()
+            || !self.platform.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+        {
             return Err(Error::Invalid("platform"));
         }
         if self.files.is_empty() {
@@ -353,8 +355,9 @@ pub fn public_keys_pem(key: &HybridVerifyingKey) -> (String, String) {
     use base64::Engine as _;
     // DER prefixes for Ed25519 (RFC 8410) and ML-DSA-65 (RFC 9881) keys.
     const ED25519_SPKI: [u8; 12] = [0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00];
-    const MLDSA65_SPKI: [u8; 22] =
-        [0x30, 0x82, 0x07, 0xb2, 0x30, 0x0b, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x12, 0x03, 0x82, 0x07, 0xa1, 0x00];
+    const MLDSA65_SPKI: [u8; 22] = [
+        0x30, 0x82, 0x07, 0xb2, 0x30, 0x0b, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x03, 0x12, 0x03, 0x82, 0x07, 0xa1, 0x00,
+    ];
     let pem = |der: Vec<u8>| {
         let b64 = base64::engine::general_purpose::STANDARD.encode(der);
         let lines: Vec<&str> = b64.as_bytes().chunks(64).map(|c| std::str::from_utf8(c).unwrap_or_default()).collect();
@@ -390,9 +393,7 @@ pub fn seal_key(key: &HybridSigningKey, passphrase: &str, stretch: Stretch) -> R
     getrandom::fill(&mut salt).map_err(|_| Error::Rng)?;
     getrandom::fill(&mut nonce).map_err(|_| Error::Rng)?;
     let k = stretch_passphrase(passphrase, &salt, stretch)?;
-    let sealed = XChaCha20Poly1305::new((&*k).into())
-        .encrypt(XNonce::from_slice(&nonce), &key.to_seeds()[..])
-        .map_err(|_| Error::Rng)?;
+    let sealed = XChaCha20Poly1305::new((&*k).into()).encrypt(XNonce::from_slice(&nonce), &key.to_seeds()[..]).map_err(|_| Error::Rng)?;
     let mut out = KEY_FILE_MAGIC.to_vec();
     out.extend_from_slice(&stretch.memory_kib.to_le_bytes());
     out.extend_from_slice(&stretch.passes.to_le_bytes());

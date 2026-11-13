@@ -85,7 +85,10 @@ pub(crate) enum Change {
     Rang,
     /// Over. `missed`: it called the user and none of their devices
     /// answered. `lasted`: from the first join to the end.
-    Ended { missed: bool, lasted_ms: Option<u64> },
+    Ended {
+        missed: bool,
+        lasted_ms: Option<u64>,
+    },
 }
 
 /// Who this device is, and where the event happened.
@@ -308,7 +311,8 @@ mod tests {
         assert!(!ringing(&calls, 1_000 + RING_FOR_MS + 1));
         // Fetched hours later: history.
         let mut calls = Calls::default();
-        let (_, change) = calls.apply(G, &viewer(ALICE, PHONE, true, STALE_MS + 2_000), &seen(BOB, BOB_DEV, 1_000, CallKind::Start, Some(10)));
+        let (_, change) =
+            calls.apply(G, &viewer(ALICE, PHONE, true, STALE_MS + 2_000), &seen(BOB, BOB_DEV, 1_000, CallKind::Start, Some(10)));
         assert_eq!(change, Change::StartedLongAgo);
         assert!(calls.get(&CALL).is_none());
     }

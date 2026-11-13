@@ -459,9 +459,7 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         Command::Whoami => ("whoami", json!({})),
         Command::Sync => ("sync", json!({})),
         Command::Dm { username } => ("start_dm", json!({ "username": username })),
-        Command::Group { cmd: GroupCommand::Create { name, members } } => {
-            ("create_group", json!({ "name": name, "members": members }))
-        }
+        Command::Group { cmd: GroupCommand::Create { name, members } } => ("create_group", json!({ "name": name, "members": members })),
         Command::Group { cmd: GroupCommand::Members { conversation } } => ("members", json!({ "conversation": conversation })),
         Command::Call { cmd: CallCommand::List } => ("calls", json!({})),
         Command::Call { cmd: CallCommand::Start { conversation, video, ring } } => {
@@ -470,9 +468,15 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         Command::Call { cmd: CallCommand::Ring { conversation, call, usernames } } => {
             ("call_ring", json!({ "conversation": conversation, "call": call, "usernames": usernames }))
         }
-        Command::Call { cmd: CallCommand::Join { conversation, call } } => ("call_join", json!({ "conversation": conversation, "call": call })),
-        Command::Call { cmd: CallCommand::Leave { conversation, call } } => ("call_leave", json!({ "conversation": conversation, "call": call })),
-        Command::Call { cmd: CallCommand::Decline { conversation, call } } => ("call_decline", json!({ "conversation": conversation, "call": call })),
+        Command::Call { cmd: CallCommand::Join { conversation, call } } => {
+            ("call_join", json!({ "conversation": conversation, "call": call }))
+        }
+        Command::Call { cmd: CallCommand::Leave { conversation, call } } => {
+            ("call_leave", json!({ "conversation": conversation, "call": call }))
+        }
+        Command::Call { cmd: CallCommand::Decline { conversation, call } } => {
+            ("call_decline", json!({ "conversation": conversation, "call": call }))
+        }
         Command::Group { cmd: GroupCommand::Add { conversation, members } } => {
             ("add_members", json!({ "conversation": conversation, "members": members }))
         }
@@ -701,7 +705,12 @@ fn print_human(method: &str, v: &Value) {
         }
         "person" => {
             println!("{} (@{})", s(v, "shown_name"), s(v, "username"));
-            for (k, label) in [("display_name", "display name"), ("nickname", "your nickname"), ("typing_template", "typing"), ("arrival", "messages arrive")] {
+            for (k, label) in [
+                ("display_name", "display name"),
+                ("nickname", "your nickname"),
+                ("typing_template", "typing"),
+                ("arrival", "messages arrive"),
+            ] {
                 if !s(v, k).is_empty() {
                     println!("{label}: {}", s(v, k));
                 }
@@ -709,7 +718,8 @@ fn print_human(method: &str, v: &Value) {
             if let Some(n) = v["note"].as_str() {
                 println!("note: {n}");
             }
-            for (k, label) in [("picture", "picture"), ("banner", "banner"), ("banner_fill", "banner colour"), ("theme", "profile colours")] {
+            for (k, label) in [("picture", "picture"), ("banner", "banner"), ("banner_fill", "banner colour"), ("theme", "profile colours")]
+            {
                 if let Some(x) = v[k].as_str() {
                     println!("{label}: {x}");
                 }

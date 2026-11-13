@@ -170,8 +170,7 @@ async fn group_access_needs_the_epoch_key() {
     let mut anon = Client::connect(&server.running.url()).await;
     // Unknown group and wrong key look the same, so guessing reveals nothing.
     let cursor = proto::GroupCursor { group_id: vec![7; 16], epoch: 1, access_key: vec![0; 32], after_seq: 0 };
-    let Reply::GroupBatch(b) = anon.call(Request::FetchGroups(proto::FetchGroups { groups: vec![cursor.clone()], limit: 0 })).await
-    else {
+    let Reply::GroupBatch(b) = anon.call(Request::FetchGroups(proto::FetchGroups { groups: vec![cursor.clone()], limit: 0 })).await else {
         panic!("expected a batch")
     };
     assert_eq!(b.groups[0].error.as_ref().map(proto::Error::code), Some(ErrorCode::BadAccessKey));

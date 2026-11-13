@@ -221,14 +221,26 @@ fn register_functions(conn: &Connection) -> Result<()> {
 macro_rules! remention_trigger {
     ($name:literal, $when:literal, $group:literal, $id:literal) => {
         concat!(
-            "CREATE TRIGGER ", $name, " ", $when, " BEGIN
-                 DELETE FROM message_mentions WHERE pk = (SELECT pk FROM messages WHERE group_id = ", $group, " AND id = ", $id, ");
+            "CREATE TRIGGER ",
+            $name,
+            " ",
+            $when,
+            " BEGIN
+                 DELETE FROM message_mentions WHERE pk = (SELECT pk FROM messages WHERE group_id = ",
+            $group,
+            " AND id = ",
+            $id,
+            ");
                  INSERT OR IGNORE INTO message_mentions (username, pk)
                      SELECT j.value, m.pk
                      FROM messages m, json_each(post_mentions(
                          (SELECT body FROM message_versions v WHERE v.group_id = m.group_id AND v.message_id = m.id
                           ORDER BY v.seq IS NULL DESC, v.seq DESC, v.pk DESC LIMIT 1))) j
-                     WHERE m.group_id = ", $group, " AND m.id = ", $id, " AND m.deleted_at IS NULL AND m.unsupported = 0;
+                     WHERE m.group_id = ",
+            $group,
+            " AND m.id = ",
+            $id,
+            " AND m.deleted_at IS NULL AND m.unsupported = 0;
              END;"
         )
     };
@@ -240,13 +252,25 @@ macro_rules! remention_trigger {
 macro_rules! reindex_trigger {
     ($name:literal, $when:literal, $group:literal, $id:literal) => {
         concat!(
-            "CREATE TRIGGER ", $name, " ", $when, " BEGIN
-                 DELETE FROM message_search WHERE rowid = (SELECT pk FROM messages WHERE group_id = ", $group, " AND id = ", $id, ");
+            "CREATE TRIGGER ",
+            $name,
+            " ",
+            $when,
+            " BEGIN
+                 DELETE FROM message_search WHERE rowid = (SELECT pk FROM messages WHERE group_id = ",
+            $group,
+            " AND id = ",
+            $id,
+            ");
                  INSERT INTO message_search (rowid, body)
                      SELECT m.pk, (SELECT body FROM message_versions v WHERE v.group_id = m.group_id AND v.message_id = m.id
                                    ORDER BY v.seq IS NULL DESC, v.seq DESC, v.pk DESC LIMIT 1)
                      FROM messages m
-                     WHERE m.group_id = ", $group, " AND m.id = ", $id, " AND m.deleted_at IS NULL AND m.unsupported = 0
+                     WHERE m.group_id = ",
+            $group,
+            " AND m.id = ",
+            $id,
+            " AND m.deleted_at IS NULL AND m.unsupported = 0
                        AND EXISTS (SELECT 1 FROM message_versions v WHERE v.group_id = m.group_id AND v.message_id = m.id);
              END;"
         )
@@ -429,10 +453,7 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
 }
 
 pub fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 pub fn i64_of(n: u64) -> i64 {
@@ -630,9 +651,8 @@ pub fn dm_with(conn: &Connection, peer: &AccountId) -> Result<Option<Conversatio
 /// Live conversations, most recently active first. The self group is not a
 /// conversation and is left out.
 pub fn conversations(conn: &Connection) -> Result<Vec<ConversationRow>> {
-    let mut stmt = conn.prepare(&format!(
-        "SELECT {CONV_COLS} FROM conversations WHERE active = 1 AND kind != 3 ORDER BY last_activity DESC"
-    ))?;
+    let mut stmt =
+        conn.prepare(&format!("SELECT {CONV_COLS} FROM conversations WHERE active = 1 AND kind != 3 ORDER BY last_activity DESC"))?;
     Ok(stmt.query_map([], conv_row)?.collect::<rusqlite::Result<_>>()?)
 }
 
@@ -875,9 +895,8 @@ pub fn message(conn: &Connection, group: &[u8], id: &[u8]) -> Result<Option<Mess
 /// ordered by the server's log; messages not yet accepted come last.
 pub fn messages(conn: &Connection, groups: &[Vec<u8>], limit: u32) -> Result<Vec<MessageRow>> {
     let mut rows: Vec<(i64, MessageRow)> = Vec::new();
-    let mut stmt = conn.prepare(&format!(
-        "{MSG_SELECT} WHERE m.group_id = ?1 ORDER BY m.seq IS NULL DESC, m.seq DESC, m.pk DESC LIMIT ?2"
-    ))?;
+    let mut stmt =
+        conn.prepare(&format!("{MSG_SELECT} WHERE m.group_id = ?1 ORDER BY m.seq IS NULL DESC, m.seq DESC, m.pk DESC LIMIT ?2"))?;
     for g in groups {
         for r in stmt.query_map(params![g, limit], msg_row)? {
             let r = r?;
@@ -963,10 +982,8 @@ pub fn search(conn: &Connection, f: &SearchFilter<'_>, limit: u32, offset: u32) 
     let refs: Vec<&dyn rusqlite::ToSql> = args.iter().map(|a| a.as_ref()).collect();
     let total: u32 = conn.query_row(&format!("SELECT count(*) {from}"), refs.as_slice(), |r| r.get(0))?;
     let order = if f.oldest_first { "ASC" } else { "DESC" };
-    let mut stmt = conn.prepare(&format!(
-        "SELECT {} {from} ORDER BY m.sent_at {order}, m.pk {order} LIMIT {limit} OFFSET {offset}",
-        msg_columns!()
-    ))?;
+    let mut stmt =
+        conn.prepare(&format!("SELECT {} {from} ORDER BY m.sent_at {order}, m.pk {order} LIMIT {limit} OFFSET {offset}", msg_columns!()))?;
     let rows = stmt.query_map(refs.as_slice(), msg_row)?.collect::<rusqlite::Result<_>>()?;
     Ok((total, rows))
 }
@@ -1016,19 +1033,14 @@ pub fn mark_read(conn: &Connection, groups: &[Vec<u8>]) -> Result<Vec<(Vec<u8>, 
 
 /// Move a group's read position forward to `seq`. Returns whether it moved.
 pub fn raise_read(conn: &Connection, group: &[u8], seq: u64) -> Result<bool> {
-    let n = conn.execute(
-        "UPDATE conversations SET read_seq = ?2 WHERE group_id = ?1 AND read_seq < ?2",
-        params![group, i64_of(seq)],
-    )?;
+    let n = conn.execute("UPDATE conversations SET read_seq = ?2 WHERE group_id = ?1 AND read_seq < ?2", params![group, i64_of(seq)])?;
     Ok(n > 0)
 }
 
 /// Every group's read position, for a self-group snapshot.
 pub fn read_positions(conn: &Connection) -> Result<Vec<(Vec<u8>, u64)>> {
     let mut stmt = conn.prepare("SELECT group_id, read_seq FROM conversations WHERE kind != 3 AND read_seq > 0")?;
-    Ok(stmt
-        .query_map([], |r| Ok((r.get(0)?, u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0))))?
-        .collect::<rusqlite::Result<_>>()?)
+    Ok(stmt.query_map([], |r| Ok((r.get(0)?, u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0))))?.collect::<rusqlite::Result<_>>()?)
 }
 
 /// A notice, as stored.
@@ -1353,8 +1365,7 @@ pub fn picture_renewed(conn: &Connection, sha256: &[u8], expires_at: u64) -> Res
 
 /// Forget pictures no profile shows any more.
 pub fn forget_pictures_except(conn: &Connection, keep: &std::collections::HashSet<Vec<u8>>) -> Result<usize> {
-    let held: Vec<Vec<u8>> =
-        conn.prepare("SELECT sha256 FROM pictures")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    let held: Vec<Vec<u8>> = conn.prepare("SELECT sha256 FROM pictures")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
     let mut n = 0;
     for sha in held.iter().filter(|s| !keep.contains(*s)) {
         n += conn.execute("DELETE FROM pictures WHERE sha256 = ?1", [sha])?;
@@ -1372,8 +1383,7 @@ pub fn picture_waiting(conn: &Connection, sha256: &[u8]) -> Result<bool> {
 /// A picture could not be fetched: try again after `wait_ms`, longer each
 /// time it fails.
 pub fn picture_missed(conn: &Connection, sha256: &[u8], wait_ms: u64) -> Result<()> {
-    let tries: u32 =
-        conn.query_row("SELECT tries FROM picture_misses WHERE sha256 = ?1", [sha256], |r| r.get(0)).optional()?.unwrap_or(0);
+    let tries: u32 = conn.query_row("SELECT tries FROM picture_misses WHERE sha256 = ?1", [sha256], |r| r.get(0)).optional()?.unwrap_or(0);
     let wait = wait_ms.saturating_mul(1 << tries.min(5));
     conn.execute(
         "INSERT INTO picture_misses (sha256, retry_at, tries) VALUES (?1, ?2, ?3)
@@ -1620,7 +1630,10 @@ pub fn synced_apply(conn: &Connection, kind: Synced, key: &[u8], name: &str, seq
 /// Apply a value from a snapshot: only where this device has none.
 pub fn synced_fill(conn: &Connection, kind: Synced, key: &[u8], name: &str, seq: u64) -> Result<bool> {
     let (t, k) = kind.table();
-    let n = conn.execute(&format!("INSERT OR IGNORE INTO {t} ({k}, name, msg_id, seq) VALUES (?1, ?2, NULL, ?3)"), params![key, name, i64_of(seq)])?;
+    let n = conn.execute(
+        &format!("INSERT OR IGNORE INTO {t} ({k}, name, msg_id, seq) VALUES (?1, ?2, NULL, ?3)"),
+        params![key, name, i64_of(seq)],
+    )?;
     Ok(n > 0)
 }
 
@@ -1641,10 +1654,7 @@ pub fn synced_all(conn: &Connection, kind: Synced) -> Result<Vec<(Vec<u8>, Strin
 fn synced_placed(conn: &Connection, msg_id: &[u8], seq: Option<u64>) -> Result<()> {
     for kind in Synced::ALL {
         let (t, _) = kind.table();
-        conn.execute(
-            &format!("UPDATE {t} SET seq = ?1 WHERE msg_id = ?2 AND seq IS NULL"),
-            params![i64_of(seq.unwrap_or(0)), msg_id],
-        )?;
+        conn.execute(&format!("UPDATE {t} SET seq = ?1 WHERE msg_id = ?2 AND seq IS NULL"), params![i64_of(seq.unwrap_or(0)), msg_id])?;
     }
     Ok(())
 }
@@ -1675,10 +1685,7 @@ pub fn add_notice(conn: &Connection, group: Option<&[u8]>, text: &str) -> Result
 
 /// A notice of a kind (see [`NoticeRow::kind`]).
 pub fn add_notice_of(conn: &Connection, group: Option<&[u8]>, kind: &str, text: &str) -> Result<()> {
-    conn.execute(
-        "INSERT INTO notices (group_id, at, text, kind) VALUES (?1, ?2, ?3, ?4)",
-        params![group, i64_of(now_ms()), text, kind],
-    )?;
+    conn.execute("INSERT INTO notices (group_id, at, text, kind) VALUES (?1, ?2, ?3, ?4)", params![group, i64_of(now_ms()), text, kind])?;
     Ok(())
 }
 

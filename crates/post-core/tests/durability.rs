@@ -136,7 +136,8 @@ async fn arrives_exactly_once(reader: &Core, conv: ConversationId, prefix: &str,
             }
             let conn = post_server::db::open(&db, &key).expect("server db");
             let gid = hex::decode(conv.to_string()).expect("hex");
-            let mut stmt = conn.prepare("SELECT seq, epoch, kind, client_msg_id FROM group_log WHERE group_id = ?1 ORDER BY seq").expect("prepare");
+            let mut stmt =
+                conn.prepare("SELECT seq, epoch, kind, client_msg_id FROM group_log WHERE group_id = ?1 ORDER BY seq").expect("prepare");
             let rows = stmt
                 .query_map([gid], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, Vec<u8>>(3)?)))
                 .expect("query");
@@ -322,8 +323,11 @@ async fn messages_survive_the_server_stopping() {
             n
         })
     };
-    let senders =
-        [sender(alice.clone(), group, "alice", 100, rng.clone()), sender(bob.clone(), group, "bob", 100, rng.clone()), sender(alice.clone(), dm, "dm", 50, rng.clone())];
+    let senders = [
+        sender(alice.clone(), group, "alice", 100, rng.clone()),
+        sender(bob.clone(), group, "bob", 100, rng.clone()),
+        sender(alice.clone(), dm, "dm", 50, rng.clone()),
+    ];
     // Group changes through the stops too: each rename is a commit.
     for title in ["climbing (sat)", "climbing (sun)"] {
         tokio::time::sleep(Duration::from_millis(800)).await;
@@ -348,7 +352,13 @@ async fn messages_survive_the_server_stopping() {
     let renamed = alice.rename_group(group, "climbing").await;
     assert!(renamed.is_ok(), "a commit after the stops: {renamed:?}");
     for (c, who) in [(&bob, "bob"), (&carol, "carol")] {
-        assert!(until(Duration::from_secs(30), async || { c.sync().await.is_ok() && c.conversation(group).expect("group").title == "climbing" }).await, "{who} has the same group");
+        assert!(
+            until(Duration::from_secs(30), async || {
+                c.sync().await.is_ok() && c.conversation(group).expect("group").title == "climbing"
+            })
+            .await,
+            "{who} has the same group"
+        );
     }
     let last = carol.send_text(group, "carol after").await.expect("send");
     assert!(last.body.is_some());
@@ -369,7 +379,13 @@ async fn messages_survive_the_server_stopping() {
 /// Between the apps and the server: once `flaky`, connections cut at random
 /// moments, mid-message included, and outages when no connection gets
 /// through.
-async fn flaky_network(listener: TcpListener, upstream: std::net::SocketAddr, flaky: Arc<AtomicBool>, outage: Arc<AtomicBool>, rng: Arc<Rng>) {
+async fn flaky_network(
+    listener: TcpListener,
+    upstream: std::net::SocketAddr,
+    flaky: Arc<AtomicBool>,
+    outage: Arc<AtomicBool>,
+    rng: Arc<Rng>,
+) {
     loop {
         let Ok((client, _)) = listener.accept().await else { return };
         if outage.load(Ordering::Relaxed) {

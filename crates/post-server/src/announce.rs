@@ -70,8 +70,7 @@ pub fn version(conn: &Connection) -> rusqlite::Result<u64> {
 }
 
 fn bump(tx: &Connection) -> Result<u64> {
-    tx.execute("INSERT INTO meta (k, v) VALUES ('announcements_version', 1) ON CONFLICT (k) DO UPDATE SET v = v + 1", [])
-        .db()?;
+    tx.execute("INSERT INTO meta (k, v) VALUES ('announcements_version', 1) ON CONFLICT (k) DO UPDATE SET v = v + 1", []).db()?;
     version(tx).db()
 }
 
@@ -110,10 +109,8 @@ pub fn add_host(conn: &mut Connection, username: &str) -> Result<bool> {
 /// Stop `username` being a host. Returns false if it was not one.
 pub fn remove_host(conn: &mut Connection, username: &str) -> Result<bool> {
     let tx = write_tx(conn)?;
-    let removed = tx
-        .execute("DELETE FROM hosts WHERE account_id = (SELECT account_id FROM accounts WHERE username = ?1)", [username])
-        .db()?
-        > 0;
+    let removed =
+        tx.execute("DELETE FROM hosts WHERE account_id = (SELECT account_id FROM accounts WHERE username = ?1)", [username]).db()? > 0;
     if removed {
         bump(&tx)?;
     }
@@ -260,7 +257,8 @@ fn plan_at(conn: &mut Connection, by: By<'_>, req: &proto::PlanMaintenance, now:
     // Reminders already past are skipped, and so is one due right after
     // the plan is announced.
     let cutoff = if req.quiet { now } else { now + REMINDER_GAP_MS };
-    let reminders_done = if started { REMINDERS_MS.len() } else { REMINDERS_MS.iter().take_while(|&&r| starts_at.saturating_sub(r) <= cutoff).count() };
+    let reminders_done =
+        if started { REMINDERS_MS.len() } else { REMINDERS_MS.iter().take_while(|&&r| starts_at.saturating_sub(r) <= cutoff).count() };
 
     let tx = write_tx(conn)?;
     check_host(&tx, by)?;
@@ -388,8 +386,10 @@ mod tests {
         proto::PlanMaintenance { starts_at_ms, minutes, reason: "moving".into(), quiet }
     }
 
-    use AnnouncementKind::{MaintenanceCancelled as Cancelled, MaintenanceOver as Over, MaintenancePlanned as Planned,
-                           MaintenanceReminder as Reminder, MaintenanceStarted as Started};
+    use AnnouncementKind::{
+        MaintenanceCancelled as Cancelled, MaintenanceOver as Over, MaintenancePlanned as Planned, MaintenanceReminder as Reminder,
+        MaintenanceStarted as Started,
+    };
 
     #[test]
     fn a_plan_two_days_ahead_announces_then_reminds_four_times_then_starts_and_ends() {
@@ -485,7 +485,11 @@ mod tests {
     fn plans_are_checked() {
         let (_d, mut c) = db();
         let t0 = 1_000 * DAY_MS;
-        for bad in [plan_req(t0 + HOUR_MS, 0, false), plan_req(t0 + HOUR_MS, proto::MAX_MAINTENANCE_MINUTES + 1, false), plan_req(t0 + 400 * DAY_MS, 5, false)] {
+        for bad in [
+            plan_req(t0 + HOUR_MS, 0, false),
+            plan_req(t0 + HOUR_MS, proto::MAX_MAINTENANCE_MINUTES + 1, false),
+            plan_req(t0 + 400 * DAY_MS, 5, false),
+        ] {
             assert_eq!(plan_at(&mut c, By::Operator, &bad, t0).expect_err("refused").code(), ErrorCode::BadRequest);
         }
     }

@@ -1244,7 +1244,11 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
         "add_members" | "remove_members" => {
             let p: MembersParams = params(p)?;
             let conv = id(&p.conversation)?;
-            if name == "add_members" { core.add_members(conv, &p.members).await? } else { core.remove_members(conv, &p.members).await? }
+            if name == "add_members" {
+                core.add_members(conv, &p.members).await?
+            } else {
+                core.remove_members(conv, &p.members).await?
+            }
             ok(Done {})
         }
         "rename_group" => {
@@ -1356,7 +1360,8 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
         }
         "save_picture" => {
             let p: SavePictureParams = params(p)?;
-            let bytes = core.picture(&p.id)?.ok_or_else(|| ApiError { code: -32602, message: "this device has no picture with that ID".into() })?;
+            let bytes =
+                core.picture(&p.id)?.ok_or_else(|| ApiError { code: -32602, message: "this device has no picture with that ID".into() })?;
             std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
@@ -1519,7 +1524,8 @@ pub fn openrpc() -> Value {
         .iter()
         .map(|m| {
             let p = (m.params)();
-            let required: Vec<String> = p["required"].as_array().map(|r| r.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+            let required: Vec<String> =
+                p["required"].as_array().map(|r| r.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
             let params: Vec<Value> = p["properties"]
                 .as_object()
                 .map(|props| {

@@ -186,7 +186,10 @@ impl Releases {
                 let Ok(files) = std::fs::read_dir(entry.path()) else { continue };
                 for f in files.flatten() {
                     let name = f.file_name();
-                    let Some(platform) = name.to_str().and_then(|n| n.strip_prefix("manifest-")).and_then(|n| n.strip_suffix(".json")) else { continue };
+                    let Some(platform) = name.to_str().and_then(|n| n.strip_prefix("manifest-")).and_then(|n| n.strip_suffix(".json"))
+                    else {
+                        continue;
+                    };
                     match load_release(key, &entry.path(), platform, version) {
                         Ok(p) => {
                             found.entry(platform.to_owned()).or_default().insert(version, p);

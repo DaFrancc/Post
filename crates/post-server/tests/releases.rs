@@ -178,9 +178,10 @@ async fn live_while_running_offers_it_at_once_with_resumable_downloads() {
 
     // Exactly as signed.
     let (manifest, _) = release(&key, "1.2.0");
-    let got: serde_json::Value =
-        serde_json::from_slice(&reqwest::get(format!("{}/v1/releases/linux-x86_64", server.http_url())).await.expect("get").bytes().await.expect("body"))
-            .expect("json");
+    let got: serde_json::Value = serde_json::from_slice(
+        &reqwest::get(format!("{}/v1/releases/linux-x86_64", server.http_url())).await.expect("get").bytes().await.expect("body"),
+    )
+    .expect("json");
     let b64 = base64::engine::general_purpose::STANDARD;
     assert_eq!(b64.decode(got["manifest"].as_str().expect("manifest")).expect("b64"), manifest);
     let sig = b64.decode(got["signature"].as_str().expect("signature")).expect("b64");

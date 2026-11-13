@@ -162,7 +162,8 @@ impl Context<'_> {
         if signal.sent_at_ms.abs_diff(now_ms) > MAX_AGE_MS {
             // Usually not old at all: the sender's clock and this one
             // disagree. Worth saying how far, as nothing else shows it.
-            let (way, by) = if signal.sent_at_ms > now_ms { ("ahead of", signal.sent_at_ms - now_ms) } else { ("behind", now_ms - signal.sent_at_ms) };
+            let (way, by) =
+                if signal.sent_at_ms > now_ms { ("ahead of", signal.sent_at_ms - now_ms) } else { ("behind", now_ms - signal.sent_at_ms) };
             return Err(Dropped {
                 why: format!("its sender's clock is {}s {way} this device's (more than {}s apart)", by / 1000, MAX_AGE_MS / 1000),
                 clocks_apart: true,

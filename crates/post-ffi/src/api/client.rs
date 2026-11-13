@@ -622,11 +622,7 @@ impl Client {
         let dir = self.profile_dir.clone();
         let keystore = self.keystore;
         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            if keystore {
-                crate::keystore::delete_profile(&dir)
-            } else {
-                Ok(core::delete_profile(&dir)?)
-            }
+            if keystore { crate::keystore::delete_profile(&dir) } else { Ok(core::delete_profile(&dir)?) }
         })
         .await
         .map_err(|_| PostError::new(ErrorKind::Other, "Deleting the profile stopped unexpectedly."))?
@@ -728,13 +724,7 @@ impl Client {
 
     /// The account's devices, oldest first.
     pub async fn devices(&self) -> Result<Vec<DeviceInfo>, PostError> {
-        Ok(self
-            .core
-            .devices()
-            .await?
-            .into_iter()
-            .map(|d| DeviceInfo { id: d.id, name: d.name, this_device: d.this_device })
-            .collect())
+        Ok(self.core.devices().await?.into_iter().map(|d| DeviceInfo { id: d.id, name: d.name, this_device: d.this_device }).collect())
     }
 
     /// Name one of the account's devices.
@@ -806,12 +796,7 @@ impl Client {
     pub fn picture_limits(kind: PictureKind) -> PictureLimits {
         let k: core::picture::PictureKind = kind.into();
         let (max_width, max_height) = k.max_size();
-        PictureLimits {
-            max_width,
-            max_height,
-            max_bytes: k.max_bytes() as u32,
-            max_source_bytes: core::picture::MAX_SOURCE_BYTES as u32,
-        }
+        PictureLimits { max_width, max_height, max_bytes: k.max_bytes() as u32, max_source_bytes: core::picture::MAX_SOURCE_BYTES as u32 }
     }
 
     /// Longest bio, in characters (Unicode scalar values: Dart's runes),

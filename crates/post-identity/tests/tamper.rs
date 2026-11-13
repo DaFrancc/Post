@@ -19,7 +19,10 @@ fn chain() -> &'static Vec<Vec<u8>> {
         let op = Op::AddDevice { device: phone.entry(false) };
         let b = c.next_link(laptop.device_id(), op, 2).expect("next");
         c.append(&seal(&b, &laptop.sign_link(&b).expect("s"), Some(&phone.cosign_link(&b).expect("s")))).expect("add");
-        let op = Op::RotateMlsKey { device_id: phone.device_id(), mls_sig_pub: DeviceKeys::generate().expect("rng").mls.verifying_key().to_bytes() };
+        let op = Op::RotateMlsKey {
+            device_id: phone.device_id(),
+            mls_sig_pub: DeviceKeys::generate().expect("rng").mls.verifying_key().to_bytes(),
+        };
         c.sign_and_append(&phone, op, 3).expect("rotate");
         c.sign_and_append(&phone, Op::RemoveDevice { device_id: laptop.device_id() }, 4).expect("remove");
         c.links().to_vec()

@@ -71,7 +71,8 @@ impl Updater {
     /// As [`Self::new`], trusting `key` (tests).
     pub fn with_key(server_url: &str, current: &str, dir: PathBuf, key: HybridVerifyingKey) -> Result<Self> {
         let platform = post_release::platform::current().ok_or_else(|| fail("Post has no releases for this kind of computer yet."))?;
-        let current = current.parse().map_err(|_| fail(format!("This app's version ({current}) is not one releases can be compared with.")))?;
+        let current =
+            current.parse().map_err(|_| fail(format!("This app's version ({current}) is not one releases can be compared with.")))?;
         let http = reqwest::Client::builder()
             .user_agent("Post")
             .connect_timeout(std::time::Duration::from_secs(20))
@@ -121,7 +122,8 @@ impl Updater {
     /// changed once published, so that would mean someone is tampering.
     fn remember(&self, version: &str, manifest: &[u8]) -> Result<()> {
         let path = self.dir.join("seen.json");
-        let mut seen: BTreeMap<String, String> = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let mut seen: BTreeMap<String, String> =
+            std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         let digest = hex::encode(Sha256::digest(manifest));
         match seen.get(version) {
             Some(d) if *d == digest => Ok(()),
@@ -129,7 +131,8 @@ impl Updater {
             None => {
                 seen.insert(version.into(), digest);
                 std::fs::create_dir_all(&self.dir).map_err(|e| fail(format!("Could not keep track of updates: {e}.")))?;
-                std::fs::write(&path, serde_json::to_vec(&seen).unwrap_or_default()).map_err(|e| fail(format!("Could not keep track of updates: {e}.")))
+                std::fs::write(&path, serde_json::to_vec(&seen).unwrap_or_default())
+                    .map_err(|e| fail(format!("Could not keep track of updates: {e}.")))
             }
         }
     }
@@ -418,7 +421,8 @@ mod tests {
         let mode = std::fs::metadata(root.join("current/post")).expect("program").permissions().mode();
         assert!(mode & 0o111 != 0, "the program stays executable");
         assert_eq!(std::fs::read(root.join("current/lib/libapp.so")).expect("lib"), b"code");
-        let mut kept: Vec<String> = std::fs::read_dir(root.join("versions")).expect("dir").flatten().map(|e| e.file_name().to_string_lossy().into()).collect();
+        let mut kept: Vec<String> =
+            std::fs::read_dir(root.join("versions")).expect("dir").flatten().map(|e| e.file_name().to_string_lossy().into()).collect();
         kept.sort();
         assert_eq!(kept, ["1.1.0", "1.2.0"], "the new version and the one before it");
     }

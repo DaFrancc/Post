@@ -59,10 +59,9 @@ impl From<core::Error> for PostError {
             E::UnknownUser(u) => Self::new(ErrorKind::InvalidInput, format!("There is no one called {u} on this server.")),
             E::NotRegistered => Self::new(ErrorKind::NotRegistered, "There is no account on this device yet."),
             E::AlreadyRegistered => Self::new(ErrorKind::InvalidInput, "This device already has an account."),
-            E::Network(_) | E::NotConnected => Self::new(
-                ErrorKind::Network,
-                "Could not reach the server. Check the address, and that the server is running.",
-            ),
+            E::Network(_) | E::NotConnected => {
+                Self::new(ErrorKind::Network, "Could not reach the server. Check the address, and that the server is running.")
+            }
             E::Server(s) => from_server(s.code(), &s.message),
             E::Protocol(_) => Self::new(
                 ErrorKind::Server,
@@ -78,10 +77,14 @@ impl From<core::Error> for PostError {
 
 fn from_server(code: ErrorCode, detail: &str) -> PostError {
     let (kind, text) = match code {
-        ErrorCode::InviteInvalid => (ErrorKind::InviteInvalid, "That invite code is unknown, already used, or expired. Ask your server's admin for a new one."),
+        ErrorCode::InviteInvalid => {
+            (ErrorKind::InviteInvalid, "That invite code is unknown, already used, or expired. Ask your server's admin for a new one.")
+        }
         ErrorCode::UsernameTaken => (ErrorKind::UsernameTaken, "That username is taken. Try another."),
         ErrorCode::RateLimited => (ErrorKind::Server, "The server is busy. Try again in a moment."),
-        ErrorCode::ChainRejected => (ErrorKind::Server, "The server refused this device's keys. The server may be for a different address."),
+        ErrorCode::ChainRejected => {
+            (ErrorKind::Server, "The server refused this device's keys. The server may be for a different address.")
+        }
         ErrorCode::Disabled => (ErrorKind::Server, "This device or account has been disabled on the server."),
         ErrorCode::Internal => (ErrorKind::Server, "The server had a problem. Try again in a moment."),
         ErrorCode::Forbidden => (ErrorKind::Server, "Only the server's hosts can do that."),

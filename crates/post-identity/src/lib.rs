@@ -9,9 +9,9 @@
 //! and the server is untrusted.
 
 pub mod chain;
+mod error;
 pub mod hybrid;
 pub mod safety;
-mod error;
 mod wire;
 
 pub use chain::{AccountId, Chain, DeviceEntry, DeviceKeys, DeviceRecord, Link, LinkHash, Op};

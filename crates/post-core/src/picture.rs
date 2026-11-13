@@ -317,7 +317,8 @@ mod tests {
     fn pictures_scale_to_exact_pixels_without_muddying() {
         // Fine black and white stripes average to mid grey in linear light,
         // which is about 188 in sRGB, not the 128 a naive average gives.
-        let stripes = DynamicImage::ImageRgb8(RgbImage::from_fn(512, 512, |x, _| if x % 2 == 0 { Rgb([0, 0, 0]) } else { Rgb([255, 255, 255]) }));
+        let stripes =
+            DynamicImage::ImageRgb8(RgbImage::from_fn(512, 512, |x, _| if x % 2 == 0 { Rgb([0, 0, 0]) } else { Rgb([255, 255, 255]) }));
         let small = scaled(&png(&stripes), 32, 32).expect("scaled");
         assert_eq!(small.len(), 32 * 32 * 4);
         let grey = small[4 * (16 * 32 + 16)];

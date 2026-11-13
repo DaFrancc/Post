@@ -31,12 +31,19 @@ impl Dev {
     }
 
     fn with_keys(keys: DeviceKeys, account: AccountId) -> Self {
-        let signer = SignatureKeyPair::from_raw(SignatureScheme::ED25519, keys.mls.to_bytes().to_vec(), keys.mls.verifying_key().to_bytes().to_vec());
+        let signer = SignatureKeyPair::from_raw(
+            SignatureScheme::ED25519,
+            keys.mls.to_bytes().to_vec(),
+            keys.mls.verifying_key().to_bytes().to_vec(),
+        );
         Self { keys, signer, account, provider: Memory::default() }
     }
 
     fn credential(&self) -> CredentialWithKey {
-        CredentialWithKey { credential: post_mls::credential(&self.account, &self.keys.device_id()), signature_key: self.signer.to_public_vec().into() }
+        CredentialWithKey {
+            credential: post_mls::credential(&self.account, &self.keys.device_id()),
+            signature_key: self.signer.to_public_vec().into(),
+        }
     }
 
     fn key_package(&self) -> KeyPackage {
@@ -50,7 +57,8 @@ impl Dev {
 
     /// Create a group with `meta` holding `others`, and have them join.
     fn create(&self, meta: &GroupMeta, others: &[&Dev]) -> (MlsGroup, Vec<MlsGroup>) {
-        let mut group = post_mls::group_builder(meta).expect("builder").build(&self.provider, &self.signer, self.credential()).expect("group");
+        let mut group =
+            post_mls::group_builder(meta).expect("builder").build(&self.provider, &self.signer, self.credential()).expect("group");
         let kps: Vec<KeyPackage> = others.iter().map(|d| d.key_package()).collect();
         let (_, welcome, _) = group.add_members(&self.provider, &self.signer, &kps).expect("add");
         group.merge_pending_commit(&self.provider).expect("merge");
@@ -60,8 +68,13 @@ impl Dev {
     }
 
     fn join(&self, welcome: &[u8]) -> MlsGroup {
-        let MlsMessageBodyIn::Welcome(w) = MlsMessageIn::tls_deserialize_exact(welcome).expect("decode").extract() else { panic!("not a welcome") };
-        StagedWelcome::new_from_welcome(&self.provider, &post_mls::join_config(), w, None).expect("stage").into_group(&self.provider).expect("join")
+        let MlsMessageBodyIn::Welcome(w) = MlsMessageIn::tls_deserialize_exact(welcome).expect("decode").extract() else {
+            panic!("not a welcome")
+        };
+        StagedWelcome::new_from_welcome(&self.provider, &post_mls::join_config(), w, None)
+            .expect("stage")
+            .into_group(&self.provider)
+            .expect("join")
     }
 }
 
@@ -70,7 +83,8 @@ fn second_device(chains: &mut HashMap<AccountId, Chain>, first: &Dev) -> Dev {
     let keys = DeviceKeys::generate().expect("keys");
     let chain = chains.get_mut(&first.account).expect("chain");
     let bytes = chain.next_link(first.keys.device_id(), Op::AddDevice { device: keys.entry(false) }, 2).expect("link");
-    let raw = post_identity::chain::seal(&bytes, &first.keys.sign_link(&bytes).expect("sign"), Some(&keys.cosign_link(&bytes).expect("cosign")));
+    let raw =
+        post_identity::chain::seal(&bytes, &first.keys.sign_link(&bytes).expect("sign"), Some(&keys.cosign_link(&bytes).expect("cosign")));
     chain.append(&raw).expect("append");
     Dev::with_keys(keys, first.account)
 }
@@ -80,9 +94,16 @@ fn wire(m: &MlsMessageOut) -> Vec<u8> {
 }
 
 /// What an honest member decides about a commit from `by`.
-fn judge(honest: &mut MlsGroup, provider: &Memory, by: &AccountId, commit: &[u8], chains: &HashMap<AccountId, Chain>) -> std::result::Result<(), Fail> {
+fn judge(
+    honest: &mut MlsGroup,
+    provider: &Memory,
+    by: &AccountId,
+    commit: &[u8],
+    chains: &HashMap<AccountId, Chain>,
+) -> std::result::Result<(), Fail> {
     let msg = MlsMessageIn::tls_deserialize_exact(commit).expect("decode").try_into_protocol_message().expect("protocol");
-    let ProcessedMessageContent::StagedCommitMessage(staged) = honest.process_message(provider, msg).expect("valid MLS").into_content() else {
+    let ProcessedMessageContent::StagedCommitMessage(staged) = honest.process_message(provider, msg).expect("valid MLS").into_content()
+    else {
         panic!("not a commit")
     };
     check_commit(honest, &staged, by, chains)
@@ -94,7 +115,11 @@ fn refused(r: std::result::Result<(), Fail>) -> bool {
 
 /// Build a commit in `group` as `dev`, then forget it, so the next attempt
 /// starts from the same epoch.
-fn craft(group: &mut MlsGroup, dev: &Dev, build: impl FnOnce(CommitBuilder<'_, openmls::group::Initial>) -> CommitBuilder<'_, openmls::group::Initial>) -> Vec<u8> {
+fn craft(
+    group: &mut MlsGroup,
+    dev: &Dev,
+    build: impl FnOnce(CommitBuilder<'_, openmls::group::Initial>) -> CommitBuilder<'_, openmls::group::Initial>,
+) -> Vec<u8> {
     let bundle = build(group.commit_builder())
         .load_psks(dev.provider.storage())
         .expect("psks")
@@ -143,7 +168,13 @@ fn members_cannot_overstep_in_a_group() {
 
     // Even an admin may not turn the group into a DM, or leave it with no
     // admin among its members.
-    let as_dm = GroupMeta { kind: MlsKind::Dm as i32, name: String::new(), history: 0, history_days: 0, admins: vec![alice.account.0.to_vec(), bob.account.0.to_vec()] };
+    let as_dm = GroupMeta {
+        kind: MlsKind::Dm as i32,
+        name: String::new(),
+        history: 0,
+        history_days: 0,
+        admins: vec![alice.account.0.to_vec(), bob.account.0.to_vec()],
+    };
     let mut a2 = carol_view(&alice, &bob, &carol, &meta);
     let to_dm = craft(&mut a2.0, &alice, |c| c.propose_group_context_extensions(meta_ext(&as_dm)).expect("gce"));
     assert!(refused(judge(&mut a2.1, &carol.provider, &alice.account, &to_dm, &chains)), "admin turned a group into a DM");
@@ -217,7 +248,8 @@ fn members_may_propose_removing_only_themselves() {
     let meta = GroupMeta::group("club", &alice.account, HistoryVisibility::Shared, 0);
     let (mut a, mut joined) = alice.create(&meta, &[&bob, &carol]);
     let mut b = joined.remove(0);
-    let leaf_of = |g: &MlsGroup, who: &AccountId| g.members().find(|m| leaf_of_member(m).is_ok_and(|l| l.account == *who)).expect("member").index;
+    let leaf_of =
+        |g: &MlsGroup, who: &AccountId| g.members().find(|m| leaf_of_member(m).is_ok_and(|l| l.account == *who)).expect("member").index;
     let carol_leaf = leaf_of(&a, &carol.account);
     let bob_leaf = leaf_of(&a, &bob.account);
 
@@ -241,7 +273,11 @@ fn carol_with_database(chains: &mut HashMap<AccountId, Chain>) -> (Me, Connectio
     let carol_account = carol_chain.account_id();
     chains.insert(carol_account, carol_chain);
     let me = Me {
-        signer: SignatureKeyPair::from_raw(SignatureScheme::ED25519, carol_keys.mls.to_bytes().to_vec(), carol_keys.mls.verifying_key().to_bytes().to_vec()),
+        signer: SignatureKeyPair::from_raw(
+            SignatureScheme::ED25519,
+            carol_keys.mls.to_bytes().to_vec(),
+            carol_keys.mls.verifying_key().to_bytes().to_vec(),
+        ),
         device: carol_keys.device_id(),
         keys: carol_keys,
         account: carol_account,
@@ -259,7 +295,12 @@ fn database_key_package(me: &Me, conn: &mut Connection) -> KeyPackage {
     let tx = conn.transaction().expect("tx");
     let kp = {
         let provider = Provider::on(&tx);
-        KeyPackage::builder().leaf_node_capabilities(post_mls::capabilities()).build(SUITE, &provider, &me.signer, me.credential()).expect("kp").key_package().clone()
+        KeyPackage::builder()
+            .leaf_node_capabilities(post_mls::capabilities())
+            .build(SUITE, &provider, &me.signer, me.credential())
+            .expect("kp")
+            .key_package()
+            .clone()
     };
     tx.commit().expect("commit");
     kp
@@ -292,7 +333,11 @@ fn a_forged_welcome_cannot_replace_a_group_in_use() {
     // Alice adds Carol to a real group, and Carol joins it.
     let gid = [42u8; 16];
     let meta = GroupMeta::group("real", &alice.account, HistoryVisibility::Shared, 0);
-    let mut real = post_mls::group_builder(&meta).expect("b").with_group_id(GroupId::from_slice(&gid)).build(&alice.provider, &alice.signer, alice.credential()).expect("g");
+    let mut real = post_mls::group_builder(&meta)
+        .expect("b")
+        .with_group_id(GroupId::from_slice(&gid))
+        .build(&alice.provider, &alice.signer, alice.credential())
+        .expect("g");
     let (_, welcome, _) = real.add_members(&alice.provider, &alice.signer, &[carol_kp(&mut conn)]).expect("add");
     let join = |conn: &mut Connection, bytes: &[u8]| {
         let tx = conn.transaction().expect("tx");

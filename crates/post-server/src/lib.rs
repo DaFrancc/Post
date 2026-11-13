@@ -273,7 +273,10 @@ impl Running {
 
 /// The newest release for a platform: its manifest and signature, exactly
 /// as signed (base64), for the app to check itself.
-async fn latest_release(axum::extract::Path(platform): axum::extract::Path<String>, AxState(state): AxState<Arc<State>>) -> axum::response::Response {
+async fn latest_release(
+    axum::extract::Path(platform): axum::extract::Path<String>,
+    AxState(state): AxState<Arc<State>>,
+) -> axum::response::Response {
     use base64::Engine as _;
     let b64 = base64::engine::general_purpose::STANDARD;
     match state.releases.latest(&platform) {

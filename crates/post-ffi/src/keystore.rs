@@ -23,9 +23,7 @@ fn ensure_store() -> anyhow::Result<()> {
         .get_or_init(|| {
             #[cfg(target_os = "linux")]
             {
-                zbus_secret_service_keyring_store::Store::new()
-                    .map(|s| keyring_core::set_default_store(s))
-                    .map_err(|e| e.to_string())
+                zbus_secret_service_keyring_store::Store::new().map(|s| keyring_core::set_default_store(s)).map_err(|e| e.to_string())
             }
             #[cfg(not(target_os = "linux"))]
             {

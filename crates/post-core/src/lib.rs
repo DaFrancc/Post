@@ -12,8 +12,8 @@
 pub mod keyfile;
 
 mod blob;
-mod content;
 mod calls;
+mod content;
 mod engine;
 mod ephemeral;
 mod link;
@@ -1018,11 +1018,7 @@ impl Core {
     pub async fn devices(&self) -> Result<Vec<Device>> {
         let engine = self.engine.lock().await;
         let me = engine.me.as_ref().filter(|_| engine.registered).ok_or(Error::NotRegistered)?.device;
-        Ok(engine
-            .devices()?
-            .into_iter()
-            .map(|(id, name)| Device { id: id.to_string(), name, this_device: id == me })
-            .collect())
+        Ok(engine.devices()?.into_iter().map(|(id, name)| Device { id: id.to_string(), name, this_device: id == me }).collect())
     }
 
     /// Name one of this account's devices, given its ID or an unambiguous
@@ -1435,7 +1431,13 @@ impl Core {
     pub fn search(&self, query: &SearchQuery) -> Result<SearchResults> {
         let words: Vec<String> = query.text.split_whitespace().map(str::to_owned).collect();
         let nothing = SearchResults { total: 0, messages: Vec::new() };
-        if words.is_empty() && query.from.is_none() && query.mentions.is_none() && !query.has_link && query.after_ms.is_none() && query.before_ms.is_none() {
+        if words.is_empty()
+            && query.from.is_none()
+            && query.mentions.is_none()
+            && !query.has_link
+            && query.after_ms.is_none()
+            && query.before_ms.is_none()
+        {
             return Ok(nothing);
         }
         self.read(|c| {

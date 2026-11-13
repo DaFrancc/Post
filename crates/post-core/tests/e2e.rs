@@ -155,10 +155,7 @@ async fn dm_messages_edits_deletes_and_profiles() {
     assert!(edited.edited);
     let versions: Vec<String> = bob.message_versions(dm.id, hello.id).expect("versions").into_iter().map(|v| v.body).collect();
     assert_eq!(versions, vec!["hello bob", "hello bob!", "hello, bob"]);
-    assert_eq!(
-        alice.message_versions(dm.id, hello.id).expect("versions").into_iter().map(|v| v.body).collect::<Vec<_>>(),
-        versions
-    );
+    assert_eq!(alice.message_versions(dm.id, hello.id).expect("versions").into_iter().map(|v| v.body).collect::<Vec<_>>(), versions);
 
     // Only the sender may edit or delete.
     assert!(bob.edit_message(dm.id, hello.id, "forged").await.is_err());
@@ -294,7 +291,10 @@ async fn mentions_are_counted_and_found() {
     // Search finds them by who they mention, with words or alone.
     let bodies = |found: post_core::SearchResults| found.messages.into_iter().filter_map(|m| m.body).collect::<Vec<_>>();
     let q = |who: &str, text: &str| SearchQuery { mentions: Some(who.into()), text: text.into(), limit: 50, ..Default::default() };
-    assert_eq!(bodies(bob.search(&q("bob", "")).expect("search")), vec!["on it, @bob reporting", "@bob who has the topo?", "@bob can you drive?"]);
+    assert_eq!(
+        bodies(bob.search(&q("bob", "")).expect("search")),
+        vec!["on it, @bob reporting", "@bob who has the topo?", "@bob can you drive?"]
+    );
     assert_eq!(bodies(bob.search(&q("bob", "topo")).expect("search")), vec!["@bob who has the topo?"]);
     assert_eq!(bodies(bob.search(&q("carol", "")).expect("search")), vec!["and @carol brings the rope"]);
     assert!(bodies(bob.search(&q("dave", "")).expect("search")).is_empty());
@@ -642,7 +642,8 @@ async fn profile_pictures_and_banners_reach_others() {
     bob.sync().await.expect("bob joins");
 
     // A photo-sized image, larger than a picture may be.
-    let photo = image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(1200, 900, |x, y| image::Rgb([(x % 256) as u8, (y % 256) as u8, 90])));
+    let photo =
+        image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(1200, 900, |x, y| image::Rgb([(x % 256) as u8, (y % 256) as u8, 90])));
     let mut png = Vec::new();
     photo.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).expect("png");
 
@@ -1103,16 +1104,8 @@ async fn group_chat() {
 
     // Members: Alice is admin; Bob is there with both devices.
     let members = carol.members(g.id).await.expect("members");
-    let summary: Vec<(String, bool, u32, bool)> =
-        members.iter().map(|m| (m.username.clone(), m.admin, m.devices, m.you)).collect();
-    assert_eq!(
-        summary,
-        vec![
-            ("carol".into(), false, 1, true),
-            ("alice".into(), true, 1, false),
-            ("bob".into(), false, 2, false),
-        ]
-    );
+    let summary: Vec<(String, bool, u32, bool)> = members.iter().map(|m| (m.username.clone(), m.admin, m.devices, m.you)).collect();
+    assert_eq!(summary, vec![("carol".into(), false, 1, true), ("alice".into(), true, 1, false), ("bob".into(), false, 2, false),]);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1305,10 +1298,7 @@ async fn typing_and_presence() {
     // Typing arrives with Alice's template and the name Bob sees for her.
     alice.send_typing(dm.id).await.expect("typing");
     let e = next_event(&mut bob_events, |e| matches!(e, Event::Typing { .. })).await;
-    assert_eq!(
-        e,
-        Event::Typing { conversation: dm.id, username: "alice".into(), text: "the one who types is Ally".into() }
-    );
+    assert_eq!(e, Event::Typing { conversation: dm.id, username: "alice".into(), text: "the one who types is Ally".into() });
 
     // Presence changes arrive, and are remembered in memory.
     alice.set_presence(PresenceSetting::DoNotDisturb).await.expect("presence");

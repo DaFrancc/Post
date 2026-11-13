@@ -221,7 +221,13 @@ impl GroupMeta {
 
     /// Metadata for an account's self group. The account is its only admin.
     pub fn self_group(account: &AccountId) -> Self {
-        Self { kind: ConversationKind::SelfGroup as i32, name: String::new(), admins: vec![account.0.to_vec()], history: 0, history_days: 0 }
+        Self {
+            kind: ConversationKind::SelfGroup as i32,
+            name: String::new(),
+            admins: vec![account.0.to_vec()],
+            history: 0,
+            history_days: 0,
+        }
     }
 
     /// The history setting, if valid for this kind of conversation.
@@ -253,11 +259,7 @@ impl GroupMeta {
         let history = meta.history_visibility().ok_or(Error::Malformed("history visibility"))?;
         match kind {
             ConversationKind::Dm => {
-                if meta.admins.len() != 2
-                    || !meta.name.is_empty()
-                    || history != HistoryVisibility::Unspecified
-                    || meta.history_days != 0
-                {
+                if meta.admins.len() != 2 || !meta.name.is_empty() || history != HistoryVisibility::Unspecified || meta.history_days != 0 {
                     return Err(Error::Malformed("dm metadata"));
                 }
             }
@@ -270,11 +272,7 @@ impl GroupMeta {
                 }
             }
             ConversationKind::SelfGroup => {
-                if meta.admins.len() != 1
-                    || !meta.name.is_empty()
-                    || history != HistoryVisibility::Unspecified
-                    || meta.history_days != 0
-                {
+                if meta.admins.len() != 1 || !meta.name.is_empty() || history != HistoryVisibility::Unspecified || meta.history_days != 0 {
                     return Err(Error::Malformed("self group metadata"));
                 }
             }
@@ -341,9 +339,7 @@ pub fn validate_key_package(bytes: &[u8], crypto: &impl OpenMlsCrypto) -> Result
         return Err(Error::WrongSuite);
     }
     let caps = kp.leaf_node().capabilities();
-    if !caps.extensions().contains(&ExtensionType::Unknown(META_EXTENSION))
-        || !caps.credentials().contains(&CredentialType::Basic)
-    {
+    if !caps.extensions().contains(&ExtensionType::Unknown(META_EXTENSION)) || !caps.credentials().contains(&CredentialType::Basic) {
         return Err(Error::MissingCapability);
     }
     let leaf = leaf_identity(kp.leaf_node())?;
@@ -381,10 +377,7 @@ mod tests {
     #[test]
     fn key_package_validation() {
         let (provider, signer, cred, account, device) = device();
-        let kp = KeyPackage::builder()
-            .leaf_node_capabilities(capabilities())
-            .build(SUITE, &provider, &signer, cred.clone())
-            .expect("kp");
+        let kp = KeyPackage::builder().leaf_node_capabilities(capabilities()).build(SUITE, &provider, &signer, cred.clone()).expect("kp");
         let bytes = kp.key_package().tls_serialize_detached().expect("ser");
         let v = validate_key_package(&bytes, &crypto()).expect("valid");
         assert_eq!((v.leaf.account, v.leaf.device), (account, device));
@@ -421,10 +414,7 @@ mod tests {
         let mut group = group_builder(&meta).expect("builder").build(&a_provider, &a_signer, a_cred).expect("group");
         assert_eq!(GroupMeta::from_extensions(group.extensions()).expect("meta"), meta);
 
-        let b_kp = KeyPackage::builder()
-            .leaf_node_capabilities(capabilities())
-            .build(SUITE, &b_provider, &b_signer, b_cred)
-            .expect("kp");
+        let b_kp = KeyPackage::builder().leaf_node_capabilities(capabilities()).build(SUITE, &b_provider, &b_signer, b_cred).expect("kp");
         let (commit, welcome, _) = group.add_members(&a_provider, &a_signer, &[b_kp.key_package().clone()]).expect("add");
         group.merge_pending_commit(&a_provider).expect("merge");
 
@@ -441,9 +431,7 @@ mod tests {
 
     #[test]
     fn metadata_validation() {
-        let ext = |m: &GroupMeta| {
-            Extensions::single(Extension::Unknown(META_EXTENSION, UnknownExtension(m.encode_to_vec()))).expect("ext")
-        };
+        let ext = |m: &GroupMeta| Extensions::single(Extension::Unknown(META_EXTENSION, UnknownExtension(m.encode_to_vec()))).expect("ext");
         let good = GroupMeta::dm(&LinkHash([1; 32]), &LinkHash([2; 32]));
         assert_eq!(GroupMeta::from_extensions(&ext(&good)).expect("valid"), good);
 

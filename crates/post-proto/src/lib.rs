@@ -218,10 +218,7 @@ pub struct Wake {
 pub struct Response {
     #[prost(uint64, tag = "1")]
     pub id: u64,
-    #[prost(
-        oneof = "Reply",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27"
-    )]
+    #[prost(oneof = "Reply", tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27")]
     pub reply: Option<Reply>,
 }
 
@@ -1107,11 +1104,7 @@ mod tests {
             let f = ServerFrame { kind: Some(ServerKind::Response(Response { id: 1, reply: Some(r) })) };
             assert_eq!(ServerFrame::decode(f.encode_to_vec().as_slice()).expect("decode"), f);
         }
-        for k in [
-            ServerKind::Hello(Hello::default()),
-            ServerKind::Wake(Wake::default()),
-            ServerKind::Ephemeral(Ephemeral::default()),
-        ] {
+        for k in [ServerKind::Hello(Hello::default()), ServerKind::Wake(Wake::default()), ServerKind::Ephemeral(Ephemeral::default())] {
             let f = ServerFrame { kind: Some(k) };
             assert_eq!(ServerFrame::decode(f.encode_to_vec().as_slice()).expect("decode"), f);
         }

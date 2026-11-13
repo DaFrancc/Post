@@ -62,10 +62,7 @@ impl HybridSigningKey {
         let (ed, ml) = seeds.split_at(32);
         let ed: &[u8; 32] = ed.try_into().expect("split at 32");
         let ml = ml_dsa::Seed::try_from(ml).expect("split at 32");
-        Self {
-            ed: ed25519_dalek::SigningKey::from_bytes(ed),
-            ml: ml_dsa::SigningKey::<MlDsa65>::from_seed(&ml),
-        }
+        Self { ed: ed25519_dalek::SigningKey::from_bytes(ed), ml: ml_dsa::SigningKey::<MlDsa65>::from_seed(&ml) }
     }
 
     /// The 64 secret bytes from which this key can be rebuilt. For storage only.
@@ -79,11 +76,7 @@ impl HybridSigningKey {
     /// The public half.
     pub fn verifying_key(&self) -> HybridVerifyingKey {
         let ml = self.ml.expanded_key().verifying_key();
-        HybridVerifyingKey {
-            ed: self.ed.verifying_key(),
-            ml_bytes: ml.encode().to_vec().into_boxed_slice(),
-            ml,
-        }
+        HybridVerifyingKey { ed: self.ed.verifying_key(), ml_bytes: ml.encode().to_vec().into_boxed_slice(), ml }
     }
 
     /// Sign `msg` for the purpose named by `label`.
@@ -121,20 +114,13 @@ impl HybridVerifyingKey {
     ///
     /// Rejects Ed25519 keys that are not valid points or are of small order.
     pub fn from_parts(ed: &[u8], ml: &[u8]) -> Result<Self, Error> {
-        let ed: &[u8; ED25519_PUBLIC_LEN] =
-            ed.try_into().map_err(|_| Error::Malformed("ed25519 public key"))?;
-        let ed = ed25519_dalek::VerifyingKey::from_bytes(ed)
-            .map_err(|_| Error::Malformed("ed25519 public key"))?;
+        let ed: &[u8; ED25519_PUBLIC_LEN] = ed.try_into().map_err(|_| Error::Malformed("ed25519 public key"))?;
+        let ed = ed25519_dalek::VerifyingKey::from_bytes(ed).map_err(|_| Error::Malformed("ed25519 public key"))?;
         if ed.is_weak() {
             return Err(Error::Malformed("ed25519 public key"));
         }
-        let enc = EncodedVerifyingKey::<MlDsa65>::try_from(ml)
-            .map_err(|_| Error::Malformed("ml-dsa-65 public key"))?;
-        Ok(Self {
-            ed,
-            ml: ml_dsa::VerifyingKey::<MlDsa65>::decode(&enc),
-            ml_bytes: ml.into(),
-        })
+        let enc = EncodedVerifyingKey::<MlDsa65>::try_from(ml).map_err(|_| Error::Malformed("ml-dsa-65 public key"))?;
+        Ok(Self { ed, ml: ml_dsa::VerifyingKey::<MlDsa65>::decode(&enc), ml_bytes: ml.into() })
     }
 
     /// The Ed25519 half, encoded.
@@ -151,13 +137,9 @@ impl HybridVerifyingKey {
     /// Both halves must verify.
     pub fn verify(&self, label: &str, msg: &[u8], sig: &HybridSignature) -> Result<(), Error> {
         let tbs = to_be_signed(label, msg);
-        let ed_ok = self
-            .ed
-            .verify_strict(&tbs, &ed25519_dalek::Signature::from_bytes(&sig.ed))
-            .is_ok();
-        let ml_ok = ml_dsa::Signature::<MlDsa65>::try_from(&sig.ml[..])
-            .map(|s| self.ml.verify_with_context(&tbs, &[], &s))
-            .unwrap_or(false);
+        let ed_ok = self.ed.verify_strict(&tbs, &ed25519_dalek::Signature::from_bytes(&sig.ed)).is_ok();
+        let ml_ok =
+            ml_dsa::Signature::<MlDsa65>::try_from(&sig.ml[..]).map(|s| self.ml.verify_with_context(&tbs, &[], &s)).unwrap_or(false);
         if ed_ok && ml_ok { Ok(()) } else { Err(Error::BadSignature) }
     }
 

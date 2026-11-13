@@ -196,24 +196,15 @@ impl Link {
     pub fn encode(&self) -> Vec<u8> {
         use prost::Message;
         let op = match &self.op {
-            Op::Genesis { server_domain, username, device } => {
-                wire_link::Op::Genesis(wire::WireGenesis {
-                    server_domain: server_domain.clone(),
-                    username: username.clone(),
-                    device: Some(device.to_wire()),
-                })
-            }
-            Op::AddDevice { device } => {
-                wire_link::Op::AddDevice(wire::WireAddDevice { device: Some(device.to_wire()) })
-            }
-            Op::RemoveDevice { device_id } => {
-                wire_link::Op::RemoveDevice(wire::WireRemoveDevice { device_id: device_id.0.to_vec() })
-            }
+            Op::Genesis { server_domain, username, device } => wire_link::Op::Genesis(wire::WireGenesis {
+                server_domain: server_domain.clone(),
+                username: username.clone(),
+                device: Some(device.to_wire()),
+            }),
+            Op::AddDevice { device } => wire_link::Op::AddDevice(wire::WireAddDevice { device: Some(device.to_wire()) }),
+            Op::RemoveDevice { device_id } => wire_link::Op::RemoveDevice(wire::WireRemoveDevice { device_id: device_id.0.to_vec() }),
             Op::RotateMlsKey { device_id, mls_sig_pub } => {
-                wire_link::Op::RotateMlsKey(wire::WireRotateMlsKey {
-                    device_id: device_id.0.to_vec(),
-                    mls_sig_pub: mls_sig_pub.to_vec(),
-                })
+                wire_link::Op::RotateMlsKey(wire::WireRotateMlsKey { device_id: device_id.0.to_vec(), mls_sig_pub: mls_sig_pub.to_vec() })
             }
         };
         WireLink {
@@ -244,14 +235,13 @@ impl Link {
                     device: DeviceEntry::from_wire(g.device.as_ref().ok_or(Error::Malformed("device"))?)?,
                 }
             }
-            wire_link::Op::AddDevice(a) => Op::AddDevice {
-                device: DeviceEntry::from_wire(a.device.as_ref().ok_or(Error::Malformed("device"))?)?,
-            },
+            wire_link::Op::AddDevice(a) => {
+                Op::AddDevice { device: DeviceEntry::from_wire(a.device.as_ref().ok_or(Error::Malformed("device"))?)? }
+            }
             wire_link::Op::RemoveDevice(r) => Op::RemoveDevice { device_id: DeviceId::from_slice(&r.device_id)? },
-            wire_link::Op::RotateMlsKey(r) => Op::RotateMlsKey {
-                device_id: DeviceId::from_slice(&r.device_id)?,
-                mls_sig_pub: parse_mls_key(&r.mls_sig_pub)?,
-            },
+            wire_link::Op::RotateMlsKey(r) => {
+                Op::RotateMlsKey { device_id: DeviceId::from_slice(&r.device_id)?, mls_sig_pub: parse_mls_key(&r.mls_sig_pub)? }
+            }
         };
         let is_genesis = matches!(op, Op::Genesis { .. });
         let optional_hash = |b: &[u8], what| -> Result<Option<LinkHash>, Error> {
@@ -339,11 +329,7 @@ impl DeviceKeys {
 
     /// The chain entry describing this device.
     pub fn entry(&self, bot: bool) -> DeviceEntry {
-        DeviceEntry {
-            chain_key: self.chain.verifying_key(),
-            mls_sig_pub: self.mls.verifying_key().to_bytes(),
-            bot,
-        }
+        DeviceEntry { chain_key: self.chain.verifying_key(), mls_sig_pub: self.mls.verifying_key().to_bytes(), bot }
     }
 
     /// Sign link bytes as the link's signer.
@@ -435,13 +421,7 @@ impl Chain {
 
     /// Create a new account. Returns the chain and its signed genesis link.
     /// `bot` fixes whether this is a bot account, for good.
-    pub fn create(
-        keys: &DeviceKeys,
-        server_domain: &str,
-        username: &str,
-        bot: bool,
-        timestamp_ms: u64,
-    ) -> Result<(Self, Vec<u8>), Error> {
+    pub fn create(keys: &DeviceKeys, server_domain: &str, username: &str, bot: bool, timestamp_ms: u64) -> Result<(Self, Vec<u8>), Error> {
         let device = keys.entry(bot);
         let link = Link {
             version: LINK_VERSION,
@@ -528,10 +508,9 @@ impl Chain {
         let signer = self.device(&sl.link.signer).ok_or(Error::UnknownSigner)?;
         signer.entry.chain_key.verify(labels::CHAIN_LINK, &sl.link_bytes, &sl.sig)?;
         match (&change, &sl.cosig) {
-            (Change::Add(entry), Some(cosig)) => entry
-                .chain_key
-                .verify(labels::CHAIN_COSIGN, &sl.link_bytes, cosig)
-                .map_err(|_| Error::BadCosignature)?,
+            (Change::Add(entry), Some(cosig)) => {
+                entry.chain_key.verify(labels::CHAIN_COSIGN, &sl.link_bytes, cosig).map_err(|_| Error::BadCosignature)?
+            }
             (Change::Add(_), None) => return Err(Error::MissingCosignature),
             (_, Some(_)) => return Err(Error::UnexpectedCosignature),
             (_, None) => {}
