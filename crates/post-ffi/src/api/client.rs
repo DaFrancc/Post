@@ -18,6 +18,13 @@ use crate::frb_generated::StreamSink;
 #[frb(init)]
 pub fn init_app() {
     flutter_rust_bridge::setup_default_user_utils();
+    // The core's log on standard error, as the command-line client has it:
+    // warnings unless RUST_LOG asks for more (`RUST_LOG=post_core=debug`).
+    // Already set (a second load, or tests): keep that one.
+    let _ = tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()))
+        .try_init();
 }
 
 /// An open profile: one account on this device.

@@ -133,14 +133,20 @@ impl Context<'_> {
     /// Open a sealed signal and check its signature with the key of the leaf
     /// it claims to come from. `leaf_key` looks up that key; `None` means the
     /// claimed device is not a member.
-    pub fn open(&self, sealed: &[u8], leaf_key: impl Fn(&AccountId, &DeviceId) -> Option<Vec<u8>>, now_ms: u64) -> Result<Signal> {
-        let bad = |why: &str| Error::Protocol(format!("ephemeral signal dropped: {why}"));
+    pub fn open(
+        &self,
+        sealed: &[u8],
+        leaf_key: impl Fn(&AccountId, &DeviceId) -> Option<Vec<u8>>,
+        now_ms: u64,
+    ) -> std::result::Result<Signal, Dropped> {
+        let bad = |why: &str| Dropped { why: why.into(), clocks_apart: false };
         if sealed.len() < 24 {
             return Err(bad("too short"));
         }
         let (nonce, ct) = sealed.split_at(24);
         let plain = self
-            .cipher()?
+            .cipher()
+            .map_err(|_| bad("bad key"))?
             .decrypt(XNonce::from_slice(nonce), Payload { msg: ct, aad: &self.bound() })
             .map_err(|_| bad("not sealed for this group and epoch"))?;
         let signed = Signed::decode(plain.as_slice()).map_err(|_| bad("malformed"))?;
@@ -154,9 +160,30 @@ impl Context<'_> {
         vk.verify_strict(&self.signed_bytes(&signed.signal), &ed25519_dalek::Signature::from_bytes(&sig))
             .map_err(|_| bad("bad signature"))?;
         if signal.sent_at_ms.abs_diff(now_ms) > MAX_AGE_MS {
-            return Err(bad("too old"));
+            // Usually not old at all: the sender's clock and this one
+            // disagree. Worth saying how far, as nothing else shows it.
+            let (way, by) = if signal.sent_at_ms > now_ms { ("ahead of", signal.sent_at_ms - now_ms) } else { ("behind", now_ms - signal.sent_at_ms) };
+            return Err(Dropped {
+                why: format!("its sender's clock is {}s {way} this device's (more than {}s apart)", by / 1000, MAX_AGE_MS / 1000),
+                clocks_apart: true,
+            });
         }
         Ok(signal)
+    }
+}
+
+/// Why a relayed signal was not used.
+#[derive(Debug)]
+pub struct Dropped {
+    pub why: String,
+    /// It checked out but for its time: the sender's clock and this
+    /// device's are too far apart, which loses every signal between them.
+    pub clocks_apart: bool,
+}
+
+impl std::fmt::Display for Dropped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "a typing or presence signal was dropped: {}", self.why)
     }
 }
 
@@ -196,10 +223,15 @@ mod tests {
         // Nor claim a device that is not in the group.
         let stranger = c.seal(&typing([3; 32], [3; 16], now), &alice).expect("seal");
         assert!(c.open(&stranger, keys, now).is_err());
-        // Stale and future signals are dropped.
-        assert!(c.open(&sealed, keys, now + MAX_AGE_MS + 1).is_err());
+        // Stale and future signals are dropped, as clocks apart (which is
+        // what it usually is), saying how far.
+        let stale = c.open(&sealed, keys, now + MAX_AGE_MS + 1_000).expect_err("stale");
+        assert!(stale.clocks_apart && stale.why.contains("61s behind"), "{stale}");
         let future = c.seal(&typing([1; 32], [1; 16], now + 2 * MAX_AGE_MS), &alice).expect("seal");
-        assert!(c.open(&future, keys, now).is_err());
+        let ahead = c.open(&future, keys, now).expect_err("from the future");
+        assert!(ahead.clocks_apart && ahead.why.contains("120s ahead of"), "{ahead}");
+        // Nothing else is put down to clocks.
+        assert!(!c.open(&forged, keys, now).expect_err("forged").clocks_apart);
         // Tampering breaks it.
         let mut bent = sealed.clone();
         bent[30] ^= 1;

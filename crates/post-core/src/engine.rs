@@ -1690,6 +1690,12 @@ impl Engine {
             let group_admin = c.kind == KIND_GROUP && meta.admins.iter().any(|a| a[..] == me.account.0);
             let mut remove = Vec::new();
             for (index, leaf) in &leaves {
+                // Never this device itself, which MLS forbids in a commit: a
+                // device listed as stale while still connected (its last
+                // login a month ago) would otherwise fail every sync.
+                if leaf.account == me.account && leaf.device == me.device {
+                    continue;
+                }
                 let removed = self.chains.get(&leaf.account).is_some_and(|ch| !ch.device(&leaf.device).is_some_and(|d| d.is_active()));
                 let may_remove_stale = leaf.account == me.account || group_admin;
                 if removed || (may_remove_stale && stale_and_replaceable(&self.stale, &leaves, leaf)) {
@@ -2932,6 +2938,12 @@ impl Engine {
             };
             let signal = match opened {
                 Ok(s) => s,
+                // Clocks apart: typing and presence silently go missing,
+                // so say so. Anything else (an epoch just passed) is routine.
+                Err(e) if e.clocks_apart => {
+                    tracing::warn!(error = %e);
+                    continue;
+                }
                 Err(e) => {
                     tracing::debug!(error = %e);
                     continue;

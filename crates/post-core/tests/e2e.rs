@@ -1327,6 +1327,71 @@ async fn typing_and_presence() {
     listener.abort();
 }
 
+/// A device the directory lists as stale while it is still connected (its
+/// last login a month ago) syncs as usual: it never tries to remove itself.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_device_listed_as_stale_while_connected_still_syncs() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let phone = link(&server, dir.path(), &bob, "bob-phone").await;
+    let dm = alice.start_dm("bob").await.expect("dm");
+    phone.sync().await.expect("phone sync");
+    let phone_id = phone.identity().await.expect("id").device_id;
+    server.age_device(&phone_id, 31);
+    phone.sync().await.expect("the phone, listed as stale, still syncs");
+    alice.send_text(dm.id, "still there?").await.expect("send");
+    phone.sync().await.expect("phone sync");
+    assert_eq!(last_in(&phone, dm.id).as_deref(), Some("still there?"));
+}
+
+/// One conversation this device cannot use (here: the device was dropped
+/// from it as stale, and has not been added back) must not stop typing and
+/// presence everywhere else.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn one_unusable_conversation_does_not_stop_typing_and_presence() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let phone = link(&server, dir.path(), &bob, "bob-phone").await;
+    let dm = alice.start_dm("bob").await.expect("dm");
+    let g = alice.create_group("climbing", &["bob".into()]).await.expect("group");
+    phone.sync().await.expect("phone sync");
+    bob.sync().await.expect("bob sync");
+    // The phone goes unseen for a month; Alice, the group's admin, drops it
+    // from the group. The phone hears it, and keeps the conversation (its
+    // account is still in the group).
+    let phone_id = phone.identity().await.expect("id").device_id;
+    drop(phone);
+    server.age_device(&phone_id, 31);
+    alice.sync().await.expect("alice sync");
+    // The phone comes back (logging in clears its flag) and hears it was
+    // dropped from the group, before Bob's laptop adds it back.
+    let phone = Core::open(&dir.path().join("bob-phone"), &DbKey::from_bytes([7; 32])).expect("reopen");
+    phone.connect().await.expect("phone logs in");
+    phone.sync().await.expect("phone sync");
+    assert!(phone.conversations().expect("conversations").iter().any(|c| c.id == g.id), "the phone still lists the group");
+
+    // The phone listens: presence and typing still reach it in the DM.
+    let mut events = phone.subscribe();
+    let listener = {
+        let phone = phone.clone();
+        tokio::spawn(async move { phone.listen().await })
+    };
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!listener.is_finished(), "listening stopped: {:?}", listener.await);
+    alice.send_typing(dm.id).await.expect("typing");
+    next_event(&mut events, |e| matches!(e, Event::Typing { .. })).await;
+    // And a signal in the group it cannot open is passed over.
+    alice.send_typing(g.id).await.expect("typing in the group");
+    alice.set_presence(post_core::PresenceSetting::Away).await.expect("presence");
+    next_event(&mut events, |e| matches!(e, Event::Presence { .. })).await;
+    assert!(!listener.is_finished(), "listening stopped: {:?}", listener.await);
+    listener.abort();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn stale_devices_leave_and_return() {
     let server = Server::start().await;
