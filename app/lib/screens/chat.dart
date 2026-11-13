@@ -1520,11 +1520,11 @@ class _JumpToNewest extends StatelessWidget {
                         onPressed: onTap,
                         icon: const Icon(Icons.arrow_downward_rounded, size: 15),
                         label: const Text('Jump to present'),
+                        // Compact: 32, like every small button.
                         style: FilledButton.styleFrom(
-                          minimumSize: const Size(0, 30),
+                          minimumSize: const Size(0, 32),
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                           textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
                       ),
                     ],

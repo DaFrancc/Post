@@ -223,7 +223,7 @@ class _FrameDialogState extends State<_FrameDialog> {
           if (_error != null) ...[const SizedBox(height: 8), PErrorBox(_error!)],
           PDialogActions(
             children: [
-              TextButton(onPressed: _busy ? null : () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+              OutlinedButton(onPressed: _busy ? null : () => Navigator.of(context).pop(false), child: const Text('Cancel')),
               FilledButton(onPressed: _busy ? null : _save, child: _busy ? const PSpinner() : const Text('Save')),
             ],
           ),

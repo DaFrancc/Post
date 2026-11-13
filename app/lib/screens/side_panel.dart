@@ -538,11 +538,11 @@ class _SafetyCard extends StatelessWidget {
                         ),
                 ),
                 if (!shown)
-                  FilledButton.tonalIcon(
+                  OutlinedButton.icon(
                     onPressed: () => onShow(true),
                     icon: const Icon(Icons.visibility_outlined, size: 16),
                     label: const Text('Show'),
-                    style: PButtons.tactile(face: PColors.panelRaised, onFace: PColors.text),
+                    style: OutlinedButton.styleFrom(minimumSize: const Size(0, 32), padding: const EdgeInsets.symmetric(horizontal: 12)),
                   ),
               ],
             ),
@@ -550,7 +550,12 @@ class _SafetyCard extends StatelessWidget {
             const SizedBox(height: 4),
             Align(
               alignment: Alignment.centerLeft,
-              child: TextButton.icon(onPressed: () => onShow(false), icon: const Icon(Icons.visibility_off_outlined, size: 15), label: const Text('Hide')),
+              child: OutlinedButton.icon(
+                onPressed: () => onShow(false),
+                icon: const Icon(Icons.visibility_off_outlined, size: 15),
+                label: const Text('Hide'),
+                style: OutlinedButton.styleFrom(minimumSize: const Size(0, 32), padding: const EdgeInsets.symmetric(horizontal: 12)),
+              ),
             ),
           ],
           const SizedBox(height: 12),

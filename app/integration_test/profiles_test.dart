@@ -8,7 +8,6 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:post/main.dart';
@@ -86,8 +85,10 @@ void main() {
     await tap(t, find.byWidgetPredicate((w) => w is PAvatar && w.colorKey == 'bob' && w.size == 40).first);
     await waitFor(t, find.text('@bob'));
     await _shot(t, 'profiles-02-card');
-    await t.sendKeyEvent(LogicalKeyboardKey.escape);
+    // Closed with a click outside it.
+    await t.tapAt(const Offset(640, 200));
     await settle(t);
+    expect(find.text('Messages arrive: Bubble'), findsNothing);
 
     // Sam's own page: nothing set, so the default face and her colour.
     await tap(t, find.byTooltip('Settings'));

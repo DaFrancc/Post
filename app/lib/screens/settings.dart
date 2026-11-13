@@ -384,11 +384,13 @@ class _LookEditorState extends State<_LookEditor> {
     await widget.state.reloadPerson(widget.state.me.username);
   });
 
-  Widget _button(String what, String label, {required Future<void> Function() onPressed, bool filled = true}) {
+  /// A change (tonal) or a removal (danger): both tactile, like every
+  /// button that does something.
+  Widget _button(String what, String label, {required Future<void> Function() onPressed, bool remove = false}) {
     final busy = _busy == what;
     final action = _busy == null ? () => unawaited(_run(what, onPressed)) : null;
     final child = busy ? const PSpinner() : Text(label);
-    return filled ? FilledButton.tonal(style: PButtons.tonal, onPressed: action, child: child) : TextButton(onPressed: action, child: child);
+    return FilledButton(style: remove ? PButtons.danger : PButtons.tonal, onPressed: action, child: child);
   }
 
   @override
@@ -449,10 +451,10 @@ class _LookEditorState extends State<_LookEditor> {
               children: [
                 _button('avatar', hasAvatar ? 'Change picture' : 'Add a picture', onPressed: () => choosePicture(context, state, PictureKind.avatar)),
                 if (hasAvatar)
-                  _button('avatar-remove', 'Remove picture', filled: false, onPressed: () => removePicture(context, state, PictureKind.avatar)),
+                  _button('avatar-remove', 'Remove picture', remove: true, onPressed: () => removePicture(context, state, PictureKind.avatar)),
                 _button('banner', hasBanner ? 'Change banner' : 'Add a banner', onPressed: () => choosePicture(context, state, PictureKind.banner)),
                 if (hasBanner)
-                  _button('banner-remove', 'Remove banner', filled: false, onPressed: () => removePicture(context, state, PictureKind.banner)),
+                  _button('banner-remove', 'Remove banner', remove: true, onPressed: () => removePicture(context, state, PictureKind.banner)),
               ],
             ),
             const SizedBox(height: 8),
@@ -1368,10 +1370,11 @@ class _InviteCard extends StatelessWidget {
                   style: PType.small,
                 ),
               ),
-              TextButton.icon(
+              OutlinedButton.icon(
                 onPressed: () => copyText(context, both, what: 'Server and code copied'),
                 icon: const Icon(Icons.content_copy_rounded, size: 16),
                 label: const Text('Copy both'),
+                style: OutlinedButton.styleFrom(minimumSize: const Size(0, 32), padding: const EdgeInsets.symmetric(horizontal: 12)),
               ),
             ],
           ),

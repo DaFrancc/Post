@@ -796,17 +796,15 @@ class _HeaderButton extends StatelessWidget {
     return Tooltip(
       message: tooltip,
       waitDuration: const Duration(milliseconds: 500),
-      child: TextButton.icon(
+      // A compact secondary button, tactile like the rest.
+      child: OutlinedButton.icon(
         onPressed: onTap,
         icon: Icon(icon, size: 16),
         label: Text(label),
-        style: TextButton.styleFrom(
-          foregroundColor: PColors.textMuted,
-          backgroundColor: PColors.panelRaised,
+        style: OutlinedButton.styleFrom(
           padding: const EdgeInsets.symmetric(horizontal: 10),
           minimumSize: const Size(0, 32),
           textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
         ),
       ),
     );
