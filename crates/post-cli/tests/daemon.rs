@@ -75,6 +75,7 @@ async fn a_bot_drives_post_through_json_rpc() {
             db_key: Zeroizing::new(key),
             releases: post_server::ReleaseConfig::none(),
             calls: None,
+            blobs: post_server::BlobConfig::beside(&db),
         },
     )
     .expect("server");

@@ -8,7 +8,10 @@ import 'package:flutter/widgets.dart';
 import 'package:post/src/rust/api/client.dart';
 import 'package:post/src/rust/api/error.dart';
 
+import '../theme.dart';
 import '../ui/arrival.dart';
+import '../ui/picture_view.dart';
+import '../ui/profile_theme.dart';
 import '../version.dart';
 import 'calls.dart';
 import 'search_spec.dart';
@@ -520,6 +523,35 @@ class AppState extends ChangeNotifier {
     } finally {
       _peopleLoading.remove(username);
     }
+  }
+
+  // ---------------------------------------------------------------- pictures
+
+  /// Scaled copies of pictures, made as they are drawn.
+  late final pictures = PictureCache(client);
+
+  PictureRef? _picture(String? id) => id == null ? null : PictureRef(id, pictures);
+
+  /// Someone's profile picture, or null for the default face. Non-null
+  /// once their picture is on this device.
+  PictureRef? avatarOf(String username) => _picture(personNow(username)?.avatar);
+
+  /// Someone's banner image, or null for their banner colour.
+  PictureRef? bannerOf(String username) => _picture(personNow(username)?.banner);
+
+  /// What fills the top of someone's profile when they have no banner
+  /// image: the colour or gradient they chose, else a tint of their own
+  /// colour.
+  Fill bannerFillOf(String username) => defaultBannerFill(username, personNow(username)?.bannerFill);
+
+  /// [chosen] (as a profile carries it), else [username]'s own tint.
+  static Fill defaultBannerFill(String username, ColorFill? chosen) =>
+      chosen == null ? Fill.solid(PColors.avatarFor(username).withValues(alpha: 0.55)) : Fill.of(chosen);
+
+  /// Someone's profile colours, or null for the app's own look.
+  ProfileTheme? themeOf(String username) {
+    final t = personNow(username)?.theme;
+    return t == null ? null : ProfileTheme(Fill.of(t));
   }
 
   /// The name this user shows as.

@@ -161,6 +161,19 @@ CREATE TABLE IF NOT EXISTS announcements (
     minutes        INTEGER NOT NULL DEFAULT 0,
     client_msg_id  BLOB UNIQUE
 );
+CREATE TABLE IF NOT EXISTS blobs (
+    blob_id     BLOB PRIMARY KEY,
+    size        INTEGER NOT NULL,
+    renew_hash  BLOB NOT NULL,
+    expires_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS blobs_by_expiry ON blobs(expires_at);
+CREATE TABLE IF NOT EXISTS blob_uploads (
+    account_id  BLOB NOT NULL,
+    day         INTEGER NOT NULL,
+    count       INTEGER NOT NULL,
+    PRIMARY KEY (account_id, day)
+);
 CREATE TABLE IF NOT EXISTS maintenance (
     id              INTEGER PRIMARY KEY,
     starts_at       INTEGER NOT NULL,
@@ -321,6 +334,11 @@ pub fn register(
     }
     if !verify_auth(&chain) {
         return Err(err(ErrorCode::Unauthenticated, "bad login signature"));
+    }
+    // The genesis timestamp says when the account began, for everyone who
+    // sees it: it must be now, by this server's clock, give or take.
+    if chain.created_ms().abs_diff(now_ms()) > post_identity::chain::GENESIS_CLOCK_SKEW_MS {
+        return Err(err(ErrorCode::ChainRejected, "the account's start time is not now: check this device's clock"));
     }
     let device = &chain.devices()[0];
     let now = sql_i64(now_ms());
@@ -787,6 +805,9 @@ fn append_log(tx: &Connection, group: &[u8], seq: u64, epoch: u64, kind: proto::
 /// appended).
 pub fn send(conn: &mut Connection, req: &proto::Send) -> Result<(u64, u64, bool)> {
     check_len(&req.client_msg_id, 16, "client_msg_id")?;
+    if req.message.len() > proto::MAX_APPLICATION_MESSAGE_BYTES {
+        return Err(err(ErrorCode::BadRequest, format!("a message is at most {} bytes", proto::MAX_APPLICATION_MESSAGE_BYTES)));
+    }
     let header = post_mls::parse_header(&req.message).map_err(|e| err(ErrorCode::BadRequest, e.to_string()))?;
     let (content_type, kind) = match header.content_type {
         ContentType::Proposal => (ContentType::Proposal, proto::EntryKind::Proposal),

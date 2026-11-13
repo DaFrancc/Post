@@ -48,6 +48,12 @@ String dayLabel(int ms) {
   return '${t.day} ${_months[t.month - 1]} ${t.year}';
 }
 
+/// A month and year, like 3 Nov 2026's "Nov 2026": when someone joined.
+String monthYear(int ms) {
+  final t = _local(ms);
+  return '${_months[t.month - 1]} ${t.year}';
+}
+
 /// When a message was sent, next to the sender's name: the time today,
 /// otherwise the day and time.
 String messageTime(int ms) {

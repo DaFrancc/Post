@@ -9,7 +9,8 @@ use std::path::Path;
 use post_identity::{AccountId, Chain, DeviceId, LinkHash};
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::{DbKey, Error, Result};
+use crate::picture::PictureKind;
+use crate::{DbKey, Error, Result, content};
 
 /// Version 1 of the schema, plus tables added since. New tables may be added
 /// here; changes to existing tables go in [`MIGRATIONS`].
@@ -368,6 +369,44 @@ const MIGRATIONS: &[&str] = &[
          msg_id  BLOB,
          seq     INTEGER
      );",
+    // 13: profile pictures and banners (design section 7). Each profile's
+    // images as encoded `ProfileImage`s, and its banner colour; pictures
+    // fetched and opened, by the hash of their ciphertext; ones that could
+    // not be fetched, and when to try again; and this device's own uploads,
+    // with the secrets that renew and delete them.
+    "ALTER TABLE profiles ADD COLUMN avatar BLOB;
+     ALTER TABLE profiles ADD COLUMN banner BLOB;
+     ALTER TABLE profiles ADD COLUMN banner_color INTEGER NOT NULL DEFAULT 0;
+     CREATE TABLE pictures (
+         sha256      BLOB PRIMARY KEY,
+         data        BLOB NOT NULL,
+         expires_at  INTEGER NOT NULL
+     );
+     CREATE TABLE picture_misses (
+         sha256    BLOB PRIMARY KEY,
+         retry_at  INTEGER NOT NULL,
+         tries     INTEGER NOT NULL
+     );
+     CREATE TABLE own_pictures (
+         blob_id       BLOB PRIMARY KEY,
+         sha256        BLOB NOT NULL,
+         renew_secret  BLOB NOT NULL,
+         expires_at    INTEGER NOT NULL
+     );",
+    // 14: each profile's bio (about me); empty for none.
+    "ALTER TABLE profiles ADD COLUMN bio TEXT NOT NULL DEFAULT '';",
+    // 15: each profile's two colours (main and accent, `0x01RRGGBB`); 0
+    // and 0 for none.
+    "ALTER TABLE profiles ADD COLUMN theme_primary INTEGER NOT NULL DEFAULT 0;
+     ALTER TABLE profiles ADD COLUMN theme_accent INTEGER NOT NULL DEFAULT 0;",
+    // 16: the banner colour and profile colours as encoded `Fill`s, a
+    // colour or a gradient, in place of plain numbers. Never released as
+    // numbers, so what they held is not carried over.
+    "ALTER TABLE profiles DROP COLUMN banner_color;
+     ALTER TABLE profiles DROP COLUMN theme_primary;
+     ALTER TABLE profiles DROP COLUMN theme_accent;
+     ALTER TABLE profiles ADD COLUMN banner_fill BLOB;
+     ALTER TABLE profiles ADD COLUMN theme BLOB;",
 ];
 
 /// Create tables, both ours and OpenMLS's, and bring old databases up to date.
@@ -548,6 +587,8 @@ pub fn insert_conversation(
     active: bool,
 ) -> Result<()> {
     let now = i64_of(now_ms());
+    // A group's name comes from whoever set it: cut to fit.
+    let name = content::fit_line(name, content::MAX_DISPLAY_NAME);
     // Creating or joining gives this device a fresh leaf.
     conn.execute(
         "INSERT OR IGNORE INTO conversations (group_id, kind, peer_account, name, created_at, last_activity, active, refreshed_at)
@@ -650,6 +691,7 @@ pub fn set_inactive(conn: &Connection, group: &[u8]) -> Result<()> {
 }
 
 pub fn set_name(conn: &Connection, group: &[u8], name: &str) -> Result<()> {
+    let name = content::fit_line(name, content::MAX_DISPLAY_NAME);
     conn.execute("UPDATE conversations SET name = ?1 WHERE group_id = ?2", params![name, group])?;
     Ok(())
 }
@@ -1167,6 +1209,7 @@ pub fn take_token(conn: &Connection) -> Result<Option<Vec<u8>>> {
 
 // ---------------------------------------------------------------- profiles and names
 
+#[derive(Clone, Default)]
 pub struct ProfileRow {
     pub version: u64,
     pub display_name: String,
@@ -1175,17 +1218,52 @@ pub struct ProfileRow {
     pub note_set_at: u64,
     pub note_expires_at: u64,
     pub arrival: String,
+    pub avatar: Option<content::ProfileImage>,
+    pub banner: Option<content::ProfileImage>,
+    pub bio: String,
+    /// The banner without an image; none for the app's choice.
+    pub banner_fill: Option<content::Fill>,
+    /// Profile colours; none for the app's own look.
+    pub theme: Option<content::Fill>,
+}
+
+impl ProfileRow {
+    /// Its picture of `kind`.
+    pub fn image(&self, kind: PictureKind) -> Option<&content::ProfileImage> {
+        match kind {
+            PictureKind::Avatar => self.avatar.as_ref(),
+            PictureKind::Banner => self.banner.as_ref(),
+        }
+    }
+
+    pub fn image_mut(&mut self, kind: PictureKind) -> &mut Option<content::ProfileImage> {
+        match kind {
+            PictureKind::Avatar => &mut self.avatar,
+            PictureKind::Banner => &mut self.banner,
+        }
+    }
+}
+
+/// A part of a profile kept as its encoded message (a picture, a fill).
+fn encode_part<M: prost::Message>(m: Option<&M>) -> Option<Vec<u8>> {
+    m.map(prost::Message::encode_to_vec)
+}
+
+fn decode_part<M: prost::Message + Default>(b: Option<Vec<u8>>) -> Option<M> {
+    b.and_then(|b| M::decode(b.as_slice()).ok())
 }
 
 /// Store a profile if it is newer than the one held. Returns whether it was.
 pub fn upsert_profile(conn: &Connection, account: &[u8], p: &ProfileRow) -> Result<bool> {
     let n = conn.execute(
-        "INSERT INTO profiles (account_id, version, display_name, typing_template, note_text, note_set_at, note_expires_at, arrival)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        "INSERT INTO profiles (account_id, version, display_name, typing_template, note_text, note_set_at, note_expires_at, arrival,
+                               avatar, banner, bio, banner_fill, theme)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT (account_id) DO UPDATE SET
            version = excluded.version, display_name = excluded.display_name, typing_template = excluded.typing_template,
            note_text = excluded.note_text, note_set_at = excluded.note_set_at, note_expires_at = excluded.note_expires_at,
-           arrival = excluded.arrival
+           arrival = excluded.arrival, avatar = excluded.avatar, banner = excluded.banner,
+           bio = excluded.bio, banner_fill = excluded.banner_fill, theme = excluded.theme
          WHERE excluded.version > profiles.version",
         params![
             account,
@@ -1195,31 +1273,148 @@ pub fn upsert_profile(conn: &Connection, account: &[u8], p: &ProfileRow) -> Resu
             p.note_text,
             i64_of(p.note_set_at),
             i64_of(p.note_expires_at),
-            p.arrival
+            p.arrival,
+            encode_part(p.avatar.as_ref()),
+            encode_part(p.banner.as_ref()),
+            p.bio,
+            encode_part(p.banner_fill.as_ref()),
+            encode_part(p.theme.as_ref())
         ],
     )?;
     Ok(n > 0)
 }
 
+const PROFILE_COLUMNS: &str =
+    "version, display_name, typing_template, note_text, note_set_at, note_expires_at, arrival, avatar, banner, bio, banner_fill, theme";
+
+fn profile_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ProfileRow> {
+    profile_row_at(r, 0)
+}
+
 pub fn profile(conn: &Connection, account: &[u8]) -> Result<Option<ProfileRow>> {
-    Ok(conn
-        .query_row(
-            "SELECT version, display_name, typing_template, note_text, note_set_at, note_expires_at, arrival
-             FROM profiles WHERE account_id = ?1",
-            [account],
-            |r| {
-                Ok(ProfileRow {
-                    version: r.get::<_, i64>(0)? as u64,
-                    display_name: r.get(1)?,
-                    typing_template: r.get(2)?,
-                    note_text: r.get(3)?,
-                    note_set_at: r.get::<_, i64>(4)? as u64,
-                    note_expires_at: r.get::<_, i64>(5)? as u64,
-                    arrival: r.get(6)?,
-                })
-            },
-        )
-        .optional()?)
+    Ok(conn.query_row(&format!("SELECT {PROFILE_COLUMNS} FROM profiles WHERE account_id = ?1"), [account], profile_row).optional()?)
+}
+
+/// Every profile held, with its account.
+pub fn all_profiles(conn: &Connection) -> Result<Vec<(Vec<u8>, ProfileRow)>> {
+    let mut stmt = conn.prepare(&format!("SELECT account_id, {PROFILE_COLUMNS} FROM profiles"))?;
+    let rows = stmt.query_map([], |r| {
+        let account: Vec<u8> = r.get(0)?;
+        // The profile's columns follow the account's.
+        Ok((account, profile_row_at(r, 1)?))
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+fn profile_row_at(r: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<ProfileRow> {
+    Ok(ProfileRow {
+        version: r.get::<_, i64>(at)? as u64,
+        display_name: r.get(at + 1)?,
+        typing_template: r.get(at + 2)?,
+        note_text: r.get(at + 3)?,
+        note_set_at: r.get::<_, i64>(at + 4)? as u64,
+        note_expires_at: r.get::<_, i64>(at + 5)? as u64,
+        arrival: r.get(at + 6)?,
+        avatar: decode_part(r.get(at + 7)?),
+        banner: decode_part(r.get(at + 8)?),
+        bio: r.get(at + 9)?,
+        banner_fill: decode_part(r.get(at + 10)?),
+        theme: decode_part(r.get(at + 11)?),
+    })
+}
+
+// ---------------------------------------------------------------- pictures
+
+/// A picture fetched and opened, by the SHA-256 of its ciphertext.
+pub fn picture(conn: &Connection, sha256: &[u8]) -> Result<Option<Vec<u8>>> {
+    Ok(conn.query_row("SELECT data FROM pictures WHERE sha256 = ?1", [sha256], |r| r.get(0)).optional()?)
+}
+
+/// When the server will drop a picture held here, as last heard.
+pub fn picture_expiry(conn: &Connection, sha256: &[u8]) -> Result<Option<u64>> {
+    Ok(conn.query_row("SELECT expires_at FROM pictures WHERE sha256 = ?1", [sha256], |r| r.get::<_, i64>(0)).optional()?.map(|e| e as u64))
+}
+
+pub fn put_picture(conn: &Connection, sha256: &[u8], data: &[u8], expires_at: u64) -> Result<()> {
+    conn.execute(
+        "INSERT INTO pictures (sha256, data, expires_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT (sha256) DO UPDATE SET expires_at = excluded.expires_at",
+        params![sha256, data, i64_of(expires_at)],
+    )?;
+    conn.execute("DELETE FROM picture_misses WHERE sha256 = ?1", [sha256])?;
+    Ok(())
+}
+
+/// The server will keep a picture until `expires_at`.
+pub fn picture_renewed(conn: &Connection, sha256: &[u8], expires_at: u64) -> Result<()> {
+    conn.execute("UPDATE pictures SET expires_at = ?1 WHERE sha256 = ?2", params![i64_of(expires_at), sha256])?;
+    Ok(())
+}
+
+/// Forget pictures no profile shows any more.
+pub fn forget_pictures_except(conn: &Connection, keep: &std::collections::HashSet<Vec<u8>>) -> Result<usize> {
+    let held: Vec<Vec<u8>> =
+        conn.prepare("SELECT sha256 FROM pictures")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    let mut n = 0;
+    for sha in held.iter().filter(|s| !keep.contains(*s)) {
+        n += conn.execute("DELETE FROM pictures WHERE sha256 = ?1", [sha])?;
+    }
+    conn.execute("DELETE FROM picture_misses WHERE retry_at < ?1", [i64_of(now_ms())])?;
+    Ok(n)
+}
+
+/// Whether a picture that could not be fetched should not be tried yet.
+pub fn picture_waiting(conn: &Connection, sha256: &[u8]) -> Result<bool> {
+    let retry: Option<i64> = conn.query_row("SELECT retry_at FROM picture_misses WHERE sha256 = ?1", [sha256], |r| r.get(0)).optional()?;
+    Ok(retry.is_some_and(|t| t as u64 > now_ms()))
+}
+
+/// A picture could not be fetched: try again after `wait_ms`, longer each
+/// time it fails.
+pub fn picture_missed(conn: &Connection, sha256: &[u8], wait_ms: u64) -> Result<()> {
+    let tries: u32 =
+        conn.query_row("SELECT tries FROM picture_misses WHERE sha256 = ?1", [sha256], |r| r.get(0)).optional()?.unwrap_or(0);
+    let wait = wait_ms.saturating_mul(1 << tries.min(5));
+    conn.execute(
+        "INSERT INTO picture_misses (sha256, retry_at, tries) VALUES (?1, ?2, ?3)
+         ON CONFLICT (sha256) DO UPDATE SET retry_at = excluded.retry_at, tries = excluded.tries",
+        params![sha256, i64_of(now_ms().saturating_add(wait)), tries + 1],
+    )?;
+    Ok(())
+}
+
+/// One of this device's own uploads.
+pub struct OwnPicture {
+    pub blob_id: Vec<u8>,
+    pub sha256: Vec<u8>,
+    pub renew_secret: Vec<u8>,
+    pub expires_at: u64,
+}
+
+pub fn add_own_picture(conn: &Connection, p: &OwnPicture) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO own_pictures (blob_id, sha256, renew_secret, expires_at) VALUES (?1, ?2, ?3, ?4)",
+        params![p.blob_id, p.sha256, p.renew_secret, i64_of(p.expires_at)],
+    )?;
+    Ok(())
+}
+
+pub fn own_pictures(conn: &Connection) -> Result<Vec<OwnPicture>> {
+    let mut stmt = conn.prepare("SELECT blob_id, sha256, renew_secret, expires_at FROM own_pictures")?;
+    let rows = stmt.query_map([], |r| {
+        Ok(OwnPicture { blob_id: r.get(0)?, sha256: r.get(1)?, renew_secret: r.get(2)?, expires_at: r.get::<_, i64>(3)? as u64 })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+pub fn own_picture_renewed(conn: &Connection, blob_id: &[u8], expires_at: u64) -> Result<()> {
+    conn.execute("UPDATE own_pictures SET expires_at = ?1 WHERE blob_id = ?2", params![i64_of(expires_at), blob_id])?;
+    Ok(())
+}
+
+pub fn remove_own_picture(conn: &Connection, blob_id: &[u8]) -> Result<()> {
+    conn.execute("DELETE FROM own_pictures WHERE blob_id = ?1", [blob_id])?;
+    Ok(())
 }
 
 /// Set or clear (empty name) someone's display name for one conversation.
@@ -1518,7 +1713,9 @@ pub fn add_announcements(conn: &Connection, entries: &[post_proto::Announcement]
     )?;
     let mut added = 0;
     for a in entries {
-        added += stmt.execute(params![i64_of(a.id), i64_of(a.created_at_ms), a.kind, a.text, i64_of(a.starts_at_ms), a.minutes])?;
+        // The server checks this length too; cut, in case one does not.
+        let text = content::fit_text(&a.text, post_proto::MAX_ANNOUNCEMENT_BYTES);
+        added += stmt.execute(params![i64_of(a.id), i64_of(a.created_at_ms), a.kind, text, i64_of(a.starts_at_ms), a.minutes])?;
     }
     if let Some(last) = entries.last() {
         meta_put_u64(conn, META_ANNOUNCEMENTS_SEEN, last.id.max(meta_u64(conn, META_ANNOUNCEMENTS_SEEN)?))?;

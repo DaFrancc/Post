@@ -369,8 +369,9 @@ class _MaintenanceBarState extends State<_MaintenanceBar> {
           const SizedBox(width: 10),
           Expanded(child: Text(text, style: const TextStyle(fontSize: 13, color: PColors.accentText))),
           if (widget.host)
-            TextButton(
+            OutlinedButton(
               onPressed: _busy ? null : _end,
+              style: OutlinedButton.styleFrom(minimumSize: const Size(0, 32), padding: const EdgeInsets.symmetric(horizontal: 12)),
               child: _busy ? const PSpinner() : Text(m.underway ? 'It’s over' : 'Cancel'),
             ),
         ],
@@ -611,6 +612,7 @@ class _PlanDialogState extends State<_PlanDialog> {
                     const Text('LASTS ABOUT', style: PType.label),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<int>(
+                      mouseCursor: SystemMouseCursors.click,
                       initialValue: _minutes,
                       items: [for (final m in _lengths) DropdownMenuItem(value: m, child: Text(minutesText(m)))],
                       onChanged: _busy ? null : (v) => setState(() => _minutes = v ?? _minutes),

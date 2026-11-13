@@ -114,8 +114,7 @@ class _MembersState extends State<_Members> {
     final choice = await showContextMenu<String>(context, at, [
       if (!m.you) const PMenuItem(value: 'dm', label: 'Message'),
       // Ring just them: into the call you are in here, or into a new one.
-      if (!m.you && _c.following && inCallHere && !theyreIn)
-        PMenuItem(value: 'ring', label: 'Ring ${m.shownName} into the call', icon: Icons.call_outlined),
+      if (!m.you && _c.following && inCallHere && !theyreIn) PMenuItem(value: 'ring', label: 'Ring ${m.shownName} into the call', icon: Icons.call_outlined),
       if (!m.you && _c.following && callHere == null)
         PMenuItem(value: 'call', label: 'Call ${m.shownName}', caption: 'Rings only them', icon: Icons.call_outlined),
       if (!m.you) const PMenuItem(value: 'nickname', label: 'Set nickname', caption: 'Only you see it'),
@@ -254,7 +253,7 @@ class _MemberRowState extends State<_MemberRow> {
               opacity: widget.presence == 'offline' ? 0.6 : 1,
               child: Row(
                 children: [
-                  PAvatar(name: m.shownName, colorKey: m.username, size: 32, presence: widget.presence, ringColor: bg),
+                  PAvatar(name: m.shownName, colorKey: m.username, size: 32, presence: widget.presence, image: widget.state.avatarOf(m.username)),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
@@ -357,11 +356,40 @@ class _ProfileState extends State<_Profile> {
         final name = p?.shownName ?? widget.username;
         final presence = _state.presenceOf(widget.username);
         final verified = p?.verified ?? false;
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 26, 16, 16),
+        final banner = _state.bannerOf(widget.username);
+        final theme = _state.themeOf(widget.username);
+        final list = ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
           children: [
-            Center(
-              child: PAvatar(name: name, colorKey: widget.username, size: 80, presence: presence),
+            // Their banner (3 : 1, a rounded shape filled with it), the
+            // picture centred on its lower edge.
+            LayoutBuilder(
+              builder: (context, box) {
+                final height = box.maxWidth / 3;
+                return SizedBox(
+                  height: height + 48,
+                  child: Stack(
+                    alignment: Alignment.topCenter,
+                    children: [
+                      // The gap around the picture cut out of it, showing
+                      // the panel behind, whatever its fill.
+                      SizedBox(
+                        height: height,
+                        width: double.infinity,
+                        child: Punch(
+                          centre: Offset(box.maxWidth / 2, height + 4),
+                          radius: 40 + 4,
+                          child: BannerView(picture: banner, fill: _state.bannerFillOf(widget.username).gradient, radius: BorderRadius.circular(14)),
+                        ),
+                      ),
+                      Positioned(
+                        top: height - 36,
+                        child: PAvatar(name: name, colorKey: widget.username, size: 80, presence: presence, image: _state.avatarOf(widget.username)),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 12),
             Text(name, textAlign: TextAlign.center, style: PType.heading),
@@ -393,6 +421,24 @@ class _ProfileState extends State<_Profile> {
                 ),
               ),
             ],
+            if (p?.sinceMs case final since?) ...[
+              const SizedBox(height: 10),
+              Text(
+                'On Post since ${monthYear(since.toInt())}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, color: PColors.textFaint),
+              ),
+            ],
+            // All of it: the panel scrolls.
+            if (p != null && p.bio.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              ProfileBio(
+                state: _state,
+                bio: p.bio,
+                background: theme == null ? PColors.sunken : Colors.black.withValues(alpha: 0.28),
+                onMention: (u, at) => unawaited(showProfileCard(context, _state, u, at: at)),
+              ),
+            ],
             const SizedBox(height: 14),
             Center(
               child: TextButton.icon(
@@ -412,6 +458,12 @@ class _ProfileState extends State<_Profile> {
               onSetVerified: _setVerified,
             ),
           ],
+        );
+        if (theme == null) return list;
+        // In their colours, the panel's whole height.
+        return DecoratedBox(
+          decoration: BoxDecoration(gradient: theme.fill),
+          child: list,
         );
       },
     );
@@ -499,11 +551,11 @@ class _SafetyCard extends StatelessWidget {
                         ),
                 ),
                 if (!shown)
-                  FilledButton.tonalIcon(
+                  OutlinedButton.icon(
                     onPressed: () => onShow(true),
                     icon: const Icon(Icons.visibility_outlined, size: 16),
                     label: const Text('Show'),
-                    style: FilledButton.styleFrom(backgroundColor: PColors.panelRaised, foregroundColor: PColors.text),
+                    style: OutlinedButton.styleFrom(minimumSize: const Size(0, 32), padding: const EdgeInsets.symmetric(horizontal: 12)),
                   ),
               ],
             ),
@@ -511,7 +563,12 @@ class _SafetyCard extends StatelessWidget {
             const SizedBox(height: 4),
             Align(
               alignment: Alignment.centerLeft,
-              child: TextButton.icon(onPressed: () => onShow(false), icon: const Icon(Icons.visibility_off_outlined, size: 15), label: const Text('Hide')),
+              child: OutlinedButton.icon(
+                onPressed: () => onShow(false),
+                icon: const Icon(Icons.visibility_off_outlined, size: 15),
+                label: const Text('Hide'),
+                style: OutlinedButton.styleFrom(minimumSize: const Size(0, 32), padding: const EdgeInsets.symmetric(horizontal: 12)),
+              ),
             ),
           ],
           const SizedBox(height: 12),

@@ -180,7 +180,7 @@ Link {
   account_id        // absent in the genesis link
   seq               // 0, 1, 2, ...
   prev_hash         // link hash of the previous link; absent in genesis
-  timestamp_ms      // informational only; clocks are not trusted
+  timestamp_ms      // informational; clocks are not trusted (but see genesis below)
   signer            // device_id of the signing device
   op                // see below
 }
@@ -192,6 +192,11 @@ link_hash(b) = SHA-256(label("post/link-hash/v1") ‖ b)
 device_id    = SHA-256(label("post/device-id/v1") ‖ chain_pub_ed25519 ‖ chain_pub_mldsa65)[..16]
 label(s)     = len(s) as one byte ‖ s
 ```
+
+The genesis link's `timestamp_ms` is when the account began, shown on profiles as
+"On Post since". At registration the server refuses a genesis link whose timestamp is
+more than a day from its own clock, so it cannot be backdated. Because the link is
+signed, the server cannot change it afterwards either.
 
 A device ID is derived from its chain keys rather than chosen, so IDs cannot collide
 or be claimed by another key. Encoding is protobuf; decoders require the canonical
@@ -717,13 +722,44 @@ What a viewer sees for someone, first match wins:
 
 The same order fills `$$NAME$$` in typing templates. The @username stays visible in
 member lists and details whatever name is shown.
-- **Avatar.** A square image, resized by the client to at most 512×512 and 200 KB,
-  encrypted and uploaded as a blob like an attachment (section 9), with its key in
-  the profile. Avatar blobs live 90 days, and the owner's client renews them over the
-  anonymous connection with a renewal secret only it holds. Ships with attachments
-  in phase 6.
+- **Profile picture and banner.** A square picture of at most 512×512 and 200 KiB,
+  and a 3:1 banner of at most 1500×500 and 500 KiB. The sender's client crops the
+  image the user picked, shrinks it and encodes it again as PNG (if it has
+  see-through parts) or JPEG, so no metadata leaves the device. It is encrypted in
+  the attachment format (section 9) and uploaded as a small blob over the session
+  (`UploadBlob`, 20 a day per account), and the profile carries
+  `ProfileImage { blob_id, key, sha256, size, width, height, mime }` (tags 3 and 7).
+  Receivers fetch it anonymously (`FetchBlob`), so the server does not learn who
+  looks at whose picture, check its size and hash, decrypt it, and decode it fully
+  with limits set to the largest allowed size before showing it. Until then, and
+  with none, apps show a default icon on the person's colour, never initials. With
+  no banner image, a banner fill (`banner_fill`, tag 12, below) or the app's choice.
+  Small blobs live 90 days. The uploading device renews them about monthly with a
+  secret only it holds, over the anonymous connection, and deletes the old one when
+  a picture changes; another device of the account uploads the picture again when it
+  is about to lapse.
 - **Note.** Up to 60 characters, like an Instagram note. Expires 24 hours after it is
   set unless the user chooses no expiry; expired notes are hidden by every client.
+- **Bio (about me).** `bio`, tag 9: up to 500 characters (Unicode scalar values),
+  line breaks included and counted, with no other limit on lines. Formatted like a
+  message: formatting and mentions, which show by name and open that person's card.
+  No control characters other than `\n`, and none that reorder text. A received bio
+  is cut to fit, never refused. A profile card shows its first few lines, fading
+  out, with "Show more"; opened, a very tall one scrolls inside the card.
+- **Fills.** The banner without an image (`banner_fill`, tag 12) and profile colours
+  (`theme`, tag 13) are each a `Fill { colors, angle }`. It is one colour (solid), or
+  two with an angle (a gradient from the first to the second). Colours are
+  `0xRRGGBB`; the angle is in degrees as in CSS (0 runs bottom to top, 90 left to
+  right, 180 top to bottom) and is 0 when solid. Any colours may be chosen: the app
+  takes them as RGB hex, with a square showing each. A fill that is not well formed
+  is dropped, never refusing the profile. Tags 8, 10 and 11 held colours as plain
+  numbers before any release, and are not used again.
+- **Profile colours.** The card's edge shows the fill as chosen. Behind the text the
+  same fill is deepened towards the app's panel (less for pale colours), so the app's
+  light text stays readable. The gap around the picture on the banner is cut out of
+  the banner, and the gap around a presence dot out of the picture. Whatever lies
+  behind shows through (a gradient at any angle, a hovered row), so no gap colour has
+  to match it.
 
 ### Typing indicators
 
@@ -941,7 +977,9 @@ like.
 | Anonymous | Groups | `CreateGroup` (token), `Send` (application messages and proposals), `Commit`, `FetchGroups`, `Subscribe` (access key) |
 | Anonymous | KeyPackages | `ClaimKeyPackages(account)` or `(account, device, count)` (token) |
 | Anonymous | Linking | `LinkPut`, `LinkGet` (sealed rendezvous slots; section 5) |
-| Session | Later phases | `Push.Register`, `Call.Token`, blob tokens |
+| Session | Small blobs | `UploadBlob(ciphertext, renewal hash)`: profile pictures and banners, at most 512 KiB, 20 a day per account |
+| Anonymous | Small blobs | `FetchBlob(id)`, `RenewBlob(id, secret)`, `DeleteBlob(id, secret)` |
+| Session | Later phases | `Push.Register`, `Call.Token`, blob tokens for large attachments |
 
 ### What the server validates
 
@@ -974,11 +1012,15 @@ directory_version(version)  -- bumped whenever an account or chain changes
 hosts(account_id PK)
 announcements(id PK, created_at, kind, text, starts_at, minutes, client_msg_id UNIQUE)
 maintenance(id PK, starts_at, minutes, reason, reminders_done, started, finished)
+blobs(blob_id PK, size, renew_hash, expires_at)  -- the ciphertext is a file named by blob_id
+blob_uploads(account_id, day, count, PRIMARY KEY (account_id, day))
 ```
 
 No table links a device or account to a group. `group_log` stores no sender.
 `token_issuance` counts tokens per device per day for rate limiting, which reveals
-how many tokens a device took, not what it spent them on.
+how many tokens a device took, not what it spent them on. `blob_uploads` likewise
+counts uploads, and no row says whose a blob is: it is renewed and deleted with a
+secret only its uploader holds, from an anonymous connection.
 
 The database itself is encrypted at rest with SQLCipher. The key comes from a file,
 a container secret or systemd credentials, never from the command line.
@@ -1081,7 +1123,8 @@ Each is built with the feature it limits.
 - Announcements: kept for good.
 - Spent tokens: kept until their token key retires (weekly rotation, one week
   overlap).
-- Blobs: 30 days.
+- Blobs: 30 days. Small blobs (profile pictures and banners): 90 days, renewed by
+  their owner.
 - Logs record IDs and errors only. No payloads, and no per-message lines at the
   default level.
 

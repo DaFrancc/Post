@@ -5,7 +5,10 @@
 // near-black ground, generous spacing, colour used sparingly. Accents come
 // from the (placeholder) icon's cyan-blue-violet.
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 /// Colours.
 abstract final class PColors {
@@ -193,6 +196,261 @@ TextTheme _textStyles(TextTheme t) {
   );
 }
 
+/// The pointing hand over anything clickable, the arrow when it is disabled.
+/// Flutter shows the hand only on the web and keeps the arrow in desktop
+/// apps, following native toolkits; Post follows the web and chat apps
+/// people know, Discord among them, where a hand says "this is a button".
+final WidgetStateProperty<MouseCursor?> pClickable = WidgetStateProperty.resolveWith(
+  (states) => states.contains(WidgetState.disabled) ? SystemMouseCursors.basic : SystemMouseCursors.click,
+);
+
+/// Post's buttons ("tactile"): a face standing on a solid edge, like a key.
+/// It rises a pixel under the pointer and goes all the way down when
+/// pressed. The theme gives every filled and outlined button one of these;
+/// a button in a colour of its own takes [PButtons.tactile] with that
+/// colour, and its edge is worked out from it. One rule sizes them all
+/// (see [_TactilePainter]): full size, or compact at 32 pixels or less.
+///
+/// Which to use: anything that does something is tactile, Cancel included
+/// (filled for the main action, outlined for the rest, [danger] to remove
+/// or end). Text buttons are for links only: set a nickname, show older
+/// ones, next page, reset a setting. Icon-only toolbar buttons are
+/// [PIconButton]s.
+abstract final class PButtons {
+  /// The main action.
+  static final primary = tactile(face: PColors.accent, onFace: PColors.onAccent);
+
+  // Faces are light enough that the edge under them, a third darker, still
+  // stands out from the near-black panels behind: a darker face had an
+  // edge the panels swallowed, and looked flat beside the blue one.
+
+  /// Anything else: Cancel, Back.
+  static final secondary = tactile(face: const Color(0xFF282C46), onFace: PColors.textBody);
+
+  /// An accent action that is not the main one.
+  static final tonal = tactile(face: const Color(0xFF2E3966), onFace: const Color(0xFFD9E2FF));
+
+  /// Something that removes or ends: deleting, logging out.
+  static final danger = tactile(face: const Color(0xFF4C1F2D), onFace: const Color(0xFFFF9AAC));
+
+  /// A tactile button in [face], with [onFace] for its label. A disabled
+  /// one fades and lies flat, unless [fadeDisabled] is false (a button
+  /// showing progress while it works).
+  static ButtonStyle tactile({required Color face, required Color onFace, Color? border, bool fadeDisabled = true}) {
+    return ButtonStyle(
+      backgroundColor: const WidgetStatePropertyAll(Colors.transparent),
+      foregroundColor: WidgetStateProperty.resolveWith(
+        (s) => s.contains(WidgetState.disabled) && fadeDisabled ? onFace.withValues(alpha: 0.55) : onFace,
+      ),
+      iconColor: WidgetStateProperty.resolveWith(
+        (s) => s.contains(WidgetState.disabled) && fadeDisabled ? onFace.withValues(alpha: 0.55) : onFace,
+      ),
+      // The press is the feedback: no ink.
+      overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+      splashFactory: NoSplash.splashFactory,
+      shadowColor: const WidgetStatePropertyAll(Colors.transparent),
+      elevation: const WidgetStatePropertyAll(0),
+      side: const WidgetStatePropertyAll(BorderSide.none),
+      mouseCursor: pClickable,
+      backgroundBuilder: (context, states, child) =>
+          _TactileFace(states: states, face: face, border: border, fadeDisabled: fadeDisabled, child: child),
+    );
+  }
+}
+
+/// Where a tactile button is in its travel: 1 resting, 0 pressed all the
+/// way down, a little over 1 risen under the pointer; and how lit its face
+/// is (hovered).
+@immutable
+class _Travel {
+  const _Travel(this.up, this.lit);
+
+  final double up;
+  final double lit;
+
+  _Travel lerp(_Travel to, double t) => _Travel(up + (to.up - up) * t, lit + (to.lit - lit) * t);
+}
+
+class _TravelTween extends Tween<_Travel> {
+  _TravelTween({required super.begin, required super.end});
+
+  @override
+  _Travel lerp(double t) => begin!.lerp(end!, t);
+}
+
+class _TactileFace extends StatelessWidget {
+  const _TactileFace({required this.states, required this.face, required this.border, required this.fadeDisabled, required this.child});
+
+  final Set<WidgetState> states;
+  final Color face;
+  final Color? border;
+  final bool fadeDisabled;
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = states.contains(WidgetState.disabled);
+    final pressed = !disabled && states.contains(WidgetState.pressed);
+    final hovered = !disabled && !pressed && states.contains(WidgetState.hovered);
+    final focused = !disabled && states.contains(WidgetState.focused);
+    final goal = _Travel(disabled || pressed ? 0 : (hovered ? 1.34 : 1), hovered ? 1 : 0);
+    return TweenAnimationBuilder<_Travel>(
+      tween: _TravelTween(begin: goal, end: goal),
+      duration: pressed ? const Duration(milliseconds: 40) : const Duration(milliseconds: 110),
+      curve: Curves.easeOut,
+      builder: (context, travel, child) {
+        // The face and its label move together; how far is known only at
+        // paint time, from the button's size, so the label follows by the
+        // same rule there.
+        return CustomPaint(
+          painter: _TactilePainter(
+            face: face,
+            border: border,
+            travel: travel,
+            disabled: disabled,
+            fadeDisabled: fadeDisabled,
+            focused: focused,
+          ),
+          child: _Lifted(travel: travel, child: child),
+        );
+      },
+      child: child,
+    );
+  }
+}
+
+/// The resting edge under a button [height] pixels tall: 3 pixels for a
+/// full-size button, 2 for a compact one, so small buttons are not heavy.
+double _edgeDepth(double height) => height >= 36 ? 3 : 2;
+
+/// Room above a resting face for it to rise into under the pointer.
+const double _rise = 1;
+
+/// Moves the label with the face: down by the edge's depth when pressed,
+/// up a fraction of it when risen.
+class _Lifted extends SingleChildRenderObjectWidget {
+  const _Lifted({required this.travel, super.child});
+
+  final _Travel travel;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderLifted(travel);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderLifted r) => r.travel = travel;
+}
+
+class _RenderLifted extends RenderProxyBox {
+  _RenderLifted(this._travel);
+
+  _Travel _travel;
+  set travel(_Travel t) {
+    if (t.up == _travel.up) return;
+    _travel = t;
+    markNeedsPaint();
+  }
+
+  /// The label sits centred on the face (see [_TactilePainter]), which is
+  /// above the edge, and moves with it.
+  double get _shift {
+    final depth = _edgeDepth(size.height);
+    return (_rise - depth) / 2 + (1 - _travel.up) * depth;
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) => super.paint(context, offset + Offset(0, _shift));
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) => super.hitTestChildren(result, position: position - Offset(0, _shift));
+
+  @override
+  void applyPaintTransform(RenderBox child, Matrix4 transform) => transform.translateByDouble(0, _shift, 0, 1);
+}
+
+class _TactilePainter extends CustomPainter {
+  const _TactilePainter({
+    required this.face,
+    required this.border,
+    required this.travel,
+    required this.disabled,
+    required this.fadeDisabled,
+    required this.focused,
+  });
+
+  final Color face;
+  final Color? border;
+  final _Travel travel;
+  final bool disabled;
+  final bool fadeDisabled;
+  final bool focused;
+
+  /// The edge under a face: the same hue, about a third darker and a
+  /// little greyer, as shade is (a vivid face would get a garish edge).
+  static Color _edge(Color c) {
+    final hsl = HSLColor.fromColor(c);
+    return hsl.withLightness(hsl.lightness * 0.68).withSaturation(hsl.saturation * 0.6).toColor();
+  }
+
+  static Color _lit(Color c) {
+    final hsl = HSLColor.fromColor(c);
+    return hsl.withLightness((hsl.lightness * 1.07 + 0.02).clamp(0.0, 1.0)).toColor();
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Every size of button follows one rule: corners rounded to 30% of
+    // its height (12 pixels at full size), an edge of 3 pixels (2 when
+    // compact), the face travelling the edge's depth.
+    //
+    // All of it inside the button's own box: the face resting just below
+    // its top (room to rise), the edge filling its bottom. A button clips
+    // what it draws to its outline when it has a background like this
+    // one (an outlined button always does), and an edge hanging below the
+    // box was cut off there: grey buttons lost theirs.
+    final depth = _edgeDepth(size.height);
+    final faceHeight = size.height - depth - _rise;
+    final radius = Radius.circular(math.min(12, faceHeight * 0.3));
+    final rest = RRect.fromRectAndRadius(Rect.fromLTWH(0, _rise, size.width, faceHeight), radius);
+    final shift = (1 - travel.up) * depth;
+    final top = rest.shift(Offset(0, shift));
+    if (!disabled) {
+      // The edge stays where the button rests; only the face moves, down
+      // on to it or up off it.
+      canvas.drawRRect(rest.shift(Offset(0, depth)), Paint()..color = _edge(face));
+    }
+    final colour = disabled && fadeDisabled ? face.withValues(alpha: face.a * 0.45) : Color.lerp(face, _lit(face), travel.lit)!;
+    canvas.drawRRect(top, Paint()..color = colour);
+    final b = border;
+    if (focused) {
+      // Keyboard focus: a ring in the accent, so it shows on any face.
+      canvas.drawRRect(
+        top.deflate(1),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = PColors.accentText,
+      );
+    } else if (b != null) {
+      canvas.drawRRect(
+        top.deflate(0.5),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..color = b,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_TactilePainter old) =>
+      old.face != face ||
+      old.border != border ||
+      old.travel.up != travel.up ||
+      old.travel.lit != travel.lit ||
+      old.disabled != disabled ||
+      old.fadeDisabled != fadeDisabled ||
+      old.focused != focused;
+}
+
 ThemeData postTheme() {
   final scheme = ColorScheme.fromSeed(
     seedColor: PColors.accent,
@@ -227,11 +485,17 @@ ThemeData postTheme() {
       radius: const Radius.circular(3),
     ),
     checkboxTheme: CheckboxThemeData(
+      mouseCursor: pClickable,
       side: const BorderSide(color: PColors.borderStrong, width: 1.5),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
     ),
+    iconButtonTheme: IconButtonThemeData(style: ButtonStyle(mouseCursor: pClickable)),
+    segmentedButtonTheme: SegmentedButtonThemeData(style: ButtonStyle(mouseCursor: pClickable)),
+    elevatedButtonTheme: ElevatedButtonThemeData(style: ButtonStyle(mouseCursor: pClickable)),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
+        enabledMouseCursor: SystemMouseCursors.click,
+        disabledMouseCursor: SystemMouseCursors.basic,
         foregroundColor: PColors.accentText,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         textStyle: const TextStyle(fontFamily: PType.body, fontWeight: FontWeight.w500, fontSize: 13.5),
@@ -259,24 +523,32 @@ ThemeData postTheme() {
         borderSide: BorderSide(color: PColors.accent),
       ),
     ),
+    // Filled buttons are the main action, outlined ones the rest; both
+    // tactile (see PButtons). Text buttons stay flat.
+    // Standard density: a button is the size it says. Flutter otherwise
+    // takes 8 pixels off every button on desktop, so a "32" compact button
+    // came out at 24, and sizes stopped matching across the app.
     filledButtonTheme: FilledButtonThemeData(
-      style: FilledButton.styleFrom(
-        backgroundColor: PColors.accent,
-        foregroundColor: PColors.onAccent,
-        minimumSize: const Size(44, 44),
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        textStyle: const TextStyle(fontFamily: PType.body, fontWeight: FontWeight.w600, fontSize: 14),
+      style: PButtons.primary.merge(
+        FilledButton.styleFrom(
+          visualDensity: VisualDensity.standard,
+          // A 40-pixel face, its 3-pixel edge, and a pixel to rise into.
+          minimumSize: const Size(44, 44),
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          textStyle: const TextStyle(fontFamily: PType.body, fontWeight: FontWeight.w600, fontSize: 14),
+        ),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
-      style: OutlinedButton.styleFrom(
-        foregroundColor: PColors.textBody,
-        minimumSize: const Size(44, 44),
-        padding: const EdgeInsets.symmetric(horizontal: 18),
-        side: const BorderSide(color: PColors.borderStrong),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        textStyle: const TextStyle(fontFamily: PType.body, fontWeight: FontWeight.w500, fontSize: 14),
+      style: PButtons.secondary.merge(
+        OutlinedButton.styleFrom(
+          visualDensity: VisualDensity.standard,
+          minimumSize: const Size(44, 44),
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          textStyle: const TextStyle(fontFamily: PType.body, fontWeight: FontWeight.w500, fontSize: 14),
+        ),
       ),
     ),
   );

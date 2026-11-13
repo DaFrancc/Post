@@ -228,10 +228,7 @@ class _Rail extends StatelessWidget {
                       badge: d.unread,
                       color: PColors.avatarFor(d.peer ?? d.id),
                       onTap: () => state.select(d.id),
-                      child: Text(
-                        initials(d.title),
-                        style: const TextStyle(fontFamily: PType.body, fontWeight: FontWeight.w600, fontSize: 15, color: PColors.onAvatar),
-                      ),
+                      child: PAvatar(name: d.title, colorKey: d.peer ?? d.id, size: 48, image: d.peer == null ? null : state.avatarOf(d.peer!)),
                     ),
                   ),
               ],
@@ -371,7 +368,9 @@ class _RailButtonState extends State<_RailButton> {
                     curve: PMotion.curve,
                     width: 48,
                     height: 48,
-                    clipBehavior: Clip.antiAlias,
+                    // No clip: what is inside (initials, or a picture that
+                    // draws its own round edge) never reaches the corners,
+                    // and a clip's edge is not smoothed on every renderer.
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       color: widget.color,
@@ -703,7 +702,12 @@ class _ConversationRowState extends State<_ConversationRow> {
                 children: [
                   c.isGroup
                       ? PAvatar(name: c.title, colorKey: c.id, square: true)
-                      : PAvatar(name: c.title, colorKey: c.peer ?? c.id, presence: state.presenceOf(c.peer ?? ''), ringColor: bg),
+                      : PAvatar(
+                          name: c.title,
+                          colorKey: c.peer ?? c.id,
+                          presence: state.presenceOf(c.peer ?? ''),
+                          image: c.peer == null ? null : state.avatarOf(c.peer!),
+                        ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -897,7 +901,7 @@ class _YouCard extends StatelessWidget {
                 onTap: () => _presenceMenu(anchor),
                 child: Row(
                   children: [
-                    PAvatar(name: state.myName, colorKey: state.me.username, presence: state.ownPresenceWord, ringColor: PColors.sunken),
+                    PAvatar(name: state.myName, colorKey: state.me.username, presence: state.ownPresenceWord, image: state.avatarOf(state.me.username)),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(

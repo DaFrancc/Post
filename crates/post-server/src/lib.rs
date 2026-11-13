@@ -6,6 +6,7 @@
 //! it keeps no record of who is in which conversation.
 
 pub mod announce;
+mod blobs;
 mod calls;
 pub mod db;
 mod link;
@@ -13,6 +14,7 @@ mod releases;
 mod session;
 mod tokens;
 
+pub use blobs::BlobConfig;
 pub use calls::CallConfig;
 pub use releases::ReleaseConfig;
 
@@ -47,6 +49,8 @@ pub struct Config {
     pub releases: ReleaseConfig,
     /// The LiveKit server for calls, if this server offers calls.
     pub calls: Option<CallConfig>,
+    /// Where profile pictures and banners are kept.
+    pub blobs: BlobConfig,
 }
 
 /// Shared server state.
@@ -57,6 +61,7 @@ pub(crate) struct State {
     pub links: link::Links,
     pub releases: Arc<releases::Releases>,
     pub calls: Option<CallConfig>,
+    pub blobs: blobs::Blobs,
     /// The announcements change counter sessions were last woken for.
     pub announced: AtomicU64,
 }
@@ -332,11 +337,13 @@ pub fn spawn(listener: TcpListener, config: Config) -> Result<Running, StartErro
         links: link::Links::default(),
         releases: releases.clone(),
         calls: config.calls,
+        blobs: blobs::Blobs::new(config.blobs)?,
         announced: AtomicU64::new(announced),
     });
     let addr = listener.local_addr()?;
 
     let gc_db = state.db.clone();
+    let gc_state = state.clone();
     let announcing = state.clone();
     let app = Router::new()
         .route("/v1/ws", get(ws_handler))
@@ -350,6 +357,16 @@ pub fn spawn(listener: TcpListener, config: Config) -> Result<Running, StartErro
             let mut every = tokio::time::interval(Duration::from_secs(3600));
             loop {
                 every.tick().await;
+                match gc_state.blobs.collect_garbage(&gc_db).await {
+                    Ok(n) if n > 0 => tracing::info!(blobs = n, "expired pictures deleted"),
+                    Ok(_) => {}
+                    Err(e) => tracing::error!(error = %e, "deleting expired pictures failed"),
+                }
+                match gc_state.blobs.sweep(&gc_db).await {
+                    Ok(n) if n > 0 => tracing::info!(files = n, "stray picture files removed"),
+                    Ok(_) => {}
+                    Err(e) => tracing::error!(error = %e, "removing stray picture files failed"),
+                }
                 match gc_db.run(db::collect_garbage).await {
                     Ok(n) if n > 0 => tracing::info!(rows = n, "expired data deleted"),
                     Ok(_) => {}

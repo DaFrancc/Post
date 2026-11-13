@@ -100,6 +100,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AnnouncementInfo dco_decode_box_autoadd_announcement_info(dynamic raw);
 
   @protected
+  ColorFill dco_decode_box_autoadd_color_fill(dynamic raw);
+
+  @protected
   Identity dco_decode_box_autoadd_identity(dynamic raw);
 
   @protected
@@ -107,6 +110,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MessageInfo dco_decode_box_autoadd_message_info(dynamic raw);
+
+  @protected
+  PictureCrop dco_decode_box_autoadd_picture_crop(dynamic raw);
 
   @protected
   ProfileChange dco_decode_box_autoadd_profile_change(dynamic raw);
@@ -136,6 +142,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   CallParticipantInfo dco_decode_call_participant_info(dynamic raw);
 
   @protected
+  ColorFill dco_decode_color_fill(dynamic raw);
+
+  @protected
   ConversationInfo dco_decode_conversation_info(dynamic raw);
 
   @protected
@@ -146,6 +155,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   EventKind dco_decode_event_kind(dynamic raw);
+
+  @protected
+  double dco_decode_f_64(dynamic raw);
 
   @protected
   int dco_decode_i_32(dynamic raw);
@@ -202,6 +214,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<PersonReceiptInfo> dco_decode_list_person_receipt_info(dynamic raw);
 
   @protected
+  Uint32List dco_decode_list_prim_u_32_strict(dynamic raw);
+
+  @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
 
   @protected
@@ -241,6 +256,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AnnouncementInfo? dco_decode_opt_box_autoadd_announcement_info(dynamic raw);
 
   @protected
+  ColorFill? dco_decode_opt_box_autoadd_color_fill(dynamic raw);
+
+  @protected
   Identity? dco_decode_opt_box_autoadd_identity(dynamic raw);
 
   @protected
@@ -250,16 +268,31 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   MessageInfo? dco_decode_opt_box_autoadd_message_info(dynamic raw);
 
   @protected
+  PictureCrop? dco_decode_opt_box_autoadd_picture_crop(dynamic raw);
+
+  @protected
   BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
 
   @protected
   UpdateInfo? dco_decode_opt_box_autoadd_update_info(dynamic raw);
 
   @protected
+  Uint8List? dco_decode_opt_list_prim_u_8_strict(dynamic raw);
+
+  @protected
   PersonInfo dco_decode_person_info(dynamic raw);
 
   @protected
   PersonReceiptInfo dco_decode_person_receipt_info(dynamic raw);
+
+  @protected
+  PictureCrop dco_decode_picture_crop(dynamic raw);
+
+  @protected
+  PictureKind dco_decode_picture_kind(dynamic raw);
+
+  @protected
+  PictureLimits dco_decode_picture_limits(dynamic raw);
 
   @protected
   PostError dco_decode_post_error(dynamic raw);
@@ -381,6 +414,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  ColorFill sse_decode_box_autoadd_color_fill(SseDeserializer deserializer);
+
+  @protected
   Identity sse_decode_box_autoadd_identity(SseDeserializer deserializer);
 
   @protected
@@ -390,6 +426,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MessageInfo sse_decode_box_autoadd_message_info(SseDeserializer deserializer);
+
+  @protected
+  PictureCrop sse_decode_box_autoadd_picture_crop(SseDeserializer deserializer);
 
   @protected
   ProfileChange sse_decode_box_autoadd_profile_change(
@@ -425,6 +464,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  ColorFill sse_decode_color_fill(SseDeserializer deserializer);
+
+  @protected
   ConversationInfo sse_decode_conversation_info(SseDeserializer deserializer);
 
   @protected
@@ -435,6 +477,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   EventKind sse_decode_event_kind(SseDeserializer deserializer);
+
+  @protected
+  double sse_decode_f_64(SseDeserializer deserializer);
 
   @protected
   int sse_decode_i_32(SseDeserializer deserializer);
@@ -501,6 +546,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  Uint32List sse_decode_list_prim_u_32_strict(SseDeserializer deserializer);
+
+  @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
 
   @protected
@@ -548,6 +596,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  ColorFill? sse_decode_opt_box_autoadd_color_fill(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   Identity? sse_decode_opt_box_autoadd_identity(SseDeserializer deserializer);
 
   @protected
@@ -561,6 +614,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  PictureCrop? sse_decode_opt_box_autoadd_picture_crop(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
 
   @protected
@@ -569,12 +627,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  Uint8List? sse_decode_opt_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
   PersonInfo sse_decode_person_info(SseDeserializer deserializer);
 
   @protected
   PersonReceiptInfo sse_decode_person_receipt_info(
     SseDeserializer deserializer,
   );
+
+  @protected
+  PictureCrop sse_decode_picture_crop(SseDeserializer deserializer);
+
+  @protected
+  PictureKind sse_decode_picture_kind(SseDeserializer deserializer);
+
+  @protected
+  PictureLimits sse_decode_picture_limits(SseDeserializer deserializer);
 
   @protected
   PostError sse_decode_post_error(SseDeserializer deserializer);
@@ -715,6 +785,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_box_autoadd_color_fill(
+    ColorFill self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_identity(Identity self, SseSerializer serializer);
 
   @protected
@@ -726,6 +802,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_message_info(
     MessageInfo self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_picture_crop(
+    PictureCrop self,
     SseSerializer serializer,
   );
 
@@ -769,6 +851,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_color_fill(ColorFill self, SseSerializer serializer);
+
+  @protected
   void sse_encode_conversation_info(
     ConversationInfo self,
     SseSerializer serializer,
@@ -782,6 +867,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_event_kind(EventKind self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_f_64(double self, SseSerializer serializer);
 
   @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
@@ -871,6 +959,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_prim_u_32_strict(
+    Uint32List self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
 
   @protected
@@ -928,6 +1022,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_color_fill(
+    ColorFill? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_identity(
     Identity? self,
     SseSerializer serializer,
@@ -946,11 +1046,23 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_box_autoadd_picture_crop(
+    PictureCrop? self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_update_info(
     UpdateInfo? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_list_prim_u_8_strict(
+    Uint8List? self,
     SseSerializer serializer,
   );
 
@@ -962,6 +1074,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     PersonReceiptInfo self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_picture_crop(PictureCrop self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_picture_kind(PictureKind self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_picture_limits(PictureLimits self, SseSerializer serializer);
 
   @protected
   void sse_encode_post_error(PostError self, SseSerializer serializer);

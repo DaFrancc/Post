@@ -42,6 +42,9 @@ use crate::{Error, labels};
 pub const LINK_VERSION: u32 = 1;
 /// Most devices an account may have active at once.
 pub const MAX_ACTIVE_DEVICES: usize = 16;
+/// How far a genesis link's timestamp may be from the server's clock when
+/// the account registers: a day, for devices whose clock is off.
+pub const GENESIS_CLOCK_SKEW_MS: u64 = 24 * 3600 * 1000;
 
 /// Hash of a link's bytes: `SHA-256(label ‖ link bytes)`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -177,7 +180,10 @@ pub struct Link {
     /// Hash of the previous link. `None` only in the genesis link.
     pub prev_hash: Option<LinkHash>,
     /// When the signer made the link, in Unix milliseconds. Informational:
-    /// clocks are not trusted, so it is not checked.
+    /// clocks are not trusted, so the chain does not check it. The genesis
+    /// link's is the exception: the server checks it against its own clock
+    /// when the account registers, so it says when the account began
+    /// ([`Chain::created_ms`]).
     pub timestamp_ms: u64,
     /// The device that signed the link.
     pub signer: DeviceId,
@@ -386,6 +392,8 @@ pub struct Chain {
     /// Every MLS key the chain has ever listed, including those of removed
     /// devices and keys rotated away from. None may be listed again.
     used_mls_keys: BTreeSet<[u8; 32]>,
+    /// The genesis link's timestamp.
+    created_ms: u64,
 }
 
 impl Chain {
@@ -411,6 +419,7 @@ impl Chain {
             hashes: vec![hash],
             devices: vec![DeviceRecord { id: device.device_id(), entry: device.clone(), added_seq: 0, removed_seq: None }],
             used_mls_keys: BTreeSet::from([device.mls_sig_pub]),
+            created_ms: sl.link.timestamp_ms,
         })
     }
 
@@ -615,6 +624,13 @@ impl Chain {
     /// The account's server.
     pub fn server_domain(&self) -> &str {
         &self.server_domain
+    }
+
+    /// When the account began (Unix ms): its genesis link's timestamp,
+    /// which its server checked against its own clock at registration (see
+    /// [`Link::timestamp_ms`]), give or take [`GENESIS_CLOCK_SKEW_MS`].
+    pub fn created_ms(&self) -> u64 {
+        self.created_ms
     }
 
     /// Whether this is a bot account: its genesis device is flagged `bot`.

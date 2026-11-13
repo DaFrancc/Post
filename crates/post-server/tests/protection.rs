@@ -33,6 +33,7 @@ impl Server {
                 db_key: Zeroizing::new(key),
                 releases: post_server::ReleaseConfig::none(),
                 calls: None,
+                blobs: post_server::BlobConfig::beside(&db),
             },
         )
         .expect("start");
@@ -76,9 +77,17 @@ impl Client {
 
     /// A logged-in session for a newly registered account.
     async fn register(server: &Server, username: &str) -> (Self, DeviceKeys) {
+        let (c, keys, reply) = Self::try_register(server, username, now_ms()).await;
+        assert!(matches!(reply, Reply::Authenticated(_)), "{reply:?}");
+        (c, keys)
+    }
+
+    /// Try to register an account whose genesis link says it began at
+    /// `created_ms`.
+    async fn try_register(server: &Server, username: &str, created_ms: u64) -> (Self, DeviceKeys, Reply) {
         let mut c = Self::connect(&server.running.url()).await;
         let keys = DeviceKeys::generate().expect("keys");
-        let (_, genesis) = Chain::create(&keys, &server.domain, username, false, 1).expect("chain");
+        let (_, genesis) = Chain::create(&keys, &server.domain, username, false, created_ms).expect("chain");
         let sig = keys.chain.sign(labels::AUTH, &proto::auth_message(&server.domain, &c.nonce)).expect("sign");
         let reply = c
             .call(Request::Register(proto::Register {
@@ -88,9 +97,27 @@ impl Client {
                 auth_sig_mldsa65: sig.mldsa65_bytes().to_vec(),
             }))
             .await;
-        assert!(matches!(reply, Reply::Authenticated(_)), "{reply:?}");
-        (c, keys)
+        (c, keys, reply)
     }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("after 1970").as_millis() as u64
+}
+
+#[tokio::test]
+async fn an_account_begins_now_by_the_servers_clock() {
+    let server = Server::start().await;
+    // Its start time is shown to everyone as "on Post since", so it cannot
+    // be made up: a week ago, or next week, is refused.
+    let week = 7 * 24 * 3600 * 1000;
+    let (_, _, back) = Client::try_register(&server, "backdated", now_ms() - week).await;
+    assert_eq!(code(&back), ErrorCode::ChainRejected);
+    let (_, _, ahead) = Client::try_register(&server, "ahead", now_ms() + week).await;
+    assert_eq!(code(&ahead), ErrorCode::ChainRejected);
+    // A clock an hour off is allowed.
+    let (_, _, close) = Client::try_register(&server, "close", now_ms() - 3600 * 1000).await;
+    assert!(matches!(close, Reply::Authenticated(_)), "{close:?}");
 }
 
 async fn next(ws: &mut Ws) -> ServerFrame {
@@ -150,6 +177,22 @@ async fn group_access_needs_the_epoch_key() {
     assert_eq!(b.groups[0].error.as_ref().map(proto::Error::code), Some(ErrorCode::BadAccessKey));
     let ephemeral = proto::SendEphemeral { group_id: vec![7; 16], access_key: vec![0; 32], payload: vec![1] };
     assert_eq!(code(&anon.call(Request::SendEphemeral(ephemeral)).await), ErrorCode::BadAccessKey);
+}
+
+#[tokio::test]
+async fn messages_too_big_to_be_real_are_refused() {
+    let server = Server::start().await;
+    let mut anon = Client::connect(&server.running.url()).await;
+    // Refused on size alone, before anything is looked up.
+    let send = proto::Send {
+        group_id: vec![7; 16],
+        access_key: vec![0; 32],
+        client_msg_id: vec![1; 16],
+        message: vec![0; proto::MAX_APPLICATION_MESSAGE_BYTES + 1],
+    };
+    let Reply::Error(e) = anon.call(Request::Send(send)).await else { panic!("refused") };
+    assert_eq!(e.code(), ErrorCode::BadRequest);
+    assert!(e.message.contains("at most"), "{}", e.message);
 }
 
 #[tokio::test]
@@ -219,4 +262,47 @@ fn no_table_links_identities_to_groups() {
         let has_identity = cols.iter().any(|c| c.contains("device") || c.contains("account") || c.contains("sender"));
         assert!(!(has_group && has_identity), "table {t} links groups to identities: {cols:?}");
     }
+}
+
+#[tokio::test]
+async fn pictures_are_stored_without_saying_whose() {
+    use sha2::{Digest as _, Sha256};
+
+    let server = Server::start().await;
+    let (mut session, _) = Client::register(&server, "alice").await;
+    let secret = [9u8; 32];
+    let upload = |data: Vec<u8>| proto::UploadBlob { data, renew_hash: Sha256::digest(secret).to_vec() };
+
+    // Too big, or no renewal hash: refused.
+    let big = upload(vec![0; proto::MAX_SMALL_BLOB_BYTES + 1]);
+    assert_eq!(code(&session.call(Request::UploadBlob(big)).await), ErrorCode::BadRequest);
+    let no_hash = proto::UploadBlob { data: vec![1], renew_hash: vec![] };
+    assert_eq!(code(&session.call(Request::UploadBlob(no_hash)).await), ErrorCode::BadRequest);
+
+    let Reply::BlobStored(stored) = session.call(Request::UploadBlob(upload(vec![7; 1000]))).await else { panic!("stored") };
+    assert_eq!(stored.blob_id.len(), 16);
+
+    // Fetched, renewed and deleted anonymously; never on the session.
+    let fetch = proto::FetchBlob { blob_id: stored.blob_id.clone() };
+    assert_eq!(code(&session.call(Request::FetchBlob(fetch.clone())).await), ErrorCode::WrongConnection);
+    let mut anon = Client::connect(&server.running.url()).await;
+    let Reply::Blob(blob) = anon.call(Request::FetchBlob(fetch.clone())).await else { panic!("blob") };
+    assert_eq!(blob.data, vec![7; 1000]);
+
+    let wrong = proto::RenewBlob { blob_id: stored.blob_id.clone(), renew_secret: vec![1; 32] };
+    assert_eq!(code(&anon.call(Request::RenewBlob(wrong)).await), ErrorCode::Forbidden);
+    let renew = proto::RenewBlob { blob_id: stored.blob_id.clone(), renew_secret: secret.to_vec() };
+    assert!(matches!(anon.call(Request::RenewBlob(renew)).await, Reply::BlobStored(_)));
+
+    let wrong = proto::DeleteBlob { blob_id: stored.blob_id.clone(), renew_secret: vec![1; 32] };
+    assert_eq!(code(&anon.call(Request::DeleteBlob(wrong)).await), ErrorCode::Forbidden);
+    let delete = proto::DeleteBlob { blob_id: stored.blob_id.clone(), renew_secret: secret.to_vec() };
+    assert!(matches!(anon.call(Request::DeleteBlob(delete)).await, Reply::Empty(_)));
+    assert_eq!(code(&anon.call(Request::FetchBlob(fetch)).await), ErrorCode::NotFound);
+
+    // A daily quota per account.
+    for _ in 1..proto::SMALL_BLOB_UPLOADS_PER_DAY {
+        assert!(matches!(session.call(Request::UploadBlob(upload(vec![1]))).await, Reply::BlobStored(_)));
+    }
+    assert_eq!(code(&session.call(Request::UploadBlob(upload(vec![1]))).await), ErrorCode::RateLimited);
 }

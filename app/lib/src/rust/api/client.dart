@@ -9,6 +9,7 @@ import 'error.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `announcement`, `app_event`, `call_info`, `call_join`, `conversation`, `found_update`, `identity`, `message`, `ms`, `sentence`, `updater`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `from`, `from`, `from`
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<Client>>
 abstract class Client implements RustOpaqueInterface {
@@ -34,6 +35,10 @@ abstract class Client implements RustOpaqueInterface {
     required String server,
     required String deviceName,
   });
+
+  /// Longest bio, in characters (Unicode scalar values: Dart's runes),
+  /// line breaks included.
+  static int bioLimit() => RustLib.instance.api.crateApiClientClientBioLimit();
 
   /// The keys to install for a call's media now: fetch again on call and
   /// conversation events, and install them at `key_index`.
@@ -190,6 +195,24 @@ abstract class Client implements RustOpaqueInterface {
   /// What this device knows about someone.
   Future<PersonInfo> person({required String username});
 
+  /// A profile picture or banner this device has, by the ID a person
+  /// gives for it: the image file's bytes (PNG or JPEG), already checked.
+  Future<Uint8List?> picture({required String id});
+
+  /// How large a picture of `kind` may be.
+  static PictureLimits pictureLimits({required PictureKind kind}) =>
+      RustLib.instance.api.crateApiClientClientPictureLimits(kind: kind);
+
+  /// A picture this device has, scaled to exactly `width`×`height` pixels
+  /// (the device pixels it will fill), cropped from its middle to that
+  /// shape: RGBA bytes, row by row. Shrunk well, once, here, so the app
+  /// draws it pixel for pixel.
+  Future<Uint8List?> pictureScaled({
+    required String id,
+    required int width,
+    required int height,
+  });
+
   /// As a host: plan maintenance. `starts_at_ms` 0 starts it now.
   Future<void> planMaintenance({
     required PlatformInt64 startsAtMs,
@@ -222,6 +245,9 @@ abstract class Client implements RustOpaqueInterface {
     required String conversation,
     required List<String> usernames,
   });
+
+  /// Remove the user's profile picture or banner.
+  Future<void> removePicture({required PictureKind kind});
 
   /// Name one of the account's devices.
   Future<void> renameDevice({required String device, required String name});
@@ -268,6 +294,10 @@ abstract class Client implements RustOpaqueInterface {
     required bool admin,
   });
 
+  /// Set the banner's colour or gradient shown when there is no banner
+  /// image, or with `None` leave it to the app. Shared at once.
+  Future<void> setBannerFill({ColorFill? fill});
+
   /// Set (or clear, with "") the user's name in one conversation.
   Future<void> setConversationName({
     required String conversation,
@@ -278,6 +308,15 @@ abstract class Client implements RustOpaqueInterface {
   Future<void> setNickname({
     required String username,
     required String nickname,
+  });
+
+  /// Set the user's profile picture or banner from an image file: the
+  /// `crop` part of it, else its middle. It is shrunk to fit, encrypted,
+  /// uploaded and shared. Needs a connection.
+  Future<void> setPicture({
+    required PictureKind kind,
+    required String path,
+    PictureCrop? crop,
   });
 
   /// Choose the presence others see.
@@ -292,6 +331,10 @@ abstract class Client implements RustOpaqueInterface {
 
   /// Set (or with `None` clear) an app setting on this device.
   Future<void> setSetting({required String key, String? value});
+
+  /// Set the user's profile colours, or with `None` go back to the app's
+  /// own look. Shared at once.
+  Future<void> setTheme({ColorFill? fill});
 
   /// Record that the user compared safety numbers with someone, or (false)
   /// withdraw it.
@@ -673,6 +716,30 @@ class CallParticipantInfo {
           username == other.username &&
           you == other.you &&
           thisDevice == other.thisDevice;
+}
+
+/// A colour, or a gradient between two at an angle.
+class ColorFill {
+  /// One colour (solid) or two (a gradient from the first to the
+  /// second), `0xRRGGBB` each.
+  final Uint32List colors;
+
+  /// A gradient's direction in degrees, as in CSS: 0 runs from the
+  /// bottom up, 90 left to right, 180 top to bottom. 0 when solid.
+  final int angle;
+
+  const ColorFill({required this.colors, required this.angle});
+
+  @override
+  int get hashCode => colors.hashCode ^ angle.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ColorFill &&
+          runtimeType == other.runtimeType &&
+          colors == other.colors &&
+          angle == other.angle;
 }
 
 /// A conversation in the list.
@@ -1237,6 +1304,25 @@ class PersonInfo {
   /// the default.
   final String arrival;
 
+  /// Their profile picture's ID, for `picture`, once this device has it;
+  /// until then, or with none, show the default.
+  final String? avatar;
+
+  /// Their banner's ID, for `picture`, once this device has it.
+  final String? banner;
+
+  /// Their bio (about me), formatted like a message; empty if none.
+  final String bio;
+
+  /// Their banner without a banner image, if they chose a colour.
+  final ColorFill? bannerFill;
+
+  /// Their profile colours, if they chose them.
+  final ColorFill? theme;
+
+  /// When their account began (Unix ms), if known: "on Post since".
+  final BigInt? sinceMs;
+
   const PersonInfo({
     required this.username,
     required this.shownName,
@@ -1246,6 +1332,12 @@ class PersonInfo {
     this.note,
     required this.verified,
     required this.arrival,
+    this.avatar,
+    this.banner,
+    required this.bio,
+    this.bannerFill,
+    this.theme,
+    this.sinceMs,
   });
 
   @override
@@ -1257,7 +1349,13 @@ class PersonInfo {
       typingTemplate.hashCode ^
       note.hashCode ^
       verified.hashCode ^
-      arrival.hashCode;
+      arrival.hashCode ^
+      avatar.hashCode ^
+      banner.hashCode ^
+      bio.hashCode ^
+      bannerFill.hashCode ^
+      theme.hashCode ^
+      sinceMs.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1271,7 +1369,13 @@ class PersonInfo {
           typingTemplate == other.typingTemplate &&
           note == other.note &&
           verified == other.verified &&
-          arrival == other.arrival;
+          arrival == other.arrival &&
+          avatar == other.avatar &&
+          banner == other.banner &&
+          bio == other.bio &&
+          bannerFill == other.bannerFill &&
+          theme == other.theme &&
+          sinceMs == other.sinceMs;
 }
 
 /// How far one person has got with the user's message.
@@ -1302,6 +1406,91 @@ class PersonReceiptInfo {
           username == other.username &&
           shownName == other.shownName &&
           state == other.state;
+}
+
+/// The part of an image to use, as fractions of its width and height (of
+/// the image as shown, turned upright).
+class PictureCrop {
+  /// Left edge.
+  final double x;
+
+  /// Top edge.
+  final double y;
+
+  /// Width.
+  final double width;
+
+  /// Height.
+  final double height;
+
+  const PictureCrop({
+    required this.x,
+    required this.y,
+    required this.width,
+    required this.height,
+  });
+
+  @override
+  int get hashCode =>
+      x.hashCode ^ y.hashCode ^ width.hashCode ^ height.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PictureCrop &&
+          runtimeType == other.runtimeType &&
+          x == other.x &&
+          y == other.y &&
+          width == other.width &&
+          height == other.height;
+}
+
+/// Which profile picture.
+enum PictureKind {
+  /// The round profile picture: square.
+  avatar,
+
+  /// The banner across the top of a profile: 3 : 1.
+  banner,
+}
+
+/// How large a picture may be, for saying so in the app.
+class PictureLimits {
+  /// Width in pixels.
+  final int maxWidth;
+
+  /// Height in pixels.
+  final int maxHeight;
+
+  /// Bytes.
+  final int maxBytes;
+
+  /// Largest image file one may be made from, in bytes.
+  final int maxSourceBytes;
+
+  const PictureLimits({
+    required this.maxWidth,
+    required this.maxHeight,
+    required this.maxBytes,
+    required this.maxSourceBytes,
+  });
+
+  @override
+  int get hashCode =>
+      maxWidth.hashCode ^
+      maxHeight.hashCode ^
+      maxBytes.hashCode ^
+      maxSourceBytes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PictureLimits &&
+          runtimeType == other.runtimeType &&
+          maxWidth == other.maxWidth &&
+          maxHeight == other.maxHeight &&
+          maxBytes == other.maxBytes &&
+          maxSourceBytes == other.maxSourceBytes;
 }
 
 /// The presence the user chooses to show.
@@ -1352,12 +1541,17 @@ class ProfileChange {
   /// How the user's messages arrive on screen: a preset's name.
   final String? arrival;
 
+  /// Bio (about me): up to `bio_limit()` characters, line breaks
+  /// included, formatted like a message.
+  final String? bio;
+
   const ProfileChange({
     this.displayName,
     this.typingTemplate,
     this.note,
     required this.noteKeep,
     this.arrival,
+    this.bio,
   });
 
   @override
@@ -1366,7 +1560,8 @@ class ProfileChange {
       typingTemplate.hashCode ^
       note.hashCode ^
       noteKeep.hashCode ^
-      arrival.hashCode;
+      arrival.hashCode ^
+      bio.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1377,7 +1572,8 @@ class ProfileChange {
           typingTemplate == other.typingTemplate &&
           note == other.note &&
           noteKeep == other.noteKeep &&
-          arrival == other.arrival;
+          arrival == other.arrival &&
+          bio == other.bio;
 }
 
 /// How far one person has got.

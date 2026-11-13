@@ -10,6 +10,11 @@ import 'package:flutter/services.dart';
 
 import '../theme.dart';
 import 'format.dart';
+import 'picture_view.dart';
+import 'profile_theme.dart';
+
+export 'picture_view.dart' show BannerView, PictureRef;
+export 'profile_theme.dart' show Fill, Punch;
 
 /// A labelled text field with an error or help line under it.
 class PField extends StatelessWidget {
@@ -26,6 +31,9 @@ class PField extends StatelessWidget {
     this.maxLength,
     this.onSubmitted,
     this.onChanged,
+    this.lines,
+    this.inputFormatters,
+    this.counter,
   });
 
   final String label;
@@ -40,13 +48,30 @@ class PField extends StatelessWidget {
   final ValueChanged<String>? onSubmitted;
   final ValueChanged<String>? onChanged;
 
+  /// Several lines: at least this many tall, growing with the text, and
+  /// Enter starts a new line. Null for one line.
+  final int? lines;
+
+  final List<TextInputFormatter>? inputFormatters;
+
+  /// Shown at the end of the label's line (characters left, say).
+  final String? counter;
+
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // No label: a field that explains itself (a search box).
-        if (label.isNotEmpty) ...[Text(label.toUpperCase(), style: PType.label), const SizedBox(height: 8)],
+        if (label.isNotEmpty) ...[
+          Row(
+            children: [
+              Expanded(child: Text(label.toUpperCase(), style: PType.label)),
+              if (counter != null) Text(counter!, style: PType.small),
+            ],
+          ),
+          const SizedBox(height: 8),
+        ],
         TextField(
           controller: controller,
           enabled: enabled,
@@ -54,6 +79,10 @@ class PField extends StatelessWidget {
           onSubmitted: onSubmitted,
           onChanged: onChanged,
           autocorrect: false,
+          minLines: lines,
+          maxLines: lines == null ? 1 : null,
+          keyboardType: lines == null ? null : TextInputType.multiline,
+          inputFormatters: inputFormatters,
           maxLength: maxLength,
           maxLengthEnforcement: MaxLengthEnforcement.enforced,
           style: TextStyle(fontSize: 14.5, color: PColors.text, fontFamily: mono ? PType.mono : PType.body),
@@ -177,62 +206,135 @@ class _PIconButtonState extends State<PIconButton> {
   }
 }
 
-/// Someone's (or a group's) initials on their colour, optionally with a
-/// presence dot. Groups are rounded squares, people are circles.
+/// Someone's profile picture, or with none (or until it has arrived) the
+/// default face on their colour; a group's initials on its colour. Groups
+/// are rounded squares, people are circles. Optionally with a presence dot.
 class PAvatar extends StatelessWidget {
-  const PAvatar({super.key, required this.name, required this.colorKey, this.size = 36, this.square = false, this.presence, this.ringColor = PColors.panel});
+  const PAvatar({super.key, required this.name, required this.colorKey, this.size = 36, this.square = false, this.presence, this.image});
 
+  /// Who or what it is, for screen readers (and a group's initials).
   final String name;
   final String colorKey;
   final double size;
   final bool square;
 
-  /// A presence word (online, away, dnd, offline), or null for no dot.
+  /// A presence word (online, away, dnd, offline), or null for no dot. The
+  /// gap around it is cut out of the picture, so it shows whatever is
+  /// behind: a hovered row, a gradient.
   final String? presence;
 
-  /// The colour behind the avatar, so the dot looks cut out of it.
-  final Color ringColor;
+  /// Their profile picture, once it is here.
+  final PictureRef? image;
 
   @override
   Widget build(BuildContext context) {
-    final face = Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(color: PColors.avatarFor(colorKey), borderRadius: BorderRadius.circular(square ? size * 0.33 : size / 2)),
-      child: Text(
-        initials(name),
-        style: TextStyle(fontFamily: square ? PType.display : PType.body, fontWeight: FontWeight.w600, fontSize: size * 0.36, color: PColors.onAvatar),
-      ),
-    );
+    final colour = PColors.avatarFor(colorKey);
+    final Widget face;
+    if (square) {
+      face = Container(
+        width: size,
+        height: size,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(color: colour, borderRadius: BorderRadius.circular(size * 0.33)),
+        child: Text(
+          initials(name),
+          style: TextStyle(fontFamily: PType.display, fontWeight: FontWeight.w600, fontSize: size * 0.36, color: PColors.onAvatar),
+        ),
+      );
+    } else {
+      final img = image;
+      // The picture, scaled for exactly these pixels and drawn as a smooth
+      // circle (see PictureView); the default face until it is ready.
+      face = Semantics(
+        label: name,
+        image: true,
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: img == null
+              ? DefaultFace(color: colour)
+              : PictureView(
+                  picture: img,
+                  circle: true,
+                  placeholder: DefaultFace(color: colour),
+                ),
+        ),
+      );
+    }
     final p = presence;
     if (p == null) return face;
     // Fixed sizes for a fixed-size avatar: the dot belongs to the picture,
     // not the text.
     final dot = (size * 0.28).clamp(9.0, 16.0);
     final ring = (size * 0.075).clamp(2.5, 4.0);
+    // The dot's centre, inset a little from the corner.
+    final at = size - size * 0.02 - dot / 2;
     return SizedBox(
       width: size,
       height: size,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          face,
+          Punch(centre: Offset(at, at), radius: dot / 2 + ring, child: face),
           Positioned(
-            right: -ring + size * 0.02,
-            bottom: -ring + size * 0.02,
-            child: Container(
-              width: dot + 2 * ring,
-              height: dot + 2 * ring,
-              decoration: BoxDecoration(color: ringColor, shape: BoxShape.circle),
-              alignment: Alignment.center,
-              child: PresenceDot(p, size: dot),
-            ),
+            left: at - dot / 2,
+            top: at - dot / 2,
+            child: PresenceDot(p, size: dot),
           ),
         ],
       ),
     );
   }
+}
+
+/// The picture of someone without one: a head and shoulders on a circle of
+/// their colour, never their initials.
+class DefaultFace extends StatelessWidget {
+  const DefaultFace({super.key, required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(painter: _FacePainter(color), child: const SizedBox.expand());
+}
+
+class _FacePainter extends CustomPainter {
+  const _FacePainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final d = size.shortestSide;
+    final centre = size.center(Offset.zero);
+    final disc = Rect.fromCircle(center: centre, radius: d / 2);
+    // The figure's colour, mixed with the disc's beforehand: drawn opaque,
+    // so nothing shows through it.
+    final ink = Color.alphaBlend(PColors.onAvatar.withValues(alpha: 0.82), color);
+    final at = Offset(centre.dx - d / 2, centre.dy - d / 2);
+    // A head, and shoulders running off the bottom, so their lower edge is
+    // the disc's own smooth curve rather than a flat cut, which looks
+    // jagged at list sizes. Large enough to stay round at 24 pixels.
+    final head = Rect.fromCircle(center: at + Offset(0.5 * d, 0.39 * d), radius: 0.175 * d);
+    final body = Rect.fromCenter(center: at + Offset(0.5 * d, 0.93 * d), width: 0.72 * d, height: 0.52 * d);
+    // In a layer of its own: the disc, then the shoulders painted only onto
+    // it (srcATop). The disc's edge is drawn once, so its half-covered edge
+    // pixels take the shoulders' colour, with none of the disc's peeking
+    // between two smoothed edges as a thin ring.
+    canvas.saveLayer(disc, Paint());
+    canvas.drawOval(disc, Paint()..color = color);
+    canvas.drawOval(
+      body,
+      Paint()
+        ..color = ink
+        ..blendMode = BlendMode.srcATop,
+    );
+    canvas.drawOval(head, Paint()..color = ink);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_FacePainter old) => old.color != color;
 }
 
 /// A coloured presence dot. Offline is a hollow ring, so it reads without
@@ -790,12 +892,7 @@ Future<bool> confirm(BuildContext context, {required String title, required Stri
           PDialogActions(
             children: [
               OutlinedButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
-              FilledButton(
-                autofocus: true,
-                style: danger ? FilledButton.styleFrom(backgroundColor: PColors.danger, foregroundColor: PColors.onAccent) : null,
-                onPressed: () => Navigator.of(context).pop(true),
-                child: Text(action),
-              ),
+              FilledButton(autofocus: true, style: danger ? PButtons.danger : null, onPressed: () => Navigator.of(context).pop(true), child: Text(action)),
             ],
           ),
         ],

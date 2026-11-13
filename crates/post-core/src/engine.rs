@@ -30,7 +30,8 @@ use tokio::sync::broadcast;
 use zeroize::Zeroizing;
 
 use crate::content::{self, Body, Content};
-use crate::{calls, ephemeral};
+use crate::picture::{Picture, PictureKind};
+use crate::{blob, calls, ephemeral};
 use crate::link::{self as linking, Channel, LinkCode};
 use crate::net::{ServerConn, expect_reply};
 use crate::provider::Provider;
@@ -1066,6 +1067,11 @@ impl Engine {
 
     /// The account for a username, from the verified directory. Never asks
     /// the server about this particular name.
+    /// When an account began (Unix ms), from its device list, if known.
+    pub fn account_created_ms(&self, account: &AccountId) -> Option<u64> {
+        self.chains.get(account).map(Chain::created_ms)
+    }
+
     pub async fn resolve(&mut self, username: &str) -> Result<AccountId> {
         if store::account_by_username(&self.conn, username)?.is_none() {
             self.sync_directory().await?;
@@ -1856,6 +1862,11 @@ impl Engine {
             body: Some(body.clone()),
         };
         let bytes = c.encode_to_vec();
+        // Servers refuse larger messages; every body is checked smaller
+        // above, so this only catches a mistake here.
+        if bytes.len() > content::MAX_CONTENT_BYTES {
+            return Err(Error::InvalidInput("this is too large to send".into()));
+        }
         let tx = self.conn.transaction()?;
         // Queued unencrypted: it is encrypted when it reaches the front of
         // the outbox (`flush_outbox`), so generations follow send order.
@@ -2269,8 +2280,9 @@ impl Engine {
                 // A new device of ours joined: give it our profile and
                 // everything the self group keeps in step.
                 self.share_profile(gid)?;
-                let snapshot = self_snapshot(&self.conn)?;
-                self.queue_body(gid, Body::SelfSync(snapshot))?;
+                for part in split_snapshot(self_snapshot(&self.conn)?) {
+                    self.queue_body(gid, Body::SelfSync(part))?;
+                }
             } else if self.welcomes_another_account(&req)? {
                 self.share_profile(gid)?;
             }
@@ -2969,6 +2981,10 @@ impl Engine {
         content::check_typing_template(&row.typing_template).map_err(invalid)?;
         content::check_note(&row.note_text).map_err(invalid)?;
         content::check_arrival(&row.arrival).map_err(invalid)?;
+        content::check_bio(&row.bio).map_err(invalid)?;
+        if [&row.banner_fill, &row.theme].into_iter().flatten().any(|f| !f.valid()) {
+            return Err(Error::InvalidInput("a colour fill is one colour, or two and an angle under 360".into()));
+        }
         let mine = self.me()?.account;
         row.version = store::profile(&self.conn, &mine.0)?.map_or(0, |p| p.version) + 1;
         store::upsert_profile(&self.conn, &mine.0, &row)?;
@@ -2983,6 +2999,207 @@ impl Engine {
             Ok(()) | Err(Error::NotConnected | Error::Network(_)) => Ok(()),
             Err(e) => Err(e),
         }
+    }
+
+    // ------------------------------------------------------------ pictures
+
+    /// Set (`Some`) or remove this account's picture of `kind`, and share
+    /// the profile. The picture it replaces is deleted from the server.
+    pub async fn set_picture(&mut self, kind: PictureKind, picture: Option<Picture>) -> Result<()> {
+        let mine = self.me()?.account;
+        let mut row = store::profile(&self.conn, &mine.0)?.unwrap_or_default();
+        let old = row.image(kind).map(|i| i.blob_id.clone());
+        *row.image_mut(kind) = match picture {
+            Some(p) => Some(self.upload_picture(&p).await?),
+            None => None,
+        };
+        self.set_profile(row).await?;
+        if let Some(old) = old {
+            self.delete_own_picture(&old).await?;
+        }
+        Ok(())
+    }
+
+    /// Encrypt and upload a picture. It is kept here, with the secret that
+    /// renews it, so it shows at once and never needs fetching back.
+    async fn upload_picture(&mut self, p: &Picture) -> Result<content::ProfileImage> {
+        let (key, ciphertext) = blob::encrypt(&p.bytes)?;
+        let sha = Sha256::digest(&ciphertext).to_vec();
+        let size = u32::try_from(ciphertext.len()).map_err(|_| Error::Picture("the picture is too large".into()))?;
+        let mut secret = Zeroizing::new([0u8; 32]);
+        getrandom::fill(secret.as_mut()).map_err(|_| Error::Rng)?;
+        let req = proto::UploadBlob { data: ciphertext, renew_hash: Sha256::digest(secret.as_ref()).to_vec() };
+        let stored = match self.session()?.request(Request::UploadBlob(req)).await {
+            Ok(r) => expect_reply!(r, Reply::BlobStored)?,
+            // A server from before pictures.
+            Err(Error::Server(e)) if e.code() == ErrorCode::BadRequest && e.message == "empty request" => {
+                return Err(Error::InvalidInput("your server is too old for profile pictures: ask whoever runs it to update it".into()));
+            }
+            Err(Error::Server(e)) if e.code() == ErrorCode::RateLimited => {
+                return Err(Error::InvalidInput("you have changed pictures too often today; try again tomorrow".into()));
+            }
+            Err(Error::Server(e)) if e.code() == ErrorCode::Unavailable => {
+                return Err(Error::InvalidInput("your server has no room for more pictures right now".into()));
+            }
+            Err(e) => return Err(e),
+        };
+        let tx = self.conn.transaction()?;
+        store::put_picture(&tx, &sha, &p.bytes, stored.expires_at_ms)?;
+        store::add_own_picture(
+            &tx,
+            &store::OwnPicture {
+                blob_id: stored.blob_id.clone(),
+                sha256: sha.clone(),
+                renew_secret: secret.to_vec(),
+                expires_at: stored.expires_at_ms,
+            },
+        )?;
+        tx.commit()?;
+        Ok(content::ProfileImage {
+            blob_id: stored.blob_id,
+            key: key.to_vec(),
+            sha256: sha,
+            size,
+            width: p.width,
+            height: p.height,
+            mime: p.mime.into(),
+        })
+    }
+
+    /// Delete one of this device's uploads from the server, if it is one.
+    /// One the server no longer has, or refuses, is forgotten; a network
+    /// failure leaves it for the next sync's [`Self::renew_pictures`].
+    async fn delete_own_picture(&mut self, blob_id: &[u8]) -> Result<()> {
+        let Some(own) = store::own_pictures(&self.conn)?.into_iter().find(|o| o.blob_id == blob_id) else { return Ok(()) };
+        let req = proto::DeleteBlob { blob_id: own.blob_id.clone(), renew_secret: own.renew_secret.clone() };
+        let Ok(anon) = self.anon() else { return Ok(()) };
+        match anon.request(Request::DeleteBlob(req)).await {
+            Ok(_) | Err(Error::Server(_)) => store::remove_own_picture(&self.conn, &own.blob_id),
+            Err(Error::NotConnected | Error::Network(_)) => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Fetch, check and keep a few of the pictures profiles name that this
+    /// device does not have yet, and forget ones no profile names any more.
+    /// Returns whether more are waiting.
+    pub async fn fetch_pictures(&mut self) -> Result<bool> {
+        const AT_ONCE: usize = 8;
+        // Gone from the server, or a server without pictures: try again in
+        // a few hours, then less and less often.
+        const MISSING_WAIT_MS: u64 = 6 * 3600 * 1000;
+        // Not a valid picture: it will not get better soon.
+        const INVALID_WAIT_MS: u64 = 7 * 24 * 3600 * 1000;
+        let mut keep = HashSet::new();
+        let mut wanted = Vec::new();
+        for (account, p) in store::all_profiles(&self.conn)? {
+            for kind in [PictureKind::Avatar, PictureKind::Banner] {
+                let Some(image) = p.image(kind) else { continue };
+                keep.insert(image.sha256.clone());
+                if store::picture_expiry(&self.conn, &image.sha256)?.is_none() && !store::picture_waiting(&self.conn, &image.sha256)? {
+                    wanted.push((account.clone(), kind, image.clone()));
+                }
+            }
+        }
+        store::forget_pictures_except(&self.conn, &keep)?;
+        let more = wanted.len() > AT_ONCE;
+        for (account, kind, image) in wanted.into_iter().take(AT_ONCE) {
+            let req = Request::FetchBlob(proto::FetchBlob { blob_id: image.blob_id.clone() });
+            let blob = match self.anon()?.request(req).await {
+                Ok(r) => expect_reply!(r, Reply::Blob)?,
+                Err(Error::Server(e)) if matches!(e.code(), ErrorCode::NotFound | ErrorCode::BadRequest) => {
+                    store::picture_missed(&self.conn, &image.sha256, MISSING_WAIT_MS)?;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
+            match open_picture(kind, &image, &blob.data) {
+                Ok(plain) => {
+                    store::put_picture(&self.conn, &image.sha256, &plain, blob.expires_at_ms)?;
+                    if let Some(username) = store::username_of(&self.conn, &account)? {
+                        self.emit(Event::ProfileChanged { username });
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "a picture could not be used");
+                    store::picture_missed(&self.conn, &image.sha256, INVALID_WAIT_MS)?;
+                }
+            }
+        }
+        Ok(more)
+    }
+
+    /// Keep this account's pictures on the server: renew this device's
+    /// uploads a month or more before they lapse, delete ones no longer
+    /// shown, and upload again a picture that lapsed, or that another of
+    /// this account's devices uploaded and is about to lapse (this device
+    /// cannot renew those: only the uploader holds the secret).
+    pub async fn renew_pictures(&mut self) -> Result<()> {
+        // Renewed when under this long is left: about every 30 days.
+        const RENEW_WITHIN_MS: u64 = 60 * 24 * 3600 * 1000;
+        // Uploaded again when another device's upload has under this left.
+        const REUPLOAD_WITHIN_MS: u64 = 14 * 24 * 3600 * 1000;
+        let now = store::now_ms();
+        let mine = self.me()?.account;
+        let profile = store::profile(&self.conn, &mine.0)?.unwrap_or_default();
+        let shown = |blob: &[u8]| [PictureKind::Avatar, PictureKind::Banner].into_iter().find(|k| profile.image(*k).is_some_and(|i| i.blob_id == blob));
+        let own = store::own_pictures(&self.conn)?;
+        for o in &own {
+            let Some(kind) = shown(&o.blob_id) else {
+                self.delete_own_picture(&o.blob_id).await?;
+                continue;
+            };
+            if o.expires_at > now + RENEW_WITHIN_MS {
+                continue;
+            }
+            let req = proto::RenewBlob { blob_id: o.blob_id.clone(), renew_secret: o.renew_secret.clone() };
+            match self.anon()?.request(Request::RenewBlob(req)).await {
+                Ok(r) => {
+                    let stored = expect_reply!(r, Reply::BlobStored)?;
+                    store::own_picture_renewed(&self.conn, &o.blob_id, stored.expires_at_ms)?;
+                    store::picture_renewed(&self.conn, &o.sha256, stored.expires_at_ms)?;
+                }
+                Err(Error::Server(e)) if e.code() == ErrorCode::NotFound => {
+                    store::remove_own_picture(&self.conn, &o.blob_id)?;
+                    self.upload_again(kind).await?;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        for kind in [PictureKind::Avatar, PictureKind::Banner] {
+            let Some(image) = profile.image(kind) else { continue };
+            if own.iter().any(|o| o.blob_id == image.blob_id) {
+                continue;
+            }
+            let Some(expires) = store::picture_expiry(&self.conn, &image.sha256)? else { continue };
+            if expires > now + REUPLOAD_WITHIN_MS {
+                continue;
+            }
+            // The uploader may have renewed it since: ask before uploading.
+            let req = Request::FetchBlob(proto::FetchBlob { blob_id: image.blob_id.clone() });
+            match self.anon()?.request(req).await {
+                Ok(r) => {
+                    let blob = expect_reply!(r, Reply::Blob)?;
+                    store::picture_renewed(&self.conn, &image.sha256, blob.expires_at_ms)?;
+                    if blob.expires_at_ms <= now + REUPLOAD_WITHIN_MS {
+                        self.upload_again(kind).await?;
+                    }
+                }
+                Err(Error::Server(e)) if e.code() == ErrorCode::NotFound => self.upload_again(kind).await?,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+
+    /// Upload this account's picture of `kind` again, from the copy here,
+    /// under a new blob, and share the profile naming it.
+    async fn upload_again(&mut self, kind: PictureKind) -> Result<()> {
+        let mine = self.me()?.account;
+        let Some(image) = store::profile(&self.conn, &mine.0)?.and_then(|p| p.image(kind).cloned()) else { return Ok(()) };
+        let Some(bytes) = store::picture(&self.conn, &image.sha256)? else { return Ok(()) };
+        let mime = if image.mime == "image/png" { "image/png" } else { "image/jpeg" };
+        self.set_picture(kind, Some(Picture { bytes, width: image.width, height: image.height, mime })).await
     }
 
     /// Set or clear a private nickname for someone. Shared only with this
@@ -3161,6 +3378,41 @@ fn apply_self_sync(tx: &Connection, s: &content::SelfSync, from: SyncSource<'_>)
     Ok(changes)
 }
 
+/// The most a part of a self-group snapshot holds, encoded: well inside the
+/// largest message a server accepts.
+const SNAPSHOT_PART_BYTES: usize = 32 * 1024;
+
+/// A snapshot as parts that each fit in one message. Every entry in a
+/// snapshot stands alone, so the parts apply in any order.
+fn split_snapshot(s: content::SelfSync) -> Vec<content::SelfSync> {
+    use prost::Message as _;
+    let fresh = || content::SelfSync { snapshot: true, ..Default::default() };
+    let mut parts = vec![content::SelfSync { announcements_read: s.announcements_read, ..fresh() }];
+    let mut size = 0usize;
+    macro_rules! spread {
+        ($field:ident) => {
+            for e in s.$field {
+                // The entry, and its tag and length.
+                let n = e.encoded_len() + 4;
+                if size > 0 && size + n > SNAPSHOT_PART_BYTES {
+                    parts.push(fresh());
+                    size = 0;
+                }
+                size += n;
+                if let Some(p) = parts.last_mut() {
+                    p.$field.push(e);
+                }
+            }
+        };
+    }
+    spread!(nicknames);
+    spread!(device_names);
+    spread!(verified);
+    spread!(read);
+    spread!(settings);
+    parts
+}
+
 /// The full self-group snapshot for a device joining it.
 fn self_snapshot(conn: &Connection) -> Result<content::SelfSync> {
     Ok(content::SelfSync {
@@ -3198,7 +3450,28 @@ fn profile_body(p: &store::ProfileRow) -> content::Profile {
             expires_at_ms: p.note_expires_at,
         }),
         arrival: p.arrival.clone(),
+        avatar: p.avatar.clone(),
+        banner: p.banner.clone(),
+        bio: p.bio.clone(),
+        banner_fill: p.banner_fill.clone(),
+        theme: p.theme.clone(),
     }
+}
+
+/// Check a fetched picture against what its profile says, open it, and
+/// check the image inside.
+fn open_picture(kind: PictureKind, image: &content::ProfileImage, ciphertext: &[u8]) -> Result<Vec<u8>> {
+    let bad = |why: &str| Error::Picture(format!("a picture did not match its profile: {why}"));
+    if ciphertext.len() != image.size as usize {
+        return Err(bad("wrong size"));
+    }
+    if Sha256::digest(ciphertext).as_slice() != image.sha256.as_slice() {
+        return Err(bad("wrong hash"));
+    }
+    let key: [u8; 32] = image.key.as_slice().try_into().map_err(|_| bad("bad key"))?;
+    let plain = blob::decrypt(&key, ciphertext)?;
+    crate::picture::check(kind, &plain)?;
+    Ok(plain)
 }
 
 /// A message that exists, is not deleted, and was sent by `me`.
@@ -3515,10 +3788,8 @@ fn handle_content(
     };
     match &c.body {
         Some(Body::Text(t)) => {
-            if t.body.len() > content::MAX_TEXT {
-                return Err(reject("a message was too long"));
-            }
-            let added = store::insert_message(tx, &new_message(Some(&t.body)))?;
+            // Too long: cut, not refused (see `content::fit_line`).
+            let added = store::insert_message(tx, &new_message(Some(content::fit_text(&t.body, content::MAX_TEXT))))?;
             store::touch(tx, gid)?;
             Ok(if added { Outcome::Added(id) } else { Outcome::Nothing })
         }
@@ -3530,10 +3801,10 @@ fn handle_content(
             if target.sender_account != *sender {
                 return Err(reject("someone tried to edit a message they did not send"));
             }
-            if ed.body.is_empty() || ed.body.len() > content::MAX_TEXT {
-                return Err(reject("an edit was empty or too long"));
+            if ed.body.is_empty() {
+                return Err(reject("an edit was empty"));
             }
-            store::add_version(tx, gid, &ed.target, &id, Some(e.seq), &ed.body, c.sent_at_ms)?;
+            store::add_version(tx, gid, &ed.target, &id, Some(e.seq), content::fit_text(&ed.body, content::MAX_TEXT), c.sent_at_ms)?;
             Ok(Outcome::Changed(ed.target.as_slice().try_into().map_err(|_| reject("bad message id"))?))
         }
         Some(Body::Delete(d)) => {
@@ -3545,31 +3816,30 @@ fn handle_content(
             Ok(Outcome::Deleted(d.target.as_slice().try_into().map_err(|_| reject("bad message id"))?))
         }
         Some(Body::Profile(p)) => {
+            // Nothing in a profile refuses it: what is too long is cut, and
+            // what is not valid is dropped.
             let note = p.note.clone().unwrap_or_default();
-            let valid = content::check_display_name(&p.display_name).is_ok()
-                && content::check_typing_template(&p.typing_template).is_ok()
-                && content::check_note(&note.text).is_ok();
-            if !valid {
-                return Err(reject("someone sent an invalid profile"));
-            }
             let row = store::ProfileRow {
                 version: p.version,
-                display_name: p.display_name.clone(),
-                typing_template: p.typing_template.clone(),
-                note_text: note.text,
+                display_name: content::fit_line(&p.display_name, content::MAX_DISPLAY_NAME),
+                typing_template: content::fit_typing_template(&p.typing_template),
+                note_text: content::fit_line(&note.text, content::MAX_NOTE),
                 note_set_at: note.set_at_ms,
                 note_expires_at: note.expires_at_ms,
                 // Only a look: one that is not a valid name is dropped
                 // rather than refusing the whole profile.
                 arrival: if content::check_arrival(&p.arrival).is_ok() { p.arrival.clone() } else { String::new() },
+                // Likewise a picture that is not well formed, or a fill.
+                avatar: p.avatar.clone().filter(|i| i.valid(PictureKind::Avatar)),
+                banner: p.banner.clone().filter(|i| i.valid(PictureKind::Banner)),
+                bio: content::fit_bio(&p.bio),
+                banner_fill: p.banner_fill.clone().filter(content::Fill::valid),
+                theme: p.theme.clone().filter(content::Fill::valid),
             };
             Ok(if store::upsert_profile(tx, &sender.0, &row)? { Outcome::Profile(*sender) } else { Outcome::Nothing })
         }
         Some(Body::ConversationName(n)) => {
-            if content::check_display_name(&n.name).is_err() {
-                return Err(reject("someone set an invalid name"));
-            }
-            store::set_conversation_name(tx, gid, &sender.0, &n.name)?;
+            store::set_conversation_name(tx, gid, &sender.0, &content::fit_line(&n.name, content::MAX_DISPLAY_NAME))?;
             Ok(Outcome::Conversation)
         }
         Some(Body::Call(ev)) => {
@@ -3581,8 +3851,8 @@ fn handle_content(
             if sender != me {
                 return Err(reject("another account wrote to this account's device group"));
             }
-            check_self_sync(s).map_err(reject)?;
-            Ok(Outcome::SelfSync(apply_self_sync(tx, s, SyncSource::Log { seq: e.seq, snapshot: s.snapshot })?))
+            let s = content::fit_self_sync(s);
+            Ok(Outcome::SelfSync(apply_self_sync(tx, &s, SyncSource::Log { seq: e.seq, snapshot: s.snapshot })?))
         }
         Some(Body::Receipt(r)) => {
             // Positions before the receipt itself: nobody has received what
@@ -3611,6 +3881,27 @@ mod adversarial_tests;
 mod tests {
     use super::*;
     use post_identity::chain::seal;
+
+    #[test]
+    fn large_snapshots_split_into_messages_that_fit() {
+        let s = content::SelfSync {
+            nicknames: (0..2000u32)
+                .map(|i| content::NicknameEntry { account: [(i % 256) as u8; 32].to_vec(), name: "a long nickname, sixty-four characters or so, well, nearly".into() })
+                .collect(),
+            read: (0..3000u32).map(|i| content::ReadEntry { group: [(i % 256) as u8; 16].to_vec(), seq: u64::from(i) }).collect(),
+            announcements_read: 7,
+            snapshot: true,
+            ..Default::default()
+        };
+        let parts = split_snapshot(s);
+        assert!(parts.len() > 1);
+        assert!(parts.iter().all(|p| p.snapshot && p.encoded_len() <= SNAPSHOT_PART_BYTES));
+        assert_eq!(parts.iter().map(|p| p.nicknames.len()).sum::<usize>(), 2000);
+        assert_eq!(parts.iter().map(|p| p.read.len()).sum::<usize>(), 3000);
+        assert_eq!(parts[0].announcements_read, 7);
+        // A small one stays whole.
+        assert_eq!(split_snapshot(content::SelfSync { snapshot: true, ..Default::default() }).len(), 1);
+    }
 
     #[test]
     fn refreshes_fall_due_weekly_spread_by_group() {

@@ -11,12 +11,14 @@
 
 pub mod keyfile;
 
+mod blob;
 mod content;
 mod calls;
 mod engine;
 mod ephemeral;
 mod link;
 mod net;
+pub mod picture;
 mod provider;
 mod store;
 pub mod update;
@@ -30,7 +32,7 @@ use rusqlite::Connection;
 use tokio::sync::broadcast;
 use zeroize::Zeroizing;
 
-pub use content::{MAX_NOTE, MAX_TYPING_TEMPLATE, NAME_PLACEHOLDER, render_typing};
+pub use content::{Fill, MAX_BIO, MAX_NOTE, MAX_TYPING_TEMPLATE, NAME_PLACEHOLDER, render_typing};
 use engine::Engine;
 
 /// Everything that can go wrong in the core.
@@ -103,6 +105,10 @@ pub enum Error {
     /// sentence saying why.
     #[error("{0}")]
     Update(String),
+    /// A picture could not be used: not an image, too big, or damaged on
+    /// the way; one sentence saying why.
+    #[error("{0}")]
+    Picture(String),
 }
 
 /// Result type for the core.
@@ -550,6 +556,21 @@ pub struct Person {
     /// How their messages arrive on screen (an app animation preset);
     /// empty for the default.
     pub arrival: String,
+    /// Their profile picture, for [`Core::picture`], once this device has
+    /// it; until then (or with none), show the default.
+    pub avatar: Option<String>,
+    /// Their banner, for [`Core::picture`], once this device has it.
+    pub banner: Option<String>,
+    /// Their bio (about me), formatted like a message; empty if none.
+    pub bio: String,
+    /// Their banner's colour or gradient when they have no banner image, if
+    /// they chose one.
+    pub banner_fill: Option<Fill>,
+    /// Their profile colours, if they chose them.
+    pub theme: Option<Fill>,
+    /// When their account began (Unix ms): signed into its device list and
+    /// checked by their server when it registered.
+    pub since_ms: Option<u64>,
 }
 
 /// A device asking to join this account, as shown before approving it.
@@ -673,6 +694,13 @@ pub struct ProfileUpdate {
     pub note_keep: bool,
     /// New arrival preset for your messages; empty restores the default.
     pub arrival: Option<String>,
+    /// New bio (about me); empty clears it.
+    pub bio: Option<String>,
+    /// New banner colour or gradient, shown when there is no banner image,
+    /// or `Some(None)` for the app's choice.
+    pub banner_fill: Option<Option<Fill>>,
+    /// New profile colours, or `Some(None)` for the app's own look.
+    pub theme: Option<Option<Fill>>,
 }
 
 /// Something that happened, for live views.
@@ -1016,7 +1044,8 @@ impl Core {
 
     /// Log in and catch up. Safe to call when already connected.
     pub async fn connect(&self) -> Result<()> {
-        self.engine.lock().await.connect().await
+        self.engine.lock().await.connect().await?;
+        self.keep_pictures().await
     }
 
     /// Whether both server connections are up.
@@ -1026,7 +1055,32 @@ impl Core {
 
     /// Fetch and process everything new, and send what is queued.
     pub async fn sync(&self) -> Result<()> {
-        self.engine.lock().await.sync().await
+        self.engine.lock().await.sync().await?;
+        self.keep_pictures().await
+    }
+
+    /// After catching up: keep this account's pictures on the server, and
+    /// fetch the pictures profiles name that are not here yet.
+    async fn keep_pictures(&self) -> Result<()> {
+        match self.engine.lock().await.renew_pictures().await {
+            Ok(()) => {}
+            Err(e @ (Error::NotConnected | Error::Network(_))) => return Err(e),
+            Err(e) => tracing::warn!(error = %e, "renewing pictures failed"),
+        }
+        // Then pictures, a few at a time, letting other work in between: a
+        // new device may have hundreds to fetch, and they never hold up a
+        // message. A failure waits for the next sync.
+        loop {
+            match self.engine.lock().await.fetch_pictures().await {
+                Ok(true) => {}
+                Ok(false) => return Ok(()),
+                Err(e @ (Error::NotConnected | Error::Network(_))) => return Err(e),
+                Err(e) => {
+                    tracing::warn!(error = %e, "fetching pictures failed");
+                    return Ok(());
+                }
+            }
+        }
     }
 
     /// Stay connected for as long as the returned future runs: connect, stay
@@ -1498,32 +1552,66 @@ impl Core {
     pub async fn set_profile(&self, update: ProfileUpdate) -> Result<()> {
         let mut engine = self.engine.lock().await;
         let mine = engine.me.as_ref().ok_or(Error::NotRegistered)?.account;
-        let current = store::profile(&engine.conn, &mine.0)?.unwrap_or(store::ProfileRow {
-            version: 0,
-            display_name: String::new(),
-            typing_template: String::new(),
-            note_text: String::new(),
-            note_set_at: 0,
-            note_expires_at: 0,
-            arrival: String::new(),
-        });
+        let current = store::profile(&engine.conn, &mine.0)?.unwrap_or_default();
         let now = store::now_ms();
         let (note_text, note_set_at, note_expires_at) = match update.note {
             Some(n) if n.is_empty() => (String::new(), 0, 0),
             Some(n) => (n, now, if update.note_keep { 0 } else { now + content::NOTE_DEFAULT_MS }),
-            None => (current.note_text, current.note_set_at, current.note_expires_at),
+            None => (current.note_text.clone(), current.note_set_at, current.note_expires_at),
         };
+        let banner_fill = update.banner_fill.unwrap_or_else(|| current.banner_fill.clone());
+        let theme = update.theme.unwrap_or_else(|| current.theme.clone());
         engine
             .set_profile(store::ProfileRow {
                 version: 0,
-                display_name: update.display_name.unwrap_or(current.display_name),
-                typing_template: update.typing_template.unwrap_or(current.typing_template),
+                display_name: update.display_name.unwrap_or_else(|| current.display_name.clone()),
+                typing_template: update.typing_template.unwrap_or_else(|| current.typing_template.clone()),
                 note_text,
                 note_set_at,
                 note_expires_at,
-                arrival: update.arrival.unwrap_or(current.arrival),
+                arrival: update.arrival.unwrap_or_else(|| current.arrival.clone()),
+                bio: update.bio.unwrap_or_else(|| current.bio.clone()),
+                banner_fill,
+                theme,
+                ..current
             })
             .await
+    }
+
+    /// Set your profile picture or banner from an image file's bytes,
+    /// cropped to `crop` (else its middle), or remove it (`None`). The
+    /// image is made into a picture within the limits here, encrypted,
+    /// uploaded, and shared like the rest of your profile. Needs a
+    /// connection.
+    pub async fn set_picture(&self, kind: picture::PictureKind, source: Option<(Vec<u8>, Option<picture::Crop>)>) -> Result<()> {
+        // Decoding and shrinking a large photo takes a moment: not on the
+        // engine, which would hold up messages meanwhile.
+        let prepared = match source {
+            Some((bytes, crop)) => Some(
+                tokio::task::spawn_blocking(move || picture::prepare(kind, &bytes, crop))
+                    .await
+                    .map_err(|_| Error::Picture("preparing the picture failed".into()))??,
+            ),
+            None => None,
+        };
+        self.engine.lock().await.set_picture(kind, prepared).await
+    }
+
+    /// A picture (profile picture or banner) this device has fetched, by
+    /// the ID a [`Person`] gives for it.
+    pub fn picture(&self, id: &str) -> Result<Option<Vec<u8>>> {
+        let Ok(sha) = hex::decode(id) else { return Ok(None) };
+        self.read(|c| store::picture(c, &sha))
+    }
+
+    /// A picture this device has, ready to draw at exactly `width`×`height`
+    /// pixels (see [`picture::scaled`]): RGBA, row by row.
+    pub async fn picture_scaled(&self, id: &str, width: u32, height: u32) -> Result<Option<Vec<u8>>> {
+        let Some(bytes) = self.picture(id)? else { return Ok(None) };
+        tokio::task::spawn_blocking(move || picture::scaled(&bytes, width, height))
+            .await
+            .map_err(|_| Error::Picture("scaling a picture failed".into()))?
+            .map(Some)
     }
 
     /// Set (or clear, with an empty name) your display name in one conversation.
@@ -1540,10 +1628,21 @@ impl Core {
 
     /// What this device knows about a person.
     pub async fn person(&self, username: &str) -> Result<Person> {
-        let account = self.engine.lock().await.resolve(username).await?;
+        let (account, since_ms) = {
+            let mut engine = self.engine.lock().await;
+            let account = engine.resolve(username).await?;
+            (account, engine.account_created_ms(&account))
+        };
         self.read(|c| {
             let p = store::profile(c, &account.0)?;
             let now = store::now_ms();
+            // A picture shows once it is here; until then, the default.
+            let held = |kind| -> Result<Option<String>> {
+                match p.as_ref().and_then(|p| p.image(kind)) {
+                    Some(i) if store::picture_expiry(c, &i.sha256)?.is_some() => Ok(Some(hex::encode(&i.sha256))),
+                    _ => Ok(None),
+                }
+            };
             Ok(Person {
                 username: username.into(),
                 shown_name: store::shown_name(c, None, &account.0)?,
@@ -1552,6 +1651,12 @@ impl Core {
                 typing_template: p.as_ref().map(|p| p.typing_template.clone()).unwrap_or_default(),
                 verified: store::is_verified(c, &account.0)?,
                 arrival: p.as_ref().map(|p| p.arrival.clone()).unwrap_or_default(),
+                avatar: held(picture::PictureKind::Avatar)?,
+                banner: held(picture::PictureKind::Banner)?,
+                bio: p.as_ref().map(|p| p.bio.clone()).unwrap_or_default(),
+                banner_fill: p.as_ref().and_then(|p| p.banner_fill.clone()),
+                theme: p.as_ref().and_then(|p| p.theme.clone()),
+                since_ms,
                 note: p.filter(|p| !p.note_text.is_empty() && (p.note_expires_at == 0 || p.note_expires_at > now)).map(|p| p.note_text),
             })
         })

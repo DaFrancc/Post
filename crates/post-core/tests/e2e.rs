@@ -5,7 +5,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use post_core::{Core, DbKey, Event, MessageState, ProfileUpdate};
+use post_core::{Core, DbKey, Event, Fill, MessageState, ProfileUpdate};
 use tempfile::TempDir;
 use zeroize::Zeroizing;
 
@@ -34,6 +34,7 @@ impl Server {
             db_key: Zeroizing::new(key),
             releases: post_server::ReleaseConfig::none(),
             calls,
+            blobs: post_server::BlobConfig::beside(&db),
         };
         let running = post_server::spawn(listener, config).expect("server starts");
         Self { url: running.url(), _running: running, db, key, _dir: dir }
@@ -99,11 +100,16 @@ async fn dm_messages_edits_deletes_and_profiles() {
             note: Some("at the beach".into()),
             note_keep: false,
             arrival: Some("decode".into()),
+            bio: Some("Climber, bad photographer.\n\nAsk me about **the spreadsheet**, @bob.".into()),
+            theme: Some(Some(Fill { colors: vec![0x4a3a8f, 0x1b4e63], angle: 135 })),
+            ..Default::default()
         })
         .await
         .expect("profile");
     let bad = ProfileUpdate { arrival: Some("Not A Name".into()), ..Default::default() };
     assert!(alice.set_profile(bad).await.is_err(), "an arrival style must be a short lowercase name");
+    let bad = ProfileUpdate { bio: Some("x".repeat(post_core::MAX_BIO + 1)), ..Default::default() };
+    assert!(alice.set_profile(bad).await.is_err(), "a bio is at most 500 characters");
 
     // Alice opens a DM and writes.
     let dm = alice.start_dm("bob").await.expect("start dm");
@@ -127,6 +133,11 @@ async fn dm_messages_edits_deletes_and_profiles() {
     assert_eq!(alice_seen_by_bob.typing_template, "the one who types is $$NAME$$");
     assert_eq!(alice_seen_by_bob.note.as_deref(), Some("at the beach"));
     assert_eq!(alice_seen_by_bob.arrival, "decode", "her messages arrive her way on Bob's screen too");
+    assert_eq!(alice_seen_by_bob.bio, "Climber, bad photographer.\n\nAsk me about **the spreadsheet**, @bob.", "line breaks and all");
+    assert_eq!(alice_seen_by_bob.theme, Some(Fill { colors: vec![0x4a3a8f, 0x1b4e63], angle: 135 }), "her card in her colours");
+    let since = alice_seen_by_bob.since_ms.expect("when her account began");
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("now").as_millis() as u64;
+    assert!(since <= now && now - since < 10 * 60 * 1000, "her account began minutes ago");
 
     // Bob replies.
     bob.send_text(dm.id, "hi alice").await.expect("reply");
@@ -177,6 +188,22 @@ async fn dm_messages_edits_deletes_and_profiles() {
 
     // Both see the same safety number.
     assert_eq!(alice.safety_number("bob").await.expect("sn"), bob.safety_number("alice").await.expect("sn"));
+}
+
+/// The longest text an app allows (64 KiB) still fits under the server's
+/// cap on a message once encrypted, signed and padded.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_longest_text_fits_the_servers_cap() {
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let dm = alice.start_dm("bob").await.expect("start dm");
+    let longest = "é".repeat(64 * 1024 / 2);
+    let sent = alice.send_text(dm.id, &longest).await.expect("longest text");
+    assert_eq!(sent.state, MessageState::Sent);
+    bob.sync().await.expect("bob sync");
+    assert_eq!(bob.messages(dm.id, 5).expect("messages")[0].body.as_deref(), Some(longest.as_str()));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -600,6 +627,60 @@ async fn hosts_make_invites() {
     carol.register(&invite.server, &invite.code, "carol", false).await.expect("register with the host's invite");
     let dave = Core::open(&dir.path().join("dave"), &DbKey::from_bytes([7; 32])).expect("open profile");
     assert!(dave.register(&invite.server, &invite.code, "dave", false).await.is_err(), "single use");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn profile_pictures_and_banners_reach_others() {
+    use post_core::picture::PictureKind;
+
+    let server = Server::start().await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let alice = server.client(dir.path(), "alice").await;
+    let bob = server.client(dir.path(), "bob").await;
+    let dm = alice.start_dm("bob").await.expect("start dm");
+    alice.send_text(dm.id, "hi").await.expect("send");
+    bob.sync().await.expect("bob joins");
+
+    // A photo-sized image, larger than a picture may be.
+    let photo = image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(1200, 900, |x, y| image::Rgb([(x % 256) as u8, (y % 256) as u8, 90])));
+    let mut png = Vec::new();
+    photo.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).expect("png");
+
+    alice.set_picture(PictureKind::Avatar, Some((png.clone(), None))).await.expect("set picture");
+    alice.set_picture(PictureKind::Banner, Some((png, None))).await.expect("set banner");
+    let solid = Fill { colors: vec![0x11_22_33], angle: 0 };
+    alice.set_profile(ProfileUpdate { banner_fill: Some(Some(solid.clone())), ..Default::default() }).await.expect("colour");
+    // A gradient needs two colours; a solid colour has no angle.
+    let bad = Fill { colors: vec![0x11_22_33], angle: 90 };
+    assert!(alice.set_profile(ProfileUpdate { banner_fill: Some(Some(bad)), ..Default::default() }).await.is_err());
+    let bad = Fill { colors: vec![0x11_22_33, 0x44_55_66], angle: 360 };
+    assert!(alice.set_profile(ProfileUpdate { theme: Some(Some(bad)), ..Default::default() }).await.is_err());
+
+    // Alice has hers at once; it never needs fetching back.
+    let mine = alice.person("alice").await.expect("person");
+    let avatar = mine.avatar.clone().expect("her picture shows");
+    let picture = alice.picture(&avatar).expect("read").expect("held");
+    let decoded = image::load_from_memory(&picture).expect("an image");
+    assert_eq!((decoded.width(), decoded.height()), (512, 512), "cropped square and shrunk");
+
+    // Bob fetches, checks and opens them.
+    bob.sync().await.expect("bob sync");
+    let seen = bob.person("alice").await.expect("person");
+    assert_eq!(seen.avatar.as_deref(), Some(avatar.as_str()));
+    assert_eq!(bob.picture(&avatar).expect("read").expect("fetched"), picture);
+    let banner = seen.banner.expect("banner");
+    let banner_img = image::load_from_memory(&bob.picture(&banner).expect("read").expect("fetched")).expect("an image");
+    assert_eq!((banner_img.width(), banner_img.height()), (1200, 400), "3 : 1, no wider than it was");
+    assert_eq!(seen.banner_fill, Some(solid));
+
+    // Not an image: refused before anything is sent.
+    assert!(alice.set_picture(PictureKind::Avatar, Some((b"not an image".to_vec(), None))).await.is_err());
+
+    // Removed: Bob shows the default again, and forgets the old one.
+    alice.set_picture(PictureKind::Avatar, None).await.expect("remove");
+    bob.sync().await.expect("bob sync");
+    assert_eq!(bob.person("alice").await.expect("person").avatar, None);
+    assert_eq!(bob.picture(&avatar).expect("read"), None);
 }
 
 fn state_of(c: &Core, conv: post_core::ConversationId, id: post_core::MessageId) -> MessageState {

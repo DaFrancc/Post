@@ -239,6 +239,42 @@ pub struct PersonInfo {
     /// How their messages arrive on screen: a preset's name, or empty for
     /// the default.
     pub arrival: String,
+    /// Their profile picture's ID, for `picture`, once this device has it;
+    /// until then, or with none, show the default.
+    pub avatar: Option<String>,
+    /// Their banner's ID, for `picture`, once this device has it.
+    pub banner: Option<String>,
+    /// Their bio (about me), formatted like a message; empty if none.
+    pub bio: String,
+    /// Their banner without a banner image, if they chose a colour.
+    pub banner_fill: Option<ColorFill>,
+    /// Their profile colours, if they chose them.
+    pub theme: Option<ColorFill>,
+    /// When their account began (Unix ms), if known: "on Post since".
+    pub since_ms: Option<u64>,
+}
+
+/// A colour, or a gradient between two at an angle.
+#[derive(Clone)]
+pub struct ColorFill {
+    /// One colour (solid) or two (a gradient from the first to the
+    /// second), `0xRRGGBB` each.
+    pub colors: Vec<u32>,
+    /// A gradient's direction in degrees, as in CSS: 0 runs from the
+    /// bottom up, 90 left to right, 180 top to bottom. 0 when solid.
+    pub angle: u32,
+}
+
+impl From<core::Fill> for ColorFill {
+    fn from(f: core::Fill) -> Self {
+        Self { colors: f.colors, angle: f.angle }
+    }
+}
+
+impl From<ColorFill> for core::Fill {
+    fn from(f: ColorFill) -> Self {
+        Self { colors: f.colors, angle: f.angle }
+    }
 }
 
 /// One of this account's devices.
@@ -349,6 +385,52 @@ pub struct ProfileChange {
     pub note_keep: bool,
     /// How the user's messages arrive on screen: a preset's name.
     pub arrival: Option<String>,
+    /// Bio (about me): up to `bio_limit()` characters, line breaks
+    /// included, formatted like a message.
+    pub bio: Option<String>,
+}
+
+/// Which profile picture.
+#[derive(Clone, Copy)]
+pub enum PictureKind {
+    /// The round profile picture: square.
+    Avatar,
+    /// The banner across the top of a profile: 3 : 1.
+    Banner,
+}
+
+impl From<PictureKind> for core::picture::PictureKind {
+    fn from(k: PictureKind) -> Self {
+        match k {
+            PictureKind::Avatar => Self::Avatar,
+            PictureKind::Banner => Self::Banner,
+        }
+    }
+}
+
+/// The part of an image to use, as fractions of its width and height (of
+/// the image as shown, turned upright).
+pub struct PictureCrop {
+    /// Left edge.
+    pub x: f64,
+    /// Top edge.
+    pub y: f64,
+    /// Width.
+    pub width: f64,
+    /// Height.
+    pub height: f64,
+}
+
+/// How large a picture may be, for saying so in the app.
+pub struct PictureLimits {
+    /// Width in pixels.
+    pub max_width: u32,
+    /// Height in pixels.
+    pub max_height: u32,
+    /// Bytes.
+    pub max_bytes: u32,
+    /// Largest image file one may be made from, in bytes.
+    pub max_source_bytes: u32,
 }
 
 /// What changed. The app re-reads what it shows for that kind.
@@ -671,8 +753,65 @@ impl Client {
             note: change.note,
             note_keep: change.note_keep,
             arrival: change.arrival,
+            bio: change.bio,
+            banner_fill: None,
+            theme: None,
         };
         Ok(self.core.set_profile(update).await?)
+    }
+
+    /// Set the banner's colour or gradient shown when there is no banner
+    /// image, or with `None` leave it to the app. Shared at once.
+    pub async fn set_banner_fill(&self, fill: Option<ColorFill>) -> Result<(), PostError> {
+        let update = core::ProfileUpdate { banner_fill: Some(fill.map(Into::into)), ..Default::default() };
+        Ok(self.core.set_profile(update).await?)
+    }
+
+    /// Set the user's profile colours, or with `None` go back to the app's
+    /// own look. Shared at once.
+    pub async fn set_theme(&self, fill: Option<ColorFill>) -> Result<(), PostError> {
+        let update = core::ProfileUpdate { theme: Some(fill.map(Into::into)), ..Default::default() };
+        Ok(self.core.set_profile(update).await?)
+    }
+
+    /// Set the user's profile picture or banner from an image file: the
+    /// `crop` part of it, else its middle. It is shrunk to fit, encrypted,
+    /// uploaded and shared. Needs a connection.
+    pub async fn set_picture(&self, kind: PictureKind, path: String, crop: Option<PictureCrop>) -> Result<(), PostError> {
+        let unreadable = |e: std::io::Error| PostError::new(ErrorKind::InvalidInput, format!("Could not read that file ({e})."));
+        let size = tokio::fs::metadata(&path).await.map_err(unreadable)?.len();
+        if size > core::picture::MAX_SOURCE_BYTES as u64 {
+            let mb = core::picture::MAX_SOURCE_BYTES / 1024 / 1024;
+            return Err(PostError::new(ErrorKind::InvalidInput, format!("That image is over {mb} MB. Pick a smaller one.")));
+        }
+        let bytes = tokio::fs::read(&path).await.map_err(unreadable)?;
+        let crop = crop.map(|c| core::picture::Crop { x: c.x, y: c.y, width: c.width, height: c.height });
+        Ok(self.core.set_picture(kind.into(), Some((bytes, crop))).await?)
+    }
+
+    /// Remove the user's profile picture or banner.
+    pub async fn remove_picture(&self, kind: PictureKind) -> Result<(), PostError> {
+        Ok(self.core.set_picture(kind.into(), None).await?)
+    }
+
+    /// How large a picture of `kind` may be.
+    #[frb(sync)]
+    pub fn picture_limits(kind: PictureKind) -> PictureLimits {
+        let k: core::picture::PictureKind = kind.into();
+        let (max_width, max_height) = k.max_size();
+        PictureLimits {
+            max_width,
+            max_height,
+            max_bytes: k.max_bytes() as u32,
+            max_source_bytes: core::picture::MAX_SOURCE_BYTES as u32,
+        }
+    }
+
+    /// Longest bio, in characters (Unicode scalar values: Dart's runes),
+    /// line breaks included.
+    #[frb(sync)]
+    pub fn bio_limit() -> u32 {
+        core::MAX_BIO as u32
     }
 
     /// An app setting on this device, kept in the encrypted profile.
@@ -987,7 +1126,27 @@ impl Client {
             note: p.note,
             verified: p.verified,
             arrival: p.arrival,
+            avatar: p.avatar,
+            banner: p.banner,
+            bio: p.bio,
+            banner_fill: p.banner_fill.map(Into::into),
+            theme: p.theme.map(Into::into),
+            since_ms: p.since_ms,
         })
+    }
+
+    /// A profile picture or banner this device has, by the ID a person
+    /// gives for it: the image file's bytes (PNG or JPEG), already checked.
+    pub fn picture(&self, id: String) -> Result<Option<Vec<u8>>, PostError> {
+        Ok(self.core.picture(&id)?)
+    }
+
+    /// A picture this device has, scaled to exactly `width`×`height` pixels
+    /// (the device pixels it will fill), cropped from its middle to that
+    /// shape: RGBA bytes, row by row. Shrunk well, once, here, so the app
+    /// draws it pixel for pixel.
+    pub async fn picture_scaled(&self, id: String, width: u32, height: u32) -> Result<Option<Vec<u8>>, PostError> {
+        Ok(self.core.picture_scaled(&id, width, height).await?)
     }
 
     /// Set (or clear, with "") a private nickname for someone.

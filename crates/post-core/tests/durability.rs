@@ -413,6 +413,7 @@ async fn messages_survive_a_flaky_network() {
         db_key: Zeroizing::new(key),
         releases: post_server::ReleaseConfig::none(),
         calls: None,
+        blobs: post_server::BlobConfig::beside(&db),
     };
     let _server = post_server::spawn(listener, config).expect("server");
     let invite = || {
@@ -542,6 +543,7 @@ async fn messages_survive_apps_being_killed() {
         db_key: Zeroizing::new(key),
         releases: post_server::ReleaseConfig::none(),
         calls: None,
+        blobs: post_server::BlobConfig::beside(&db),
     };
     let server = post_server::spawn(listener, config).expect("server");
     let invite = || {

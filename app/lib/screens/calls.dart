@@ -158,7 +158,7 @@ class IncomingCall extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               _Pulse(
-                child: PAvatar(name: caller, colorKey: call.startedBy, size: 64),
+                child: PAvatar(name: caller, colorKey: call.startedBy, size: 64, image: state.avatarOf(call.startedBy)),
               ),
               const SizedBox(height: 12),
               Text(
@@ -180,7 +180,7 @@ class IncomingCall extends StatelessWidget {
                   const SizedBox(width: 10),
                   Expanded(
                     child: FilledButton.icon(
-                      style: FilledButton.styleFrom(backgroundColor: PColors.online, foregroundColor: PColors.onAvatar),
+                      style: PButtons.tactile(face: PColors.online, onFace: PColors.onAvatar),
                       onPressed: () {
                         state.select(call.conversation);
                         unawaited(state.calls.answer(call));
@@ -375,7 +375,7 @@ class _Speaker extends StatelessWidget {
           shape: BoxShape.circle,
           border: Border.all(color: speaking ? PColors.online : Colors.transparent, width: 2),
         ),
-        child: PAvatar(name: name, colorKey: person.username, size: 24),
+        child: PAvatar(name: name, colorKey: person.username, size: 24, image: state.avatarOf(person.username)),
       ),
     );
   }
@@ -462,6 +462,7 @@ class CallDock extends StatelessWidget {
           Expanded(
             child: InkWell(
               borderRadius: BorderRadius.circular(8),
+              mouseCursor: SystemMouseCursors.click,
               onTap: () => state.select(a.conversation),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

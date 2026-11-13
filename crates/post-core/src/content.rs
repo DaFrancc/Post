@@ -36,6 +36,9 @@ pub struct ChainHead {
     pub head: Vec<u8>,
 }
 
+// A profile is larger than the rest, but bodies are handled one at a time,
+// never kept by the thousand.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, PartialEq, Oneof)]
 pub enum Body {
     #[prost(message, tag = "10")]
@@ -232,7 +235,9 @@ pub struct Profile {
     /// Global display name; empty means show the username.
     #[prost(string, tag = "2")]
     pub display_name: String,
-    // Tag 3 is the avatar, added with attachments in phase 6.
+    /// Profile picture; none shows the app's default.
+    #[prost(message, optional, tag = "3")]
+    pub avatar: Option<ProfileImage>,
     /// Typing template containing `$$NAME$$`; empty means the standard text.
     #[prost(string, tag = "4")]
     pub typing_template: String,
@@ -244,6 +249,88 @@ pub struct Profile {
     /// presets need no protocol change.
     #[prost(string, tag = "6")]
     pub arrival: String,
+    /// The banner across the top of their profile.
+    #[prost(message, optional, tag = "7")]
+    pub banner: Option<ProfileImage>,
+    // Tags 8, 10 and 11 held colours as plain numbers before any release;
+    // not to be used again.
+    /// About me: a few lines, formatted like a message (formatting and
+    /// mentions); empty for none.
+    #[prost(string, tag = "9")]
+    pub bio: String,
+    /// The banner when there is no banner image; none for the app's choice.
+    #[prost(message, optional, tag = "12")]
+    pub banner_fill: Option<Fill>,
+    /// Profile colours: their profile card in a colour or a gradient; none
+    /// for the app's own look.
+    #[prost(message, optional, tag = "13")]
+    pub theme: Option<Fill>,
+}
+
+/// A colour, or a gradient between two, to fill something with.
+#[derive(Clone, PartialEq, Eq, Message)]
+pub struct Fill {
+    /// One colour (solid), or two (a gradient from the first to the
+    /// second), `0xRRGGBB` each.
+    #[prost(uint32, repeated, tag = "1")]
+    pub colors: Vec<u32>,
+    /// A gradient's direction, in degrees as in CSS: 0 runs from the bottom
+    /// up, 90 left to right, 180 top to bottom. 0 for a solid colour.
+    #[prost(uint32, tag = "2")]
+    pub angle: u32,
+}
+
+impl Fill {
+    /// Well formed: one or two colours, and an angle under 360 (0 when
+    /// solid). One that is not is dropped from a profile rather than
+    /// refusing the profile.
+    pub fn valid(&self) -> bool {
+        (1..=2).contains(&self.colors.len())
+            && self.colors.iter().all(|&c| c <= 0x00ff_ffff)
+            && self.angle < 360
+            && (self.colors.len() == 2 || self.angle == 0)
+    }
+}
+
+/// A profile picture or banner: an encrypted small blob on the server, and
+/// what it takes to fetch, check and open it (design section 7, "Avatar").
+#[derive(Clone, PartialEq, Message)]
+pub struct ProfileImage {
+    /// 16 bytes, from the server.
+    #[prost(bytes = "vec", tag = "1")]
+    pub blob_id: Vec<u8>,
+    /// The 32-byte key it is encrypted under.
+    #[prost(bytes = "vec", tag = "2")]
+    pub key: Vec<u8>,
+    /// SHA-256 of the ciphertext, checked before decrypting.
+    #[prost(bytes = "vec", tag = "3")]
+    pub sha256: Vec<u8>,
+    /// Bytes of ciphertext.
+    #[prost(uint32, tag = "4")]
+    pub size: u32,
+    #[prost(uint32, tag = "5")]
+    pub width: u32,
+    #[prost(uint32, tag = "6")]
+    pub height: u32,
+    /// `image/png` or `image/jpeg`.
+    #[prost(string, tag = "7")]
+    pub mime: String,
+}
+
+impl ProfileImage {
+    /// Well formed for a picture of `kind`. One that is not is dropped
+    /// from a profile rather than refusing the profile.
+    pub fn valid(&self, kind: crate::picture::PictureKind) -> bool {
+        let (max_w, max_h) = kind.max_size();
+        self.blob_id.len() == 16
+            && self.key.len() == 32
+            && self.sha256.len() == 32
+            && self.size > 0
+            && self.size as usize <= post_proto::MAX_SMALL_BLOB_BYTES
+            && (1..=max_w).contains(&self.width)
+            && (1..=max_h).contains(&self.height)
+            && matches!(self.mime.as_str(), "image/png" | "image/jpeg")
+    }
 }
 
 #[derive(Clone, PartialEq, Message)]
@@ -288,6 +375,10 @@ pub struct Delete {
 
 /// Longest message text accepted, in bytes.
 pub const MAX_TEXT: usize = 64 * 1024;
+/// Largest encoded [`Content`] sent. Encrypted, with MLS's signature and
+/// padding, it stays under the server's
+/// [`post_proto::MAX_APPLICATION_MESSAGE_BYTES`].
+pub const MAX_CONTENT_BYTES: usize = 96 * 1024;
 /// Longest display name, in characters.
 pub const MAX_DISPLAY_NAME: usize = 64;
 /// Longest typing template, in characters.
@@ -302,6 +393,78 @@ pub const MAX_NOTE: usize = 60;
 pub const NOTE_DEFAULT_MS: u64 = 24 * 3600 * 1000;
 /// Longest arrival preset name.
 pub const MAX_ARRIVAL: usize = 32;
+/// Longest bio, in characters (line breaks count as one each).
+pub const MAX_BIO: usize = 500;
+
+// ---------------------------------------------------------------- what arrives
+//
+// What this app sends is checked against the limits above, and refused if
+// it breaks them. What arrives is never refused for being too long: another
+// app (a changed one, or one with other limits) may send more, so it is cut
+// to fit and shown. Servers refuse a message too large to be real; this is
+// what keeps one that got through from filling a screen.
+
+/// A received one-line field (a name, a note) made fit to show: control
+/// characters and line breaks dropped, then cut to `max` characters.
+pub fn fit_line(s: &str, max: usize) -> String {
+    s.chars().filter(|c| !c.is_control()).take(max).collect()
+}
+
+/// Received text cut to at most `max` bytes, at a character boundary.
+pub fn fit_text(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut end = max;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
+/// A received bio made fit to show: line breaks made `\n`, other control
+/// characters and direction overrides dropped, then cut to [`MAX_BIO`]
+/// characters.
+pub fn fit_bio(s: &str) -> String {
+    let clean: String = s.replace("\r\n", "\n").chars().filter(|&c| c == '\n' || !(c.is_control() || reorders(c))).take(MAX_BIO).collect();
+    clean.trim_end().to_owned()
+}
+
+/// A character that reorders the text around it (an override or isolate),
+/// so text could show other than it reads.
+fn reorders(c: char) -> bool {
+    matches!(c, '\u{2028}' | '\u{2029}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+}
+
+/// A received typing template cut to fit; one that no longer works (its
+/// placeholders cut off, say) becomes the standard text.
+pub fn fit_typing_template(s: &str) -> String {
+    let t = fit_line(s, MAX_TYPING_TEMPLATE);
+    if check_typing_template(&t).is_ok() { t } else { String::new() }
+}
+
+/// A self-group sync from another of this account's devices made fit:
+/// names cut, and entries naming nothing valid dropped.
+pub fn fit_self_sync(s: &SelfSync) -> SelfSync {
+    SelfSync {
+        nicknames: s
+            .nicknames
+            .iter()
+            .filter(|n| n.account.len() == 32)
+            .map(|n| NicknameEntry { account: n.account.clone(), name: fit_line(&n.name, MAX_DISPLAY_NAME) })
+            .collect(),
+        device_names: s
+            .device_names
+            .iter()
+            .filter(|d| d.device.len() == 16)
+            .map(|d| DeviceNameEntry { device: d.device.clone(), name: fit_line(&d.name, MAX_DISPLAY_NAME) })
+            .collect(),
+        verified: s.verified.iter().filter(|v| v.account.len() == 32).cloned().collect(),
+        read: s.read.iter().filter(|r| r.group.len() == 16).cloned().collect(),
+        settings: s.settings.iter().filter(|x| check_setting(x).is_ok()).cloned().collect(),
+        ..s.clone()
+    }
+}
 
 /// Why a name, template or note is not allowed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -310,6 +473,8 @@ pub enum ProfileError {
     TooLong { what: &'static str, max: usize },
     #[error("{0} may not contain control characters or line breaks")]
     ControlCharacters(&'static str),
+    #[error("{0} may not contain control characters, other than line breaks")]
+    Unprintable(&'static str),
     #[error("a typing template must contain {NAME_PLACEHOLDER} between 1 and {MAX_PLACEHOLDERS} times")]
     Placeholders,
     #[error("an arrival style is a short name of lowercase letters, digits and dashes")]
@@ -320,8 +485,19 @@ fn check_text(s: &str, what: &'static str, max: usize) -> Result<(), ProfileErro
     if s.chars().count() > max {
         return Err(ProfileError::TooLong { what, max });
     }
-    if s.chars().any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}' | '\u{202e}' | '\u{2066}'..='\u{2069}')) {
+    if s.chars().any(|c| c.is_control() || reorders(c)) {
         return Err(ProfileError::ControlCharacters(what));
+    }
+    Ok(())
+}
+
+/// Check a bio: like a name, but line breaks (`\n`) are allowed.
+pub fn check_bio(s: &str) -> Result<(), ProfileError> {
+    if s.chars().count() > MAX_BIO {
+        return Err(ProfileError::TooLong { what: "a bio", max: MAX_BIO });
+    }
+    if s.chars().any(|c| c != '\n' && (c.is_control() || reorders(c))) {
+        return Err(ProfileError::Unprintable("a bio"));
     }
     Ok(())
 }
@@ -472,6 +648,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn what_arrives_is_cut_to_fit_not_refused() {
+        // One-line fields: control characters and line breaks go, then the
+        // rest is cut by characters, not bytes.
+        assert_eq!(fit_line("Ali\nce\u{7}", 64), "Alice");
+        assert_eq!(fit_line(&"é".repeat(100), MAX_DISPLAY_NAME).chars().count(), MAX_DISPLAY_NAME);
+        // Text is cut by bytes, never inside a character.
+        let s = "aé".repeat(10);
+        for max in 0..s.len() {
+            let cut = fit_text(&s, max);
+            assert!(cut.len() <= max && s.starts_with(cut));
+        }
+        assert_eq!(fit_text("short", 100), "short");
+        // A template cut short of its placeholder becomes the standard text.
+        let long = format!("{}{NAME_PLACEHOLDER}", "x".repeat(100));
+        assert_eq!(fit_typing_template(&long), "");
+        assert_eq!(fit_typing_template("$$NAME$$ types"), "$$NAME$$ types");
+        // A bio keeps its line breaks, but no more characters than allowed,
+        // and nothing that could make it show other than it reads.
+        assert_eq!(fit_bio("one\r\ntwo\u{7}\u{202e}\n\nfour\n"), "one\ntwo\n\nfour");
+        assert_eq!(fit_bio(&"é".repeat(900)).chars().count(), MAX_BIO);
+        assert_eq!(fit_bio(&"x\n".repeat(400)).chars().count(), MAX_BIO - 1, "line breaks count, and a trailing one goes");
+        // A sync from another device: names cut, nonsense dropped.
+        let s = SelfSync {
+            nicknames: vec![
+                NicknameEntry { account: vec![1; 32], name: "n".repeat(200) },
+                NicknameEntry { account: vec![1; 3], name: "bad id".into() },
+            ],
+            settings: vec![SettingEntry { key: "NOT VALID".into(), value: String::new() }],
+            ..Default::default()
+        };
+        let fit = fit_self_sync(&s);
+        assert_eq!(fit.nicknames.len(), 1);
+        assert_eq!(fit.nicknames[0].name.chars().count(), MAX_DISPLAY_NAME);
+        assert!(fit.settings.is_empty());
+    }
+
+    #[test]
     fn mentions_in_text() {
         let m = |s: &str| mentions(s);
         assert_eq!(m("hi @alice and @bob_2, @alice again"), ["alice", "bob_2"]);
@@ -509,6 +722,19 @@ mod tests {
         assert!(check_typing_template(&format!("{} $$NAME$$", "x".repeat(80))).is_err());
         assert_eq!(render_typing("the one who types is $$NAME$$", "Alice"), "the one who types is Alice");
         assert_eq!(render_typing("", "Alice"), "Alice is typing");
+    }
+
+    #[test]
+    fn bios() {
+        assert!(check_bio("").is_ok());
+        assert!(check_bio("Climber, bad photographer.\n\nAsk me about **the spreadsheet**.").is_ok());
+        assert!(check_bio(&"é".repeat(MAX_BIO)).is_ok(), "characters, not bytes");
+        assert!(matches!(check_bio(&"x".repeat(MAX_BIO + 1)), Err(ProfileError::TooLong { .. })));
+        assert!(check_bio(&"\n".repeat(MAX_BIO)).is_ok(), "as many lines as fit");
+        assert!(check_bio(&"\n".repeat(MAX_BIO + 1)).is_err(), "line breaks count as characters");
+        for bad in ["tab\there", "carriage\r\nreturn", "over\u{202e}ride"] {
+            assert_eq!(check_bio(bad), Err(ProfileError::Unprintable("a bio")), "{bad:?}");
+        }
     }
 
     #[test]
