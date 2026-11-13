@@ -699,6 +699,43 @@ commands, without touching `.dev/`). As built:
 
 If Flutter is not available, stop after M2 and say so.
 
+Done. `integration_test/devices_test.dart` (`tool/screens.sh devices`) runs
+the page against a throwaway server: the list loads, a device linked from
+the CLI appears by itself, renaming and removing work. As built:
+
+- The rename dialog's controller was disposed while the dialog was still
+  closing (in the old page too); a debug build asserts on it. The dialog
+  is now `renameDevice` in `screens/dialogs.dart`, a `_FormDialog` that
+  owns its field and shows a failure in place.
+- The app imports the generated client as `post_api` (prefixed) while the
+  old bridge's types, several of the same names, are still there.
+- `post link new --json` prints `{"code": …}`, as scripts read it, though
+  `begin_link` returns the bare code.
+
+**Timings** (`integration_test/api_timing_test.dart`, 150 messages of about
+100 characters, 53.5 KiB of JSON, median of 20; release builds are not run
+by `flutter drive`, so profile stands in, as for `tool/timing.sh`):
+
+| | debug | profile |
+|---|---|---|
+| `api.messages(limit: 150)`, whole call | 12.1 ms | 7.3 ms |
+| of which the bridge call (core, and the JSON text across) | 10.7 ms | 6.4 ms |
+| of which decoding (`jsonDecode` and `fromJson`) | 1.1 ms | 0.9 ms |
+| the old typed bridge, same call | 9.2 ms | 6.4 ms |
+
+The bridge call costs what the typed bridge does: the core's own work
+(reading the messages, several small queries each) is the time, and JSON
+adds the decoding, about a millisecond. Not worth decoding off the UI
+isolate at this size.
+
+**Payoff check** (not committed): a field added to core's `Device` and
+shown on the page took the field and the line filling it in
+`post-core/src/lib.rs` and one line in `settings.dart`; the generator wrote
+the rest. `git diff --stat`: 5 files, 24 insertions, 6 deletions, of which
+the Dart client, the OpenRPC file and the fixtures were generated. The bio,
+before this phase, took about 30 hand edits across 8 Rust files before
+any UI.
+
 ## 12. Report back
 
 - For each milestone: which checks passed, and any that could not be run.
