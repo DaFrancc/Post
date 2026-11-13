@@ -15,6 +15,13 @@ analyzer:
     - linux/**
 
     - rust_builder/cargokit/**
+
+# The width the code was written at: it changes the fewest lines. The
+# generated bridge (lib/src/rust/) keeps codegen's format: scripts/fmt.sh and
+# scripts/check.sh leave it out.
+formatter:
+  page_width: 160
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`
