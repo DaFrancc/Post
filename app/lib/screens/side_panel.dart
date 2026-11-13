@@ -542,7 +542,7 @@ class _SafetyCard extends StatelessWidget {
                     onPressed: () => onShow(true),
                     icon: const Icon(Icons.visibility_outlined, size: 16),
                     label: const Text('Show'),
-                    style: FilledButton.styleFrom(backgroundColor: PColors.panelRaised, foregroundColor: PColors.text),
+                    style: PButtons.tactile(face: PColors.panelRaised, onFace: PColors.text),
                   ),
               ],
             ),

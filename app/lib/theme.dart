@@ -201,6 +201,108 @@ final WidgetStateProperty<MouseCursor?> pClickable = WidgetStateProperty.resolve
   (states) => states.contains(WidgetState.disabled) ? SystemMouseCursors.basic : SystemMouseCursors.click,
 );
 
+/// Post's buttons ("tactile"): a face standing on a solid edge, like a key.
+/// It rises a pixel under the pointer and goes all the way down when
+/// pressed. The theme gives every filled and outlined button one of these;
+/// a button in a colour of its own takes [PButtons.tactile] with that
+/// colour, and its edge is worked out from it. Text buttons stay flat: they
+/// are for the least important action in a row.
+abstract final class PButtons {
+  /// The main action.
+  static final primary = tactile(face: PColors.accent, onFace: PColors.onAccent);
+
+  /// Anything else: Cancel, Back.
+  static final secondary = tactile(face: const Color(0xFF1C1F33), onFace: PColors.textBody, border: const Color(0xFF2E3250));
+
+  /// An accent action that is not the main one.
+  static final tonal = tactile(face: const Color(0xFF2B3560), onFace: const Color(0xFFD9E2FF));
+
+  /// Something that removes or ends: deleting, logging out.
+  static final danger = tactile(face: const Color(0xFF3A1A24), onFace: const Color(0xFFFF8EA2));
+
+  /// A tactile button in [face], with [onFace] for its label. A disabled
+  /// one fades and lies flat, unless [fadeDisabled] is false (a button
+  /// showing progress while it works).
+  static ButtonStyle tactile({required Color face, required Color onFace, Color? border, bool fadeDisabled = true}) {
+    return ButtonStyle(
+      backgroundColor: const WidgetStatePropertyAll(Colors.transparent),
+      foregroundColor: WidgetStateProperty.resolveWith(
+        (s) => s.contains(WidgetState.disabled) && fadeDisabled ? onFace.withValues(alpha: 0.55) : onFace,
+      ),
+      iconColor: WidgetStateProperty.resolveWith(
+        (s) => s.contains(WidgetState.disabled) && fadeDisabled ? onFace.withValues(alpha: 0.55) : onFace,
+      ),
+      // The press is the feedback: no ink.
+      overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+      splashFactory: NoSplash.splashFactory,
+      shadowColor: const WidgetStatePropertyAll(Colors.transparent),
+      elevation: const WidgetStatePropertyAll(0),
+      side: const WidgetStatePropertyAll(BorderSide.none),
+      mouseCursor: pClickable,
+      backgroundBuilder: (context, states, child) =>
+          _TactileFace(states: states, face: face, border: border, fadeDisabled: fadeDisabled, child: child),
+    );
+  }
+}
+
+class _TactileFace extends StatelessWidget {
+  const _TactileFace({required this.states, required this.face, required this.border, required this.fadeDisabled, required this.child});
+
+  final Set<WidgetState> states;
+  final Color face;
+  final Color? border;
+  final bool fadeDisabled;
+  final Widget? child;
+
+  static const _radius = BorderRadius.all(Radius.circular(12));
+
+  /// The edge under a face: the same hue, about a third darker and a
+  /// little greyer, as shade is (a vivid face would get a garish edge).
+  static Color _edge(Color c) {
+    final hsl = HSLColor.fromColor(c);
+    return hsl.withLightness(hsl.lightness * 0.68).withSaturation(hsl.saturation * 0.6).toColor();
+  }
+
+  static Color _lit(Color c) {
+    final hsl = HSLColor.fromColor(c);
+    return hsl.withLightness((hsl.lightness * 1.07 + 0.02).clamp(0.0, 1.0)).toColor();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = states.contains(WidgetState.disabled);
+    final flat = disabled;
+    final pressed = !disabled && states.contains(WidgetState.pressed);
+    final hovered = !disabled && !pressed && states.contains(WidgetState.hovered);
+    final focused = !disabled && states.contains(WidgetState.focused);
+    // How deep the edge shows, and how far the face moves: it stands on a
+    // 3-pixel edge, rises one under the pointer, and goes down on to it
+    // when pressed.
+    final depth = flat || pressed ? 0.0 : (hovered ? 4.0 : 3.0);
+    final shift = pressed ? 3.0 : (hovered ? -1.0 : 0.0);
+    final top = disabled && fadeDisabled ? face.withValues(alpha: face.a * 0.45) : (hovered ? _lit(face) : face);
+    final b = border;
+    return AnimatedContainer(
+      duration: pressed ? const Duration(milliseconds: 40) : const Duration(milliseconds: 110),
+      curve: Curves.easeOut,
+      transform: Matrix4.translationValues(0, shift, 0),
+      decoration: BoxDecoration(
+        color: top,
+        borderRadius: _radius,
+        // Keyboard focus: a ring in the accent, so it shows on any face.
+        border: focused ? Border.all(color: PColors.accentText, width: 2) : (b == null ? null : Border.all(color: b)),
+        boxShadow: flat
+            ? const []
+            : [
+                BoxShadow(color: _edge(face), offset: Offset(0, depth)),
+                BoxShadow(color: const Color(0x59000000), blurRadius: pressed ? 3 : 10, offset: Offset(0, depth + 1)),
+              ],
+      ),
+      child: child,
+    );
+  }
+}
+
 ThemeData postTheme() {
   final scheme = ColorScheme.fromSeed(
     seedColor: PColors.accent,
@@ -273,28 +375,26 @@ ThemeData postTheme() {
         borderSide: BorderSide(color: PColors.accent),
       ),
     ),
+    // Filled buttons are the main action, outlined ones the rest; both
+    // tactile (see PButtons). Text buttons stay flat.
     filledButtonTheme: FilledButtonThemeData(
-      style: FilledButton.styleFrom(
-        enabledMouseCursor: SystemMouseCursors.click,
-        disabledMouseCursor: SystemMouseCursors.basic,
-        backgroundColor: PColors.accent,
-        foregroundColor: PColors.onAccent,
-        minimumSize: const Size(44, 44),
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        textStyle: const TextStyle(fontFamily: PType.body, fontWeight: FontWeight.w600, fontSize: 14),
+      style: PButtons.primary.merge(
+        FilledButton.styleFrom(
+          minimumSize: const Size(44, 44),
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          textStyle: const TextStyle(fontFamily: PType.body, fontWeight: FontWeight.w600, fontSize: 14),
+        ),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
-      style: OutlinedButton.styleFrom(
-        enabledMouseCursor: SystemMouseCursors.click,
-        disabledMouseCursor: SystemMouseCursors.basic,
-        foregroundColor: PColors.textBody,
-        minimumSize: const Size(44, 44),
-        padding: const EdgeInsets.symmetric(horizontal: 18),
-        side: const BorderSide(color: PColors.borderStrong),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        textStyle: const TextStyle(fontFamily: PType.body, fontWeight: FontWeight.w500, fontSize: 14),
+      style: PButtons.secondary.merge(
+        OutlinedButton.styleFrom(
+          minimumSize: const Size(44, 44),
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          textStyle: const TextStyle(fontFamily: PType.body, fontWeight: FontWeight.w500, fontSize: 14),
+        ),
       ),
     ),
   );

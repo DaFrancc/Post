@@ -180,7 +180,7 @@ class IncomingCall extends StatelessWidget {
                   const SizedBox(width: 10),
                   Expanded(
                     child: FilledButton.icon(
-                      style: FilledButton.styleFrom(backgroundColor: PColors.online, foregroundColor: PColors.onAvatar),
+                      style: PButtons.tactile(face: PColors.online, onFace: PColors.onAvatar),
                       onPressed: () {
                         state.select(call.conversation);
                         unawaited(state.calls.answer(call));

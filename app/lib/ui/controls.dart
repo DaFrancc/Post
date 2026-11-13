@@ -876,7 +876,7 @@ Future<bool> confirm(BuildContext context, {required String title, required Stri
               OutlinedButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
               FilledButton(
                 autofocus: true,
-                style: danger ? FilledButton.styleFrom(backgroundColor: PColors.danger, foregroundColor: PColors.onAccent) : null,
+                style: danger ? PButtons.danger : null,
                 onPressed: () => Navigator.of(context).pop(true),
                 child: Text(action),
               ),

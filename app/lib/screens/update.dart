@@ -63,14 +63,13 @@ class UpdateButton extends StatelessWidget {
     };
     return FilledButton.icon(
       onPressed: busy ? null : () => unawaited(updateNow(context, state)),
-      style: FilledButton.styleFrom(
-        backgroundColor: PColors.update,
-        foregroundColor: PColors.onUpdate,
-        disabledBackgroundColor: PColors.update.withValues(alpha: 0.55),
-        disabledForegroundColor: PColors.onUpdate,
-        minimumSize: compact ? const Size(0, 30) : null,
-        padding: compact ? const EdgeInsets.symmetric(horizontal: 12) : null,
-        visualDensity: compact ? VisualDensity.compact : null,
+      // Green, and readable while it shows its progress.
+      style: PButtons.tactile(face: PColors.update, onFace: PColors.onUpdate, fadeDisabled: false).merge(
+        FilledButton.styleFrom(
+          minimumSize: compact ? const Size(0, 30) : null,
+          padding: compact ? const EdgeInsets.symmetric(horizontal: 12) : null,
+          visualDensity: compact ? VisualDensity.compact : null,
+        ),
       ),
       icon: busy ? const PSpinner(size: 14, color: PColors.onUpdate) : Icon(Icons.system_update_alt_rounded, size: compact ? 16 : 18),
       label: Text(text),

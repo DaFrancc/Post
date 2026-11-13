@@ -388,7 +388,7 @@ class _LookEditorState extends State<_LookEditor> {
     final busy = _busy == what;
     final action = _busy == null ? () => unawaited(_run(what, onPressed)) : null;
     final child = busy ? const PSpinner() : Text(label);
-    return filled ? FilledButton.tonal(onPressed: action, child: child) : TextButton(onPressed: action, child: child);
+    return filled ? FilledButton.tonal(style: PButtons.tonal, onPressed: action, child: child) : TextButton(onPressed: action, child: child);
   }
 
   @override
@@ -1449,10 +1449,7 @@ class _AboutState extends State<_About> {
           alignment: Alignment.centerLeft,
           child: OutlinedButton.icon(
             onPressed: _busy ? null : _logOut,
-            style: OutlinedButton.styleFrom(
-              foregroundColor: PColors.danger,
-              side: const BorderSide(color: PColors.danger),
-            ),
+            style: PButtons.danger,
             icon: _busy ? const PSpinner() : const Icon(Icons.logout_rounded, size: 18),
             label: const Text('Log out'),
           ),
