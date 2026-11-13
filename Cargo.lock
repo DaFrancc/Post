@@ -3428,6 +3428,7 @@ dependencies = [
  "openmls_libcrux_crypto",
  "openmls_sqlite_storage",
  "openmls_traits",
+ "post-api-macros",
  "post-identity",
  "post-mls",
  "post-proto",

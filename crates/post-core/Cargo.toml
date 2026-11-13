@@ -7,6 +7,9 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+# #[api]: marks the local API (docs/phase-1-api.md) and gives its types
+# their JSON form.
+post-api-macros = { path = "../post-api-macros" }
 post-identity = { path = "../post-identity" }
 post-mls = { path = "../post-mls" }
 post-proto = { path = "../post-proto" }

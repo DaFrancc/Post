@@ -101,11 +101,10 @@ async fn dm_messages_edits_deletes_and_profiles() {
             note_keep: false,
             arrival: Some("decode".into()),
             bio: Some("Climber, bad photographer.\n\nAsk me about **the spreadsheet**, @bob.".into()),
-            theme: Some(Some(Fill { colors: vec![0x4a3a8f, 0x1b4e63], angle: 135 })),
-            ..Default::default()
         })
         .await
         .expect("profile");
+    alice.set_theme(Some(Fill { colors: vec![0x4a3a8f, 0x1b4e63], angle: 135 })).await.expect("theme");
     let bad = ProfileUpdate { arrival: Some("Not A Name".into()), ..Default::default() };
     assert!(alice.set_profile(bad).await.is_err(), "an arrival style must be a short lowercase name");
     let bad = ProfileUpdate { bio: Some("x".repeat(post_core::MAX_BIO + 1)), ..Default::default() };
@@ -335,7 +334,9 @@ async fn a_dm_call_rings_connects_and_ends() {
     // Bob's device rings.
     let mut bob_events = bob.subscribe();
     bob.sync().await.expect("sync");
-    let Event::CallChanged(ringing) = next_event(&mut bob_events, |e| matches!(e, Event::CallChanged(_))).await else { unreachable!() };
+    let Event::CallChanged { call: ringing } = next_event(&mut bob_events, |e| matches!(e, Event::CallChanged { .. })).await else {
+        unreachable!()
+    };
     assert!(ringing.ringing && !ringing.joined);
     assert_eq!(ringing.started_by, "alice");
 
@@ -489,8 +490,8 @@ async fn unread_counts_and_previews() {
 
     let mut events = bob.subscribe();
     bob.mark_read(dm.id).await.expect("mark read");
-    let e = next_event(&mut events, |e| matches!(e, Event::ConversationChanged(_))).await;
-    let Event::ConversationChanged(c) = e else { unreachable!() };
+    let e = next_event(&mut events, |e| matches!(e, Event::ConversationChanged { .. })).await;
+    let Event::ConversationChanged { conversation: c } = e else { unreachable!() };
     assert_eq!(c.unread, 0);
 
     // A deleted message stops counting; a new one counts.
@@ -526,10 +527,10 @@ async fn live_delivery_through_wakes() {
     };
 
     let dm = alice.start_dm("bob").await.expect("dm");
-    next_event(&mut bob_events, |e| matches!(e, Event::ConversationAdded(c) if c.id == dm.id)).await;
+    next_event(&mut bob_events, |e| matches!(e, Event::ConversationAdded { conversation: c } if c.id == dm.id)).await;
     alice.send_text(dm.id, "are you there?").await.expect("send");
-    let e = next_event(&mut bob_events, |e| matches!(e, Event::MessageAdded(_))).await;
-    let Event::MessageAdded(m) = e else { unreachable!() };
+    let e = next_event(&mut bob_events, |e| matches!(e, Event::MessageAdded { .. })).await;
+    let Event::MessageAdded { message: m } = e else { unreachable!() };
     assert_eq!(m.body.as_deref(), Some("are you there?"));
     listener.abort();
 }
@@ -545,7 +546,7 @@ async fn announcements_reach_everyone() {
     let mut alice_events = alice.subscribe();
     let mut bob_events = bob.subscribe();
     let listeners = [alice.clone(), bob.clone()].map(|c| tokio::spawn(async move { c.listen().await }));
-    let added = |kind: K| move |e: &Event| matches!(e, Event::AnnouncementAdded(a) if a.kind == kind);
+    let added = |kind: K| move |e: &Event| matches!(e, Event::AnnouncementAdded { announcement: a } if a.kind == kind);
 
     // The operator, at the server's command line (another process in real
     // life): the running server notices within seconds and wakes everyone.
@@ -554,7 +555,7 @@ async fn announcements_reach_everyone() {
         announce::announce(&mut conn, By::Operator, None, "Welcome to Post!").expect("announce");
     }
     let e = next_event(&mut bob_events, added(K::Text)).await;
-    let Event::AnnouncementAdded(a) = e else { unreachable!() };
+    let Event::AnnouncementAdded { announcement: a } = e else { unreachable!() };
     assert_eq!(a.text, "Welcome to Post!");
 
     // Only hosts may post.
@@ -567,7 +568,7 @@ async fn announcements_reach_everyone() {
         let mut conn = post_server::db::open(&server.db, &server.key).expect("open server db");
         assert!(announce::add_host(&mut conn, "alice").expect("add host"));
     }
-    next_event(&mut alice_events, |e| matches!(e, Event::AnnouncementsChanged(s) if s.host)).await;
+    next_event(&mut alice_events, |e| matches!(e, Event::AnnouncementsChanged { summary: s } if s.host)).await;
 
     alice.announce("Calls work in groups now.\n– Alice").await.expect("host announces");
     next_event(&mut bob_events, added(K::Text)).await;
@@ -575,16 +576,16 @@ async fn announcements_reach_everyone() {
     // Maintenance in two days: announced now, with the time as data.
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_millis() as u64;
     let starts = now + 2 * 24 * 3600 * 1000;
-    alice.plan_maintenance(starts, 15, "moving to a new machine", false).await.expect("plan");
+    alice.plan_maintenance(Some(starts), 15, "moving to a new machine", false).await.expect("plan");
     let e = next_event(&mut bob_events, added(K::MaintenancePlanned)).await;
-    let Event::AnnouncementAdded(a) = e else { unreachable!() };
+    let Event::AnnouncementAdded { announcement: a } = e else { unreachable!() };
     assert_eq!((a.starts_at_ms, a.minutes, a.text.as_str()), (starts, 15, "moving to a new machine"));
-    next_event(&mut bob_events, |e| matches!(e, Event::AnnouncementsChanged(s) if s.maintenance.is_some())).await;
-    let again = alice.plan_maintenance(starts, 15, "", true).await.expect_err("one at a time");
+    next_event(&mut bob_events, |e| matches!(e, Event::AnnouncementsChanged { summary: s } if s.maintenance.is_some())).await;
+    let again = alice.plan_maintenance(Some(starts), 15, "", true).await.expect_err("one at a time");
     assert!(matches!(&again, post_core::Error::Server(e) if e.code() == post_proto::ErrorCode::Conflict), "{again}");
     alice.end_maintenance().await.expect("cancel");
     next_event(&mut bob_events, added(K::MaintenanceCancelled)).await;
-    next_event(&mut bob_events, |e| matches!(e, Event::AnnouncementsChanged(s) if s.maintenance.is_none())).await;
+    next_event(&mut bob_events, |e| matches!(e, Event::AnnouncementsChanged { summary: s } if s.maintenance.is_none())).await;
 
     // Kept in order, on every account; reading them follows the account.
     let kinds: Vec<K> = bob.announcements(50).expect("announcements").iter().map(|a| a.kind).collect();
@@ -650,12 +651,12 @@ async fn profile_pictures_and_banners_reach_others() {
     alice.set_picture(PictureKind::Avatar, Some((png.clone(), None))).await.expect("set picture");
     alice.set_picture(PictureKind::Banner, Some((png, None))).await.expect("set banner");
     let solid = Fill { colors: vec![0x11_22_33], angle: 0 };
-    alice.set_profile(ProfileUpdate { banner_fill: Some(Some(solid.clone())), ..Default::default() }).await.expect("colour");
+    alice.set_banner_fill(Some(solid.clone())).await.expect("colour");
     // A gradient needs two colours; a solid colour has no angle.
     let bad = Fill { colors: vec![0x11_22_33], angle: 90 };
-    assert!(alice.set_profile(ProfileUpdate { banner_fill: Some(Some(bad)), ..Default::default() }).await.is_err());
+    assert!(alice.set_banner_fill(Some(bad)).await.is_err());
     let bad = Fill { colors: vec![0x11_22_33, 0x44_55_66], angle: 360 };
-    assert!(alice.set_profile(ProfileUpdate { theme: Some(Some(bad)), ..Default::default() }).await.is_err());
+    assert!(alice.set_theme(Some(bad)).await.is_err());
 
     // Alice has hers at once; it never needs fetching back.
     let mine = alice.person("alice").await.expect("person");
@@ -706,7 +707,11 @@ async fn receipts_tick_sent_delivered_read() {
     let mut alice_events = alice.subscribe();
     alice.sync().await.expect("sync");
     assert_eq!(state_of(&alice, dm.id, hi.id), MessageState::Delivered);
-    next_event(&mut alice_events, |e| matches!(e, Event::MessageChanged(m) if m.id == hi.id && m.state == MessageState::Delivered)).await;
+    next_event(
+        &mut alice_events,
+        |e| matches!(e, Event::MessageChanged { message: m } if m.id == hi.id && m.state == MessageState::Delivered),
+    )
+    .await;
     bob.mark_read(dm.id).await.expect("read");
     alice.sync().await.expect("sync");
     assert_eq!(state_of(&alice, dm.id, hi.id), MessageState::Read);
@@ -912,8 +917,8 @@ async fn verification_and_reading_follow_the_account() {
     let mut alice_events = alice.subscribe();
     phone.mark_read(dm.id).await.expect("read on the phone");
     alice.sync().await.expect("alice sync");
-    let e = next_event(&mut alice_events, |e| matches!(e, Event::ConversationChanged(c) if c.id == dm.id)).await;
-    let Event::ConversationChanged(c) = e else { unreachable!() };
+    let e = next_event(&mut alice_events, |e| matches!(e, Event::ConversationChanged { conversation: c } if c.id == dm.id)).await;
+    let Event::ConversationChanged { conversation: c } = e else { unreachable!() };
     assert_eq!(c.unread, 0);
 
     // Withdrawing on the laptop reaches the phone.

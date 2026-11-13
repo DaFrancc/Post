@@ -18,6 +18,7 @@ use image::{DynamicImage, ImageDecoder as _, ImageFormat, ImageReader, Limits};
 use crate::{Error, Result};
 
 /// Which picture: they differ in shape and size.
+#[post_api_macros::api]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PictureKind {
     /// The round profile picture: square.

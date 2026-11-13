@@ -1789,7 +1789,7 @@ impl Engine {
         if let Some(c) = store::conversation(&self.conn, &gid)?
             && c.kind != KIND_SELF
         {
-            self.emit(Event::ConversationAdded(crate::conversation_from_row(&self.conn, &c)?));
+            self.emit(Event::ConversationAdded { conversation: crate::conversation_from_row(&self.conn, &c)? });
         }
         let mine = self.me()?.account;
         if let Some(p) = store::profile(&self.conn, &mine.0)? {
@@ -1965,7 +1965,7 @@ impl Engine {
                     retries = 0;
                     let gid = group_id_of(&row.group_id)?;
                     if let Some(m) = store::message(&self.conn, &gid, &row.client_msg_id)? {
-                        self.emit(Event::MessageChanged(crate::message_from_row(&self.conn, &m)?));
+                        self.emit(Event::MessageChanged { message: crate::message_from_row(&self.conn, &m)? });
                     }
                 }
                 // Our epoch is behind: catch up, re-encrypt in the new epoch,
@@ -2093,17 +2093,19 @@ impl Engine {
             }
         }
         for a in &added {
-            self.emit(Event::AnnouncementAdded(crate::Announcement {
-                id: a.id,
-                at_ms: a.created_at_ms,
-                kind: crate::AnnouncementKind::from_wire(a.kind),
-                text: a.text.clone(),
-                starts_at_ms: a.starts_at_ms,
-                minutes: a.minutes,
-            }));
+            self.emit(Event::AnnouncementAdded {
+                announcement: crate::Announcement {
+                    id: a.id,
+                    at_ms: a.created_at_ms,
+                    kind: crate::AnnouncementKind::from_wire(a.kind),
+                    text: a.text.clone(),
+                    starts_at_ms: a.starts_at_ms,
+                    minutes: a.minutes,
+                },
+            });
         }
         if changed || !added.is_empty() {
-            self.emit(Event::AnnouncementsChanged(crate::announcements_from(&self.conn)?));
+            self.emit(Event::AnnouncementsChanged { summary: crate::announcements_from(&self.conn)? });
         }
         Ok(())
     }
@@ -2114,7 +2116,7 @@ impl Engine {
         if !store::raise_announcements_read(&self.conn, latest.id)? {
             return Ok(());
         }
-        self.emit(Event::AnnouncementsChanged(crate::announcements_from(&self.conn)?));
+        self.emit(Event::AnnouncementsChanged { summary: crate::announcements_from(&self.conn)? });
         if self.devices()?.len() > 1 {
             self.sync_to_own_devices(content::SelfSync { announcements_read: latest.id, ..Default::default() }).await?;
         }
@@ -2411,7 +2413,11 @@ impl Engine {
             Outcome::Added(id) | Outcome::Changed(id) => {
                 if let Some(m) = store::message(&self.conn, &gid, &id)? {
                     let m = crate::message_from_row(&self.conn, &m)?;
-                    self.emit(if matches!(outcome, Outcome::Added(_)) { Event::MessageAdded(m) } else { Event::MessageChanged(m) });
+                    self.emit(if matches!(outcome, Outcome::Added(_)) {
+                        Event::MessageAdded { message: m }
+                    } else {
+                        Event::MessageChanged { message: m }
+                    });
                 }
             }
             Outcome::Deleted(id) => self.emit(Event::MessageDeleted { conversation, id: MessageId(id) }),
@@ -2430,14 +2436,14 @@ impl Engine {
                     self.emit_conversation_of(&g)?;
                 }
                 if changes.announcements {
-                    self.emit(Event::AnnouncementsChanged(crate::announcements_from(&self.conn)?));
+                    self.emit(Event::AnnouncementsChanged { summary: crate::announcements_from(&self.conn)? });
                 }
             }
             Outcome::Conversation | Outcome::NewMembers => {
                 if let Some(c) = store::conversation(&self.conn, &gid)?
                     && c.kind != KIND_SELF
                 {
-                    self.emit(Event::ConversationChanged(crate::conversation_from_row(&self.conn, &c)?));
+                    self.emit(Event::ConversationChanged { conversation: crate::conversation_from_row(&self.conn, &c)? });
                     // Who is a member decides whose receipts count; someone
                     // just added counts as having what came before.
                     let joined_at = if matches!(outcome, Outcome::NewMembers) { store::group_position(&self.conn, &gid)? } else { 0 };
@@ -2472,7 +2478,7 @@ impl Engine {
                 if seen.insert(id.clone())
                     && let Some(m) = store::message(&self.conn, &gid, &id)?
                 {
-                    self.emit(Event::MessageChanged(crate::message_from_row(&self.conn, &m)?));
+                    self.emit(Event::MessageChanged { message: crate::message_from_row(&self.conn, &m)? });
                 }
             }
         }
@@ -2573,7 +2579,7 @@ impl Engine {
                 live.remove(&id);
             }
             drop(live);
-            self.emit(Event::CallChanged(call));
+            self.emit(Event::CallChanged { call });
         }
         Ok(())
     }
@@ -2790,7 +2796,7 @@ impl Engine {
             _ => Some(c),
         };
         if let Some(c) = shown {
-            self.emit(Event::ConversationChanged(crate::conversation_from_row(&self.conn, &c)?));
+            self.emit(Event::ConversationChanged { conversation: crate::conversation_from_row(&self.conn, &c)? });
         }
         Ok(())
     }

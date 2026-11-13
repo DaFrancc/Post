@@ -751,8 +751,6 @@ impl Client {
             note_keep: change.note_keep,
             arrival: change.arrival,
             bio: change.bio,
-            banner_fill: None,
-            theme: None,
         };
         Ok(self.core.set_profile(update).await?)
     }
@@ -760,15 +758,13 @@ impl Client {
     /// Set the banner's colour or gradient shown when there is no banner
     /// image, or with `None` leave it to the app. Shared at once.
     pub async fn set_banner_fill(&self, fill: Option<ColorFill>) -> Result<(), PostError> {
-        let update = core::ProfileUpdate { banner_fill: Some(fill.map(Into::into)), ..Default::default() };
-        Ok(self.core.set_profile(update).await?)
+        Ok(self.core.set_banner_fill(fill.map(Into::into)).await?)
     }
 
     /// Set the user's profile colours, or with `None` go back to the app's
     /// own look. Shared at once.
     pub async fn set_theme(&self, fill: Option<ColorFill>) -> Result<(), PostError> {
-        let update = core::ProfileUpdate { theme: Some(fill.map(Into::into)), ..Default::default() };
-        Ok(self.core.set_profile(update).await?)
+        Ok(self.core.set_theme(fill.map(Into::into)).await?)
     }
 
     /// Set the user's profile picture or banner from an image file: the
@@ -898,7 +894,7 @@ impl Client {
     /// As a host: plan maintenance. `starts_at_ms` 0 starts it now.
     pub async fn plan_maintenance(&self, starts_at_ms: i64, minutes: u32, reason: String, quiet: bool) -> Result<(), PostError> {
         let starts = u64::try_from(starts_at_ms).map_err(|_| PostError::new(ErrorKind::InvalidInput, "That time is not valid."))?;
-        Ok(self.core.plan_maintenance(starts, minutes, &reason, quiet).await?)
+        Ok(self.core.plan_maintenance(Some(starts).filter(|&s| s > 0), minutes, &reason, quiet).await?)
     }
 
     /// As a host: make a single-use invite code, valid for `days`.
@@ -1318,8 +1314,12 @@ fn app_event(e: core::Event) -> AppEvent {
         text,
     };
     match e {
-        core::Event::ConversationAdded(c) | core::Event::ConversationChanged(c) => ev(EventKind::Conversations, Some(c.id), None, None),
-        core::Event::MessageAdded(m) | core::Event::MessageChanged(m) => ev(EventKind::Messages, Some(m.conversation), None, None),
+        core::Event::ConversationAdded { conversation: c } | core::Event::ConversationChanged { conversation: c } => {
+            ev(EventKind::Conversations, Some(c.id), None, None)
+        }
+        core::Event::MessageAdded { message: m } | core::Event::MessageChanged { message: m } => {
+            ev(EventKind::Messages, Some(m.conversation), None, None)
+        }
         core::Event::MessageDeleted { conversation, .. } => ev(EventKind::Messages, Some(conversation), None, None),
         core::Event::ProfileChanged { username } => ev(EventKind::Profile, None, Some(username), None),
         core::Event::DevicesChanged { username, .. } => ev(EventKind::Devices, None, Some(username), None),
@@ -1334,9 +1334,12 @@ fn app_event(e: core::Event) -> AppEvent {
             ev(EventKind::Presence, None, Some(username), Some(word.into()))
         }
         core::Event::Notice { conversation, text } => ev(EventKind::Notice, conversation, None, Some(sentence(&text))),
-        core::Event::CallChanged(c) => ev(EventKind::Call, Some(c.conversation), None, None),
-        core::Event::AnnouncementAdded(a) => ev(EventKind::Announcement, None, None, Some(a.text)),
-        core::Event::AnnouncementsChanged(_) => ev(EventKind::Announcements, None, None, None),
+        core::Event::CallChanged { call } => ev(EventKind::Call, Some(call.conversation), None, None),
+        core::Event::AnnouncementAdded { announcement } => ev(EventKind::Announcement, None, None, Some(announcement.text)),
+        core::Event::AnnouncementsChanged { .. } => ev(EventKind::Announcements, None, None, None),
+        // Only a subscriber that fell behind sees this, and `events` sends
+        // its own catch-all for that.
+        core::Event::Lagged { .. } => ev(EventKind::Conversations, None, None, None),
     }
 }
 

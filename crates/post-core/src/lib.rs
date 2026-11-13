@@ -28,6 +28,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
+use post_api_macros::api;
 use rusqlite::Connection;
 use tokio::sync::broadcast;
 use zeroize::Zeroizing;
@@ -162,6 +163,19 @@ macro_rules! hex_id {
                 Ok(Self(b))
             }
         }
+
+        // In the local API: 32 hex characters, as written above.
+        impl serde::Serialize for $name {
+            fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+                s.collect_str(self)
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for $name {
+            fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+                String::deserialize(d)?.parse().map_err(serde::de::Error::custom)
+            }
+        }
     };
 }
 
@@ -171,6 +185,7 @@ hex_id!(CallId, "call");
 
 /// A call in a conversation, as this device knows it (design section 10).
 /// Calls live only in memory: who was in a call is never stored.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Call {
     /// Its ID.
@@ -180,6 +195,7 @@ pub struct Call {
     /// Who started it (username).
     pub started_by: String,
     /// When it started (Unix ms, the starter's clock).
+    #[api(unix_ms)]
     pub started_at_ms: u64,
     /// Started as a video call.
     pub video: bool,
@@ -195,6 +211,7 @@ pub struct Call {
 }
 
 /// Someone in a call.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CallParticipant {
     /// Their random name in this call (hex): their identity in LiveKit.
@@ -208,6 +225,7 @@ pub struct CallParticipant {
 }
 
 /// What a device needs to join a call's room.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CallJoin {
     /// The call, with this device in it.
@@ -243,6 +261,7 @@ impl fmt::Debug for CallKeys {
 }
 
 /// The account on this device.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Identity {
     /// Username.
@@ -258,6 +277,7 @@ pub struct Identity {
 }
 
 /// What kind of conversation.
+#[api]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConversationKind {
     /// A direct message between two people.
@@ -267,6 +287,7 @@ pub enum ConversationKind {
 }
 
 /// A conversation as shown in a list.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Conversation {
     /// Its ID.
@@ -278,6 +299,7 @@ pub struct Conversation {
     /// The other person's username, for a DM.
     pub peer: Option<String>,
     /// Unix milliseconds of the latest activity.
+    #[api(unix_ms)]
     pub last_activity_ms: u64,
     /// False once this device was removed: still readable, no longer updated.
     pub following: bool,
@@ -290,6 +312,7 @@ pub struct Conversation {
 }
 
 /// Delivery state of a message.
+#[api]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MessageState {
     /// Written locally, not yet accepted by the server.
@@ -309,6 +332,7 @@ pub enum MessageState {
 }
 
 /// A message as shown in a conversation.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Message {
     /// Its ID.
@@ -322,6 +346,7 @@ pub struct Message {
     /// Sent by this account.
     pub outgoing: bool,
     /// When the sender sent it, by their clock (Unix ms).
+    #[api(unix_ms)]
     pub sent_at_ms: u64,
     /// The latest text. `None` if deleted or unsupported.
     pub body: Option<String>,
@@ -338,9 +363,11 @@ pub struct Message {
 }
 
 /// Something the user was told, usually a security warning.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Notice {
     /// When (Unix ms, this device's clock).
+    #[api(unix_ms)]
     pub at_ms: u64,
     /// What happened, as a sentence starting in lower case.
     pub text: String,
@@ -349,6 +376,7 @@ pub struct Notice {
 }
 
 /// What a notice is about, for how it is shown.
+#[api]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoticeKind {
     /// A security warning, or something else about the conversation.
@@ -361,11 +389,13 @@ pub enum NoticeKind {
 
 /// One of the server's announcements (design section 8, "Announcements").
 /// Shown as from the server, whoever wrote it.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Announcement {
     /// Increasing; the server's own ID.
     pub id: u64,
     /// When it was posted (Unix ms, the server's clock).
+    #[api(unix_ms)]
     pub at_ms: u64,
     /// What it is.
     pub kind: AnnouncementKind,
@@ -374,6 +404,7 @@ pub struct Announcement {
     pub text: String,
     /// The maintenance kinds: when it starts or started (Unix ms). Show it
     /// in the reader's own time zone.
+    #[api(unix_ms)]
     pub starts_at_ms: u64,
     /// The maintenance kinds: how long it should take.
     pub minutes: u32,
@@ -381,6 +412,7 @@ pub struct Announcement {
 
 /// What an announcement is. All but [`AnnouncementKind::Text`] are posted
 /// by the server itself, and say so.
+#[api]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AnnouncementKind {
     /// Written by a host.
@@ -416,9 +448,11 @@ impl AnnouncementKind {
 }
 
 /// Maintenance the server's hosts planned.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Maintenance {
     /// When it starts, or started (Unix ms).
+    #[api(unix_ms)]
     pub starts_at_ms: u64,
     /// How long it should take.
     pub minutes: u32,
@@ -429,11 +463,13 @@ pub struct Maintenance {
 }
 
 /// A single-use invite code, made by a host.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Invite {
     /// The code. Shown once: the server keeps only its hash.
     pub code: String,
     /// When it stops working (Unix ms).
+    #[api(unix_ms)]
     pub expires_at_ms: u64,
     /// The address to sign up at with it: this account's server.
     pub server: String,
@@ -442,6 +478,7 @@ pub struct Invite {
 }
 
 /// The announcements channel at a glance.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Announcements {
     /// The server they come from, as they are signed: its domain.
@@ -491,6 +528,7 @@ pub(crate) fn announcements_from(conn: &rusqlite::Connection) -> Result<Announce
 }
 
 /// Who has one of your messages, person by person: what the ticks sum up.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MessageReceipts {
     /// Every other member now, by the name you see for them.
@@ -502,6 +540,7 @@ pub struct MessageReceipts {
 }
 
 /// How far one person has got with one of your messages.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PersonReceipt {
     /// Their username.
@@ -513,6 +552,7 @@ pub struct PersonReceipt {
 }
 
 /// How far one person has got with a message.
+#[api]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReceiptState {
     /// Not on any of their devices yet (or their app sends no receipts).
@@ -524,6 +564,7 @@ pub enum ReceiptState {
 }
 
 /// One version of a message.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MessageVersion {
     /// 0 is the original.
@@ -531,12 +572,14 @@ pub struct MessageVersion {
     /// The text of this version.
     pub body: String,
     /// When it was written, by the sender's clock (Unix ms).
+    #[api(unix_ms)]
     pub at_ms: u64,
     /// Not yet accepted by the server (own edits only).
     pub pending: bool,
 }
 
 /// What this device knows about a person.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Person {
     /// Username.
@@ -570,10 +613,12 @@ pub struct Person {
     pub theme: Option<Fill>,
     /// When their account began (Unix ms): signed into its device list and
     /// checked by their server when it registered.
+    #[api(unix_ms)]
     pub since_ms: Option<u64>,
 }
 
 /// A device asking to join this account, as shown before approving it.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LinkRequest {
     /// The new device's ID, hex.
@@ -583,6 +628,7 @@ pub struct LinkRequest {
 }
 
 /// What others see of someone (design section 7, "Presence").
+#[api]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Presence {
     /// Not seen for 25 minutes, signed off, or invisible.
@@ -607,6 +653,7 @@ impl From<ephemeral::State> for Presence {
 }
 
 /// The presence you choose to show.
+#[api]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PresenceSetting {
     /// Shown online.
@@ -620,6 +667,7 @@ pub enum PresenceSetting {
 }
 
 /// A member of a conversation.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Member {
     /// Their username.
@@ -635,6 +683,7 @@ pub struct Member {
 }
 
 /// One of this account's devices.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Device {
     /// Its ID, hex.
@@ -646,33 +695,41 @@ pub struct Device {
 }
 
 /// What to search messages for: everything given must match. See
-/// [`Client::search`].
+/// [`Core::search`].
+#[api]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SearchQuery {
     /// Words that must all appear, in any order, case or accents; each
     /// matches a word starting with it.
+    #[api(default)]
     pub text: String,
     /// Only in this conversation.
     pub conversation: Option<ConversationId>,
     /// Only sent by this username.
     pub from: Option<String>,
     /// Only messages with a link.
+    #[api(default)]
     pub has_link: bool,
     /// Only messages that mention this username.
     pub mentions: Option<String>,
     /// Only sent at or after this (Unix ms).
+    #[api(unix_ms)]
     pub after_ms: Option<u64>,
     /// Only sent before this (Unix ms).
+    #[api(unix_ms)]
     pub before_ms: Option<u64>,
     /// Oldest first, rather than newest.
+    #[api(default)]
     pub oldest_first: bool,
     /// At most this many: the page size.
     pub limit: u32,
     /// Skipping this many first: where the page starts.
+    #[api(default)]
     pub offset: u32,
 }
 
 /// What a search found.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SearchResults {
     /// How many messages match in all.
@@ -682,6 +739,9 @@ pub struct SearchResults {
 }
 
 /// A change to this account's profile. `None` leaves a field unchanged.
+/// The banner's fill and the profile colours have their own setters,
+/// [`Core::set_banner_fill`] and [`Core::set_theme`].
+#[api]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProfileUpdate {
     /// New global display name; empty clears it.
@@ -691,29 +751,38 @@ pub struct ProfileUpdate {
     /// New note; empty clears it.
     pub note: Option<String>,
     /// With a new note: keep it until changed instead of 24 hours.
+    #[api(default)]
     pub note_keep: bool,
     /// New arrival preset for your messages; empty restores the default.
     pub arrival: Option<String>,
     /// New bio (about me); empty clears it.
     pub bio: Option<String>,
-    /// New banner colour or gradient, shown when there is no banner image,
-    /// or `Some(None)` for the app's choice.
-    pub banner_fill: Option<Option<Fill>>,
-    /// New profile colours, or `Some(None)` for the app's own look.
-    pub theme: Option<Option<Fill>>,
 }
 
 /// Something that happened, for live views.
+#[api]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
     /// A conversation was created or joined.
-    ConversationAdded(Conversation),
+    ConversationAdded {
+        /// The conversation.
+        conversation: Conversation,
+    },
     /// A conversation's details changed.
-    ConversationChanged(Conversation),
+    ConversationChanged {
+        /// The conversation, as it is now.
+        conversation: Conversation,
+    },
     /// A new message.
-    MessageAdded(Message),
+    MessageAdded {
+        /// The message.
+        message: Message,
+    },
     /// A message was edited or its delivery state changed.
-    MessageChanged(Message),
+    MessageChanged {
+        /// The message, as it is now.
+        message: Message,
+    },
     /// A message was deleted.
     MessageDeleted {
         /// Its conversation.
@@ -764,12 +833,28 @@ pub enum Event {
     },
     /// A call started, rang, changed who is in it, or ended. Its timeline
     /// notices ("Alice started a call") may have changed too.
-    CallChanged(Call),
+    CallChanged {
+        /// The call, as it is now.
+        call: Call,
+    },
     /// The server posted an announcement.
-    AnnouncementAdded(Announcement),
+    AnnouncementAdded {
+        /// The announcement.
+        announcement: Announcement,
+    },
     /// The announcements channel changed: new ones, the read position,
     /// the maintenance plan, or whether this account is a host.
-    AnnouncementsChanged(Announcements),
+    AnnouncementsChanged {
+        /// The channel, as it is now.
+        summary: Announcements,
+    },
+    /// A subscriber fell behind and missed this many events: re-read what
+    /// it shows. The core never sends this itself; the daemon and the app's
+    /// bridge do, in place of what was missed.
+    Lagged {
+        /// How many.
+        missed: u64,
+    },
 }
 
 /// Settings live in the meta table under their own prefix, so they can
@@ -952,6 +1037,7 @@ impl Core {
     /// profile closes. Refused on the account's only device, which would
     /// lose the account. Then delete the profile's files with
     /// [`delete_profile`].
+    #[api(needs = connection)]
     pub async fn log_out(&self) -> Result<()> {
         self.engine.lock().await.log_out().await?;
         self.close().await;
@@ -969,6 +1055,7 @@ impl Core {
     }
 
     /// The account on this device, if registered.
+    #[api(needs = local)]
     pub async fn identity(&self) -> Option<Identity> {
         let e = self.engine.lock().await;
         let me = e.me.as_ref().filter(|_| e.registered)?;
@@ -982,7 +1069,19 @@ impl Core {
     }
 
     /// Create an account. `server` is a `wss://` URL.
-    pub async fn register(&self, server: &str, invite: &str, username: &str, bot: bool) -> Result<Identity> {
+    #[api(needs = registration)]
+    pub async fn register(
+        &self,
+        /// The server's URL, `wss://…`.
+        server: &str,
+        /// An invite code from one of the server's hosts.
+        invite: &str,
+        /// 3 to 32 of a-z, 0-9 and _, starting with a letter.
+        username: &str,
+        /// A bot account (the invite must be for one).
+        #[api(default)]
+        bot: bool,
+    ) -> Result<Identity> {
         self.engine.lock().await.register(server, invite, username, bot).await?;
         self.identity().await.ok_or(Error::NotRegistered)
     }
@@ -990,31 +1089,53 @@ impl Core {
     /// On a new device: offer it for linking to an existing account on
     /// `server`. Returns the code to enter on one of that account's devices;
     /// then call [`Core::finish_link`]. `bot` must match the account.
-    pub async fn begin_link(&self, server: &str, device_name: &str, bot: bool) -> Result<String> {
+    #[api(needs = registration)]
+    pub async fn begin_link(
+        &self,
+        /// The account's server, `wss://…`.
+        server: &str,
+        /// A name for this device, shown on the account's other devices.
+        device_name: &str,
+        /// The account is a bot.
+        #[api(default)]
+        bot: bool,
+    ) -> Result<String> {
         Ok(self.engine.lock().await.begin_link(server, device_name, bot).await?.to_string())
     }
 
     /// On the new device: wait (up to ten minutes) for the code to be
     /// entered and approved, then log in and join the account's conversations.
+    #[api(needs = registration)]
     pub async fn finish_link(&self) -> Result<Identity> {
         self.engine.lock().await.finish_link().await?;
         self.identity().await.ok_or(Error::NotRegistered)
     }
 
     /// On an existing device: which device a link code would add.
-    pub async fn link_inspect(&self, code: &str) -> Result<LinkRequest> {
+    #[api(needs = connection)]
+    pub async fn link_inspect(
+        &self,
+        /// The code the new device shows.
+        code: &str,
+    ) -> Result<LinkRequest> {
         let offer = self.engine.lock().await.link_inspect(code).await?;
         Ok(LinkRequest { device_id: offer.entry.device_id().to_string(), name: offer.name })
     }
 
     /// On an existing device: add the device behind a link code to this
     /// account and to every conversation.
-    pub async fn link_approve(&self, code: &str) -> Result<LinkRequest> {
+    #[api(needs = connection)]
+    pub async fn link_approve(
+        &self,
+        /// The code the new device shows.
+        code: &str,
+    ) -> Result<LinkRequest> {
         let offer = self.engine.lock().await.link_approve(code).await?;
         Ok(LinkRequest { device_id: offer.entry.device_id().to_string(), name: offer.name })
     }
 
     /// This account's devices, oldest first.
+    #[api(needs = local)]
     pub async fn devices(&self) -> Result<Vec<Device>> {
         let engine = self.engine.lock().await;
         let me = engine.me.as_ref().filter(|_| engine.registered).ok_or(Error::NotRegistered)?.device;
@@ -1023,7 +1144,14 @@ impl Core {
 
     /// Name one of this account's devices, given its ID or an unambiguous
     /// prefix. The name is shared only with the account's own devices.
-    pub async fn rename_device(&self, device: &str, name: &str) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn rename_device(
+        &self,
+        /// The device's ID, or an unambiguous start of it.
+        device: &str,
+        /// Its new name.
+        name: &str,
+    ) -> Result<()> {
         let mut engine = self.engine.lock().await;
         let id = engine.resolve_device(device)?;
         engine.rename_device(id, name).await
@@ -1032,7 +1160,12 @@ impl Core {
     /// Remove another of this account's devices, given its ID or an
     /// unambiguous prefix. It is cut off from the server and from every
     /// conversation; the account's contacts see that it was removed.
-    pub async fn remove_device(&self, device: &str) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn remove_device(
+        &self,
+        /// The device's ID, or an unambiguous start of it.
+        device: &str,
+    ) -> Result<()> {
         let mut engine = self.engine.lock().await;
         let id = engine.resolve_device(device)?;
         engine.remove_device(id).await
@@ -1045,11 +1178,13 @@ impl Core {
     }
 
     /// Whether both server connections are up.
+    #[api(needs = local)]
     pub async fn is_connected(&self) -> bool {
         self.engine.lock().await.is_connected()
     }
 
     /// Fetch and process everything new, and send what is queued.
+    #[api(needs = connection)]
     pub async fn sync(&self) -> Result<()> {
         self.engine.lock().await.sync().await?;
         self.keep_pictures().await
@@ -1139,7 +1274,12 @@ impl Core {
 
     /// Tell a conversation's online members you are typing. Call it as you
     /// type; it sends at most once every three seconds.
-    pub async fn send_typing(&self, conversation: ConversationId) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn send_typing(
+        &self,
+        /// Where you are typing.
+        conversation: ConversationId,
+    ) -> Result<()> {
         self.engine.lock().await.send_typing(conversation.0).await
     }
 
@@ -1147,28 +1287,69 @@ impl Core {
     /// in it. It rings `ring` (usernames); with nobody named, everyone in a
     /// DM or a group of up to eight, and nobody in a larger group, where the
     /// call shows to join. [`Event::CallChanged`] follows who joins.
-    pub async fn start_call(&self, conversation: ConversationId, video: bool, ring: &[String]) -> Result<CallJoin> {
+    #[api(needs = connection)]
+    pub async fn start_call(
+        &self,
+        /// Where.
+        conversation: ConversationId,
+        /// A video call, rather than voice only.
+        #[api(default)]
+        video: bool,
+        /// Who to ring (usernames); none for the usual choice.
+        #[api(default)]
+        ring: &[String],
+    ) -> Result<CallJoin> {
         self.engine.lock().await.start_call(conversation.0, video, ring).await
     }
 
     /// Ring people (usernames) into a live call: members not in it yet.
-    pub async fn ring_call(&self, conversation: ConversationId, call: CallId, usernames: &[String]) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn ring_call(
+        &self,
+        /// The call's conversation.
+        conversation: ConversationId,
+        /// The call.
+        call: CallId,
+        /// Who to ring.
+        usernames: &[String],
+    ) -> Result<()> {
         self.engine.lock().await.ring_call(conversation.0, call.0, usernames).await
     }
 
     /// Join a live call from this device (answering it, if it is ringing).
-    pub async fn join_call(&self, conversation: ConversationId, call: CallId) -> Result<CallJoin> {
+    #[api(needs = connection)]
+    pub async fn join_call(
+        &self,
+        /// The call's conversation.
+        conversation: ConversationId,
+        /// The call.
+        call: CallId,
+    ) -> Result<CallJoin> {
         self.engine.lock().await.join_call(conversation.0, call.0).await
     }
 
     /// Leave a call this device is in. In a DM, this ends the call.
-    pub async fn leave_call(&self, conversation: ConversationId, call: CallId) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn leave_call(
+        &self,
+        /// The call's conversation.
+        conversation: ConversationId,
+        /// The call.
+        call: CallId,
+    ) -> Result<()> {
         self.engine.lock().await.leave_call(conversation.0, call.0).await
     }
 
     /// Decline a ringing call: the user's other devices stop ringing, and in
     /// a DM the caller hears no.
-    pub async fn decline_call(&self, conversation: ConversationId, call: CallId) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn decline_call(
+        &self,
+        /// The call's conversation.
+        conversation: ConversationId,
+        /// The call.
+        call: CallId,
+    ) -> Result<()> {
         self.engine.lock().await.decline_call(conversation.0, call.0).await
     }
 
@@ -1180,42 +1361,72 @@ impl Core {
     }
 
     /// The live calls, in every conversation.
+    // A connection: calls live in memory, so a one-shot CLI must fetch first.
+    #[api(needs = connection)]
     pub async fn calls(&self) -> Result<Vec<Call>> {
         self.engine.lock().await.calls()
     }
 
     /// Choose the presence others see. Kept on this device; announced now
     /// and every ten minutes while listening, except when invisible.
-    pub async fn set_presence(&self, setting: PresenceSetting) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn set_presence(
+        &self,
+        /// What to show.
+        setting: PresenceSetting,
+    ) -> Result<()> {
         self.engine.lock().await.set_presence(setting).await
     }
 
     /// The presence you chose on this device.
+    #[api(needs = local)]
     pub async fn own_presence(&self) -> Result<PresenceSetting> {
         self.engine.lock().await.own_presence()
     }
 
     /// What this device last heard of someone's presence.
-    pub async fn presence(&self, username: &str) -> Result<Presence> {
+    #[api(needs = local)]
+    pub async fn presence(
+        &self,
+        /// Whose.
+        username: &str,
+    ) -> Result<Presence> {
         let mut engine = self.engine.lock().await;
         let account = engine.resolve(username).await?;
         Ok(engine.presence_of(&account))
     }
 
     /// Open a DM with `username`, creating it if needed.
-    pub async fn start_dm(&self, username: &str) -> Result<Conversation> {
+    #[api(needs = connection)]
+    pub async fn start_dm(
+        &self,
+        /// Who with.
+        username: &str,
+    ) -> Result<Conversation> {
         let id = self.engine.lock().await.start_dm(username).await?;
         self.conversation(id)
     }
 
     /// Create a named group with you as admin and these users as members.
-    pub async fn create_group(&self, name: &str, usernames: &[String]) -> Result<Conversation> {
+    #[api(needs = connection)]
+    pub async fn create_group(
+        &self,
+        /// The group's name.
+        name: &str,
+        /// Who else is in it.
+        usernames: &[String],
+    ) -> Result<Conversation> {
         let id = self.engine.lock().await.create_group(name, usernames).await?;
         self.conversation(id)
     }
 
     /// A conversation by ID.
-    pub fn conversation(&self, id: ConversationId) -> Result<Conversation> {
+    #[api(needs = local)]
+    pub fn conversation(
+        &self,
+        /// Its ID.
+        id: ConversationId,
+    ) -> Result<Conversation> {
         self.read(|c| {
             let row = store::conversation(c, &id.0)?.filter(|r| r.kind != store::KIND_SELF).ok_or(Error::NotFound("conversation"))?;
             conversation_from_row(c, &row)
@@ -1223,47 +1434,97 @@ impl Core {
     }
 
     /// As an admin: add people to a group, with all their devices.
-    pub async fn add_members(&self, conversation: ConversationId, usernames: &[String]) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn add_members(
+        &self,
+        /// The group.
+        conversation: ConversationId,
+        /// Who to add.
+        usernames: &[String],
+    ) -> Result<()> {
         self.engine.lock().await.add_members(conversation.0, usernames).await
     }
 
     /// As an admin: remove people from a group, with all their devices.
-    pub async fn remove_members(&self, conversation: ConversationId, usernames: &[String]) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn remove_members(
+        &self,
+        /// The group.
+        conversation: ConversationId,
+        /// Who to remove.
+        usernames: &[String],
+    ) -> Result<()> {
         self.engine.lock().await.remove_members(conversation.0, usernames).await
     }
 
     /// As an admin: rename a group.
-    pub async fn rename_group(&self, conversation: ConversationId, name: &str) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn rename_group(
+        &self,
+        /// The group.
+        conversation: ConversationId,
+        /// Its new name.
+        name: &str,
+    ) -> Result<()> {
         self.engine.lock().await.rename_group(conversation.0, name).await
     }
 
     /// As an admin: make a member an admin, or stop them being one. A group
     /// always keeps at least one admin.
-    pub async fn set_admin(&self, conversation: ConversationId, username: &str, admin: bool) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn set_admin(
+        &self,
+        /// The group.
+        conversation: ConversationId,
+        /// The member.
+        username: &str,
+        /// True to make them an admin, false to remove the role.
+        admin: bool,
+    ) -> Result<()> {
         self.engine.lock().await.set_admin(conversation.0, username, admin).await
     }
 
     /// As an admin: whether new members are shown past messages, and how many
     /// days back (0 means all of them).
-    pub async fn set_history(&self, conversation: ConversationId, shared: bool, days: u32) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn set_history(
+        &self,
+        /// The group.
+        conversation: ConversationId,
+        /// New members see past messages.
+        shared: bool,
+        /// How many days back; 0 for all of them.
+        days: u32,
+    ) -> Result<()> {
         self.engine.lock().await.set_history(conversation.0, shared, days).await
     }
 
     /// Give this device fresh keys in every conversation now. This happens by
     /// itself weekly; doing it at once limits what a copy of the device's
     /// keys taken earlier can read from here on.
+    #[api(needs = connection)]
     pub async fn refresh_keys(&self) -> Result<()> {
         self.engine.lock().await.refresh_keys().await
     }
 
     /// Leave a group, with all your devices. It shows as left at once; the
     /// other members' devices complete the removal.
-    pub async fn leave_group(&self, conversation: ConversationId) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn leave_group(
+        &self,
+        /// The group.
+        conversation: ConversationId,
+    ) -> Result<()> {
         self.engine.lock().await.leave_group(conversation.0).await
     }
 
     /// The members of a conversation, by the name you see for them.
-    pub async fn members(&self, conversation: ConversationId) -> Result<Vec<Member>> {
+    #[api(needs = local)]
+    pub async fn members(
+        &self,
+        /// The conversation.
+        conversation: ConversationId,
+    ) -> Result<Vec<Member>> {
         let me = self.engine.lock().await.me.as_ref().ok_or(Error::NotRegistered)?.account;
         self.read(|c| {
             store::conversation(c, &conversation.0)?.filter(|r| r.kind != store::KIND_SELF).ok_or(Error::NotFound("conversation"))?;
@@ -1287,6 +1548,7 @@ impl Core {
     }
 
     /// Live conversations, most recent first.
+    #[api(needs = local)]
     pub fn conversations(&self) -> Result<Vec<Conversation>> {
         self.read(|c| store::conversations(c)?.iter().map(|r| conversation_from_row(c, r)).collect())
     }
@@ -1294,12 +1556,18 @@ impl Core {
     /// Mark a conversation read up to its newest message, on every one of
     /// this account's devices. Emits [`Event::ConversationChanged`] if its
     /// unread count changed.
-    pub async fn mark_read(&self, conversation: ConversationId) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn mark_read(
+        &self,
+        /// The conversation.
+        conversation: ConversationId,
+    ) -> Result<()> {
         self.engine.lock().await.mark_read(conversation.0).await
     }
 
     /// Whether you send read receipts: on unless turned off. Delivery
     /// receipts always go.
+    #[api(needs = local)]
     pub fn read_receipts(&self) -> Result<bool> {
         self.read(store::read_receipts_on)
     }
@@ -1307,26 +1575,50 @@ impl Core {
     /// Turn read receipts on or off, on all your devices. Off, others do
     /// not see when you read their messages, and you do not see when they
     /// read yours.
-    pub async fn set_read_receipts(&self, on: bool) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn set_read_receipts(
+        &self,
+        /// Send them (the default), or not.
+        on: bool,
+    ) -> Result<()> {
         self.engine.lock().await.set_read_receipts(on).await
     }
 
     /// Record that you compared safety numbers with `username` (or, with
     /// `false`, withdraw it). Shared with your other devices only.
-    pub async fn set_verified(&self, username: &str, verified: bool) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn set_verified(
+        &self,
+        /// Who with.
+        username: &str,
+        /// True to mark them verified, false to withdraw it.
+        verified: bool,
+    ) -> Result<()> {
         self.engine.lock().await.set_verified(username, verified).await
     }
 
     /// An app setting on this device, such as the spellcheck language. Kept
     /// in the encrypted profile, since some (a personal dictionary) say
     /// something about what the user writes.
-    pub fn setting(&self, key: &str) -> Result<Option<String>> {
+    #[api(needs = local)]
+    pub fn setting(
+        &self,
+        /// Its name: a-z, 0-9, `.`, `_` and `-`.
+        key: &str,
+    ) -> Result<Option<String>> {
         let k = setting_key(key)?;
         self.read(|c| store::meta_str(c, &k))
     }
 
     /// Set (or with `None` clear) an app setting on this device.
-    pub async fn set_setting(&self, key: &str, value: Option<&str>) -> Result<()> {
+    #[api(needs = local)]
+    pub async fn set_setting(
+        &self,
+        /// Its name: a-z, 0-9, `.`, `_` and `-`.
+        key: &str,
+        /// Its value; none clears it.
+        value: Option<&str>,
+    ) -> Result<()> {
         const MAX: usize = 256 * 1024;
         let k = setting_key(key)?;
         let engine = self.engine.lock().await;
@@ -1340,7 +1632,15 @@ impl Core {
     /// The newest `limit` notices about a conversation, or with `None` about
     /// the account as a whole, oldest first. Notices are what
     /// [`Event::Notice`] announced, kept.
-    pub fn notices(&self, conversation: Option<ConversationId>, limit: u32) -> Result<Vec<Notice>> {
+    #[api(needs = local)]
+    pub fn notices(
+        &self,
+        /// The conversation; none for the account's own notices.
+        conversation: Option<ConversationId>,
+        /// At most this many, the newest.
+        #[api(default = 50)]
+        limit: u32,
+    ) -> Result<Vec<Notice>> {
         self.read(|c| {
             let groups = match conversation {
                 Some(id) => {
@@ -1369,37 +1669,74 @@ impl Core {
 
     /// The announcements channel at a glance: unread count, the newest,
     /// whether you are a host, and the maintenance plan.
+    // A connection, so a one-shot CLI shows the server's newest.
+    #[api(needs = connection)]
     pub fn announcement_summary(&self) -> Result<Announcements> {
         self.read(announcements_from)
     }
 
     /// The newest `limit` announcements, oldest first. They are kept for
     /// good: the server never deletes them, and neither does this device.
-    pub fn announcements(&self, limit: u32) -> Result<Vec<Announcement>> {
+    #[api(needs = connection)]
+    pub fn announcements(
+        &self,
+        /// At most this many, the newest.
+        #[api(default = 50)]
+        limit: u32,
+    ) -> Result<Vec<Announcement>> {
         self.read(|c| Ok(store::announcements(c, limit)?.into_iter().map(announcement_from_row).collect()))
     }
 
     /// Mark every announcement read, on all your devices.
+    #[api(needs = connection)]
     pub async fn mark_announcements_read(&self) -> Result<()> {
         self.engine.lock().await.mark_announcements_read().await
     }
 
     /// Post an announcement to everyone on the server. Hosts only; needs a
     /// connection, and fails rather than waiting for one.
-    pub async fn announce(&self, text: &str) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn announce(
+        &self,
+        /// What to say.
+        text: &str,
+    ) -> Result<()> {
         self.engine.lock().await.post_announcement(text).await
     }
 
     /// Plan maintenance (hosts only): everyone is told now unless `quiet`,
     /// reminded a day, an hour, 30 minutes and 5 minutes before, and told
-    /// when it starts and when it is over. `starts_at_ms` of 0 starts it now.
-    pub async fn plan_maintenance(&self, starts_at_ms: u64, minutes: u32, reason: &str, quiet: bool) -> Result<()> {
-        self.engine.lock().await.plan_maintenance(starts_at_ms, minutes, reason, quiet).await
+    /// when it starts and when it is over.
+    #[api(needs = connection)]
+    pub async fn plan_maintenance(
+        &self,
+        /// When it starts; none to start it now.
+        #[api(unix_ms)]
+        starts_at_ms: Option<u64>,
+        /// How long it should take.
+        minutes: u32,
+        /// Why, shown to everyone; empty for no reason given.
+        #[api(default)]
+        reason: &str,
+        /// Do not announce the plan now; the reminders still go out.
+        #[api(default)]
+        quiet: bool,
+    ) -> Result<()> {
+        self.engine.lock().await.plan_maintenance(starts_at_ms.unwrap_or(0), minutes, reason, quiet).await
     }
 
     /// Make a single-use invite code for someone to create an account with
     /// (hosts only), valid for `days` (1 to 30).
-    pub async fn create_invite(&self, bot: bool, days: u32) -> Result<Invite> {
+    #[api(needs = connection)]
+    pub async fn create_invite(
+        &self,
+        /// For a bot account.
+        #[api(default)]
+        bot: bool,
+        /// Days until it expires, 1 to 30.
+        #[api(default = 7)]
+        days: u32,
+    ) -> Result<Invite> {
         let mut e = self.engine.lock().await;
         let (code, expires_at_ms) = e.create_invite(bot, days).await?;
         let server = e.me.as_ref().ok_or(Error::NotRegistered)?.url.clone();
@@ -1408,12 +1745,21 @@ impl Core {
 
     /// Cancel the planned maintenance, or announce the one underway is over
     /// (hosts only).
+    #[api(needs = connection)]
     pub async fn end_maintenance(&self) -> Result<()> {
         self.engine.lock().await.end_maintenance().await
     }
 
     /// The newest `limit` messages of a conversation, oldest first.
-    pub fn messages(&self, conversation: ConversationId, limit: u32) -> Result<Vec<Message>> {
+    #[api(needs = local)]
+    pub fn messages(
+        &self,
+        /// The conversation.
+        conversation: ConversationId,
+        /// At most this many, the newest.
+        #[api(default = 50)]
+        limit: u32,
+    ) -> Result<Vec<Message>> {
         self.read(|c| {
             let groups = store::conversation_groups(c, &conversation.0)?;
             if groups.is_empty() {
@@ -1428,7 +1774,12 @@ impl Core {
     /// ignoring case and accents ("ecole" finds "École"). Deleted messages
     /// are never found, and an edited one is found by its latest text.
     /// Gives how many match in all, and the page asked for.
-    pub fn search(&self, query: &SearchQuery) -> Result<SearchResults> {
+    #[api(needs = local)]
+    pub fn search(
+        &self,
+        /// What to find.
+        query: &SearchQuery,
+    ) -> Result<SearchResults> {
         let words: Vec<String> = query.text.split_whitespace().map(str::to_owned).collect();
         let nothing = SearchResults { total: 0, messages: Vec::new() };
         if words.is_empty()
@@ -1478,14 +1829,28 @@ impl Core {
     }
 
     /// One message.
-    pub fn message(&self, conversation: ConversationId, id: MessageId) -> Result<Message> {
+    #[api(needs = local)]
+    pub fn message(
+        &self,
+        /// Its conversation.
+        conversation: ConversationId,
+        /// The message.
+        id: MessageId,
+    ) -> Result<Message> {
         self.read(|c| message_from_row(c, &Self::find_message(c, conversation, id)?))
     }
 
     /// Who has one of your messages: each other member, and whether it is on
     /// one of their devices or read. Read shows only while you send read
     /// receipts yourself.
-    pub async fn message_receipts(&self, conversation: ConversationId, id: MessageId) -> Result<MessageReceipts> {
+    #[api(needs = local)]
+    pub async fn message_receipts(
+        &self,
+        /// Its conversation.
+        conversation: ConversationId,
+        /// The message: one of yours.
+        id: MessageId,
+    ) -> Result<MessageReceipts> {
         let me = self.engine.lock().await.me.as_ref().ok_or(Error::NotRegistered)?.account;
         self.read(|c| {
             let m = Self::find_message(c, conversation, id)?;
@@ -1515,7 +1880,14 @@ impl Core {
     }
 
     /// Every version of a message, the original first.
-    pub fn message_versions(&self, conversation: ConversationId, id: MessageId) -> Result<Vec<MessageVersion>> {
+    #[api(needs = local)]
+    pub fn message_versions(
+        &self,
+        /// Its conversation.
+        conversation: ConversationId,
+        /// The message.
+        id: MessageId,
+    ) -> Result<Vec<MessageVersion>> {
         self.read(|c| {
             let m = Self::find_message(c, conversation, id)?;
             Ok(store::versions(c, &m.group_id, &m.id)?
@@ -1527,14 +1899,30 @@ impl Core {
     }
 
     /// Send a text message.
-    pub async fn send_text(&self, conversation: ConversationId, text: &str) -> Result<Message> {
+    #[api(needs = connection)]
+    pub async fn send_text(
+        &self,
+        /// Where.
+        conversation: ConversationId,
+        /// The text.
+        text: &str,
+    ) -> Result<Message> {
         let body = content::Body::Text(content::Text { body: text.into() });
         let id = self.engine.lock().await.send_body(conversation.0, body).await?;
         self.message(conversation, id)
     }
 
     /// Edit one of your own messages. Every earlier version is kept.
-    pub async fn edit_message(&self, conversation: ConversationId, id: MessageId, text: &str) -> Result<Message> {
+    #[api(needs = connection)]
+    pub async fn edit_message(
+        &self,
+        /// Its conversation.
+        conversation: ConversationId,
+        /// The message: one of yours.
+        id: MessageId,
+        /// The new text.
+        text: &str,
+    ) -> Result<Message> {
         let group = self.read(|c| Ok(Self::find_message(c, conversation, id)?.group_id))?;
         let gid = group.as_slice().try_into().map_err(|_| Error::Corrupt("group id"))?;
         let body = content::Body::Edit(content::Edit { target: id.0.to_vec(), body: text.into() });
@@ -1543,29 +1931,44 @@ impl Core {
     }
 
     /// Delete one of your own messages, with all its versions, for everyone.
-    pub async fn delete_message(&self, conversation: ConversationId, id: MessageId) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn delete_message(
+        &self,
+        /// Its conversation.
+        conversation: ConversationId,
+        /// The message: one of yours.
+        id: MessageId,
+    ) -> Result<()> {
         let group = self.read(|c| Ok(Self::find_message(c, conversation, id)?.group_id))?;
         let gid = group.as_slice().try_into().map_err(|_| Error::Corrupt("group id"))?;
         self.engine.lock().await.send_body(gid, content::Body::Delete(content::Delete { target: id.0.to_vec() })).await?;
         Ok(())
     }
 
-    /// Change your profile and share it with every conversation.
-    pub async fn set_profile(&self, update: ProfileUpdate) -> Result<()> {
+    /// Change your profile from what it is now, and share it with every
+    /// conversation. The engine checks every field of the result.
+    async fn change_profile(&self, change: impl FnOnce(store::ProfileRow) -> store::ProfileRow) -> Result<()> {
         let mut engine = self.engine.lock().await;
         let mine = engine.me.as_ref().ok_or(Error::NotRegistered)?.account;
         let current = store::profile(&engine.conn, &mine.0)?.unwrap_or_default();
+        engine.set_profile(store::ProfileRow { version: 0, ..change(current) }).await
+    }
+
+    /// Change your profile and share it with every conversation.
+    #[api(needs = connection)]
+    pub async fn set_profile(
+        &self,
+        /// What to change; what is left out stays as it is.
+        update: ProfileUpdate,
+    ) -> Result<()> {
         let now = store::now_ms();
-        let (note_text, note_set_at, note_expires_at) = match update.note {
-            Some(n) if n.is_empty() => (String::new(), 0, 0),
-            Some(n) => (n, now, if update.note_keep { 0 } else { now + content::NOTE_DEFAULT_MS }),
-            None => (current.note_text.clone(), current.note_set_at, current.note_expires_at),
-        };
-        let banner_fill = update.banner_fill.unwrap_or_else(|| current.banner_fill.clone());
-        let theme = update.theme.unwrap_or_else(|| current.theme.clone());
-        engine
-            .set_profile(store::ProfileRow {
-                version: 0,
+        self.change_profile(|current| {
+            let (note_text, note_set_at, note_expires_at) = match update.note {
+                Some(n) if n.is_empty() => (String::new(), 0, 0),
+                Some(n) => (n, now, if update.note_keep { 0 } else { now + content::NOTE_DEFAULT_MS }),
+                None => (current.note_text.clone(), current.note_set_at, current.note_expires_at),
+            };
+            store::ProfileRow {
                 display_name: update.display_name.unwrap_or_else(|| current.display_name.clone()),
                 typing_template: update.typing_template.unwrap_or_else(|| current.typing_template.clone()),
                 note_text,
@@ -1573,11 +1976,75 @@ impl Core {
                 note_expires_at,
                 arrival: update.arrival.unwrap_or_else(|| current.arrival.clone()),
                 bio: update.bio.unwrap_or_else(|| current.bio.clone()),
-                banner_fill,
-                theme,
                 ..current
-            })
-            .await
+            }
+        })
+        .await
+    }
+
+    /// Set your banner's colour or gradient, shown when you have no banner
+    /// image, or clear it for the app's choice.
+    #[api(needs = connection)]
+    pub async fn set_banner_fill(
+        &self,
+        /// The fill; none for the app's choice.
+        fill: Option<Fill>,
+    ) -> Result<()> {
+        self.change_profile(|current| store::ProfileRow { banner_fill: fill, ..current }).await
+    }
+
+    /// Set your profile colours, or clear them for the app's own look.
+    #[api(needs = connection)]
+    pub async fn set_theme(
+        &self,
+        /// The fill; none for the app's own look.
+        theme: Option<Fill>,
+    ) -> Result<()> {
+        self.change_profile(|current| store::ProfileRow { theme, ..current }).await
+    }
+
+    /// Set your profile picture or banner from an image file on this
+    /// computer (PNG, JPEG, WebP or GIF; its middle is used, in shape), or
+    /// remove it. As [`Core::set_picture`], for callers without the bytes
+    /// in hand, such as bots.
+    #[api(needs = connection)]
+    pub async fn set_picture_file(
+        &self,
+        /// Which picture.
+        kind: picture::PictureKind,
+        /// The image file; none removes the picture.
+        path: Option<&str>,
+    ) -> Result<()> {
+        let source = match path {
+            Some(path) => {
+                let size = std::fs::metadata(path).map_err(|e| Error::InvalidInput(format!("reading {path}: {e}")))?.len();
+                if size > picture::MAX_SOURCE_BYTES as u64 {
+                    return Err(Error::InvalidInput(format!("{path} is over {} MB", picture::MAX_SOURCE_BYTES / 1024 / 1024)));
+                }
+                Some((std::fs::read(path).map_err(|e| Error::InvalidInput(format!("reading {path}: {e}")))?, None))
+            }
+            None => None,
+        };
+        self.set_picture(kind, source).await
+    }
+
+    /// Write a picture this device has to a new file, by the ID a
+    /// [`Person`] gives for it.
+    #[api(needs = local)]
+    pub fn save_picture_file(
+        &self,
+        /// The picture's ID, from a person's `avatar` or `banner`.
+        id: &str,
+        /// Where to write it. It must not exist yet.
+        path: &str,
+    ) -> Result<()> {
+        let bytes = self.picture(id)?.ok_or(Error::NotFound("picture"))?;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .and_then(|mut f| std::io::Write::write_all(&mut f, &bytes))
+            .map_err(|e| Error::InvalidInput(format!("writing {path}: {e}")))
     }
 
     /// Set your profile picture or banner from an image file's bytes,
@@ -1617,19 +2084,38 @@ impl Core {
     }
 
     /// Set (or clear, with an empty name) your display name in one conversation.
-    pub async fn set_conversation_name(&self, conversation: ConversationId, name: &str) -> Result<()> {
+    #[api(needs = connection)]
+    pub async fn set_conversation_name(
+        &self,
+        /// The conversation.
+        conversation: ConversationId,
+        /// The name; empty clears it.
+        name: &str,
+    ) -> Result<()> {
         let body = content::Body::ConversationName(content::ConversationName { name: name.into() });
         self.engine.lock().await.send_body(conversation.0, body).await?;
         Ok(())
     }
 
     /// Set (or clear, with an empty name) a private nickname for someone.
-    pub async fn set_nickname(&self, username: &str, nickname: &str) -> Result<()> {
+    #[api(needs = local)]
+    pub async fn set_nickname(
+        &self,
+        /// Whose.
+        username: &str,
+        /// The nickname; empty clears it.
+        nickname: &str,
+    ) -> Result<()> {
         self.engine.lock().await.set_nickname(username, nickname).await
     }
 
     /// What this device knows about a person.
-    pub async fn person(&self, username: &str) -> Result<Person> {
+    #[api(needs = local)]
+    pub async fn person(
+        &self,
+        /// Who.
+        username: &str,
+    ) -> Result<Person> {
         let (account, since_ms) = {
             let mut engine = self.engine.lock().await;
             let account = engine.resolve(username).await?;
@@ -1665,7 +2151,12 @@ impl Core {
     }
 
     /// The safety number between you and `username`, as 12 groups of 5 digits.
-    pub async fn safety_number(&self, username: &str) -> Result<String> {
+    #[api(needs = local)]
+    pub async fn safety_number(
+        &self,
+        /// Who with.
+        username: &str,
+    ) -> Result<String> {
         let mut engine = self.engine.lock().await;
         let peer = engine.resolve(username).await?;
         let mine = engine.me.as_ref().ok_or(Error::NotRegistered)?.account;
@@ -1714,6 +2205,10 @@ fn core_futures_are_send(c: &Core, conv: ConversationId, msg: MessageId) {
     send(c.edit_message(conv, msg, ""));
     send(c.delete_message(conv, msg));
     send(c.set_profile(ProfileUpdate::default()));
+    send(c.set_banner_fill(None));
+    send(c.set_theme(None));
+    send(c.set_picture_file(picture::PictureKind::Avatar, None));
+    send(c.plan_maintenance(None, 0, "", false));
     send(c.set_conversation_name(conv, ""));
     send(c.set_nickname("", ""));
     send(c.person(""));

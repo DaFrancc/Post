@@ -268,6 +268,10 @@ pub struct Profile {
 }
 
 /// A colour, or a gradient between two, to fill something with.
+///
+/// Also a local API type (#[api]): its JSON form sits beside the wire form
+/// and does not change it.
+#[post_api_macros::api]
 #[derive(Clone, PartialEq, Eq, Message)]
 pub struct Fill {
     /// One colour (solid), or two (a gradient from the first to the

@@ -286,6 +286,11 @@ pub enum Event {
         /// How they stand now.
         summary: AnnouncementSummary,
     },
+    /// Events were missed: re-read what you show.
+    Lagged {
+        /// How many.
+        missed: u64,
+    },
 }
 
 /// One of the server's announcements, from the server whoever wrote it.
@@ -522,10 +527,10 @@ pub struct PresenceResult {
 /// Convert a core event for the API.
 pub fn event(e: core::Event) -> Event {
     match e {
-        core::Event::ConversationAdded(c) => Event::ConversationAdded { conversation: conversation(c) },
-        core::Event::ConversationChanged(c) => Event::ConversationChanged { conversation: conversation(c) },
-        core::Event::MessageAdded(m) => Event::MessageAdded { message: message(m) },
-        core::Event::MessageChanged(m) => Event::MessageChanged { message: message(m) },
+        core::Event::ConversationAdded { conversation: c } => Event::ConversationAdded { conversation: conversation(c) },
+        core::Event::ConversationChanged { conversation: c } => Event::ConversationChanged { conversation: conversation(c) },
+        core::Event::MessageAdded { message: m } => Event::MessageAdded { message: message(m) },
+        core::Event::MessageChanged { message: m } => Event::MessageChanged { message: message(m) },
         core::Event::MessageDeleted { conversation, id } => {
             Event::MessageDeleted { conversation: conversation.to_string(), message: id.to_string() }
         }
@@ -534,7 +539,7 @@ pub fn event(e: core::Event) -> Event {
         core::Event::Typing { conversation, username, text } => Event::Typing { conversation: conversation.to_string(), username, text },
         core::Event::Presence { username, presence } => Event::Presence { username, presence: presence_word(presence).into() },
         core::Event::Notice { conversation, text } => Event::Notice { conversation: conversation.map(|c| c.to_string()), text },
-        core::Event::CallChanged(c) => Event::Call {
+        core::Event::CallChanged { call: c } => Event::Call {
             conversation: c.conversation.to_string(),
             call: c.id.to_string(),
             started_by: c.started_by,
@@ -542,8 +547,9 @@ pub fn event(e: core::Event) -> Event {
             ringing: c.ringing,
             ended: c.ended,
         },
-        core::Event::AnnouncementAdded(a) => Event::AnnouncementAdded { announcement: announcement(a) },
-        core::Event::AnnouncementsChanged(s) => Event::AnnouncementsChanged { summary: announcement_summary(s) },
+        core::Event::AnnouncementAdded { announcement: a } => Event::AnnouncementAdded { announcement: announcement(a) },
+        core::Event::AnnouncementsChanged { summary: s } => Event::AnnouncementsChanged { summary: announcement_summary(s) },
+        core::Event::Lagged { missed } => Event::Lagged { missed },
     }
 }
 
@@ -1338,10 +1344,14 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 note_keep: p.note_keep,
                 arrival: p.arrival,
                 bio: p.bio,
-                banner_fill: fill(p.banner_fill)?,
-                theme: fill(p.theme)?,
             })
             .await?;
+            if let Some(f) = fill(p.banner_fill)? {
+                core.set_banner_fill(f).await?;
+            }
+            if let Some(f) = fill(p.theme)? {
+                core.set_theme(f).await?;
+            }
             ok(Done {})
         }
         "set_picture" => {
@@ -1502,7 +1512,7 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
         }
         "plan_maintenance" => {
             let p: PlanMaintenanceParams = params(p)?;
-            core.plan_maintenance(p.starts_at_ms.unwrap_or(0), p.minutes, &p.reason, p.quiet).await?;
+            core.plan_maintenance(p.starts_at_ms, p.minutes, &p.reason, p.quiet).await?;
             ok(Done {})
         }
         "end_maintenance" => {
