@@ -168,6 +168,14 @@ typed bridge; each screen moves over when it is rebuilt in phase 4, and the
 old bridge (`post-ffi/src/api/client.rs`'s typed methods, the 18,000 lines of
 `frb_generated.*`) is deleted when the last screen has moved.
 
+Phase 4 carries the most risk. Each rebuilt screen is compared with the old
+one (`app/tool/screens.sh`, same states, same window sizes) before the old
+screen is deleted.
+
+The work happens on the `refactor` branch, merged into `main` as each phase
+finishes. Phases 2 to 4 get their build documents when the phase before them
+is done, so they are written against the code as it then is.
+
 ### Phase 0: tooling
 
 Small and independent; no design document. Each item is one commit.
@@ -175,10 +183,13 @@ Small and independent; no design document. Each item is one commit.
 1. **Rust formatting.** Commit `rustfmt.toml` with `max_width = 140` and
    `use_small_heuristics = "Max"` (the settings the code was evidently written
    with: they leave the fewest differences). Format once in a commit of its
-   own and list that commit in `.git-blame-ignore-revs`.
+   own and list that commit in `.git-blame-ignore-revs`. Generated files
+   (`frb_generated.rs`) keep their generator's format and are excluded.
 2. **Dart formatting.** Set `formatter: page_width:` in
    `app/analysis_options.yaml` to the width the code already uses (nearly all
-   lines fit 160), and format once the same way.
+   lines fit 160), and format once the same way. The generated bridge
+   (`app/lib/src/rust/`) keeps codegen's format and is excluded from the
+   formatter and its check.
 3. **Fast test builds.** In the root `Cargo.toml`:
    `[profile.dev.package."*"] opt-level = 3`. Measured: rebuilding the core's
    end-to-end tests after an edit took 29 s in release and 2 s this way, with
@@ -187,7 +198,9 @@ Small and independent; no design document. Each item is one commit.
    from `--release` / `target/release` to the dev profile.
 4. **A `justfile`:** `gen` (all generators), `check` (formatters in check
    mode, clippy, `flutter analyze`), `test`, `dev` (server and app), `fmt`.
-5. **CI on every push and pull request:** `just check` and `just test`.
+5. **CI on pull requests and pushes to `main` and `refactor`:** `just check`
+   and `just test`. Not on every branch push, to keep Actions minutes down;
+   `scripts/ci-local.sh` is there for anything else.
 6. **`CLAUDE.md`** at the root: points here, lists the `just` commands and the
    rules in section 4 in brief.
 

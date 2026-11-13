@@ -591,7 +591,9 @@ the core changes above require (the event mapping, `set_banner_fill`,
 
 ## 10. If something does not work
 
-- **A tool rejects doc comments on parameters.** Move them into the method
+- **A tool rejects doc comments on parameters** (rustc accepts them only
+  because `#[api]` strips them first; watch rust-analyzer and clippy too).
+  Move them into the method
   attribute (`#[api(needs = …, params(device = "…"))]`) and drop the `doc`
   stripping from the macro.
 - **A core method cannot reasonably fit the table.** Leave it out of the API
