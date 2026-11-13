@@ -1032,7 +1032,8 @@ impl Core {
 
     /// Log in and catch up. Safe to call when already connected.
     pub async fn connect(&self) -> Result<()> {
-        self.engine.lock().await.connect().await
+        self.engine.lock().await.connect().await?;
+        self.keep_pictures().await
     }
 
     /// Whether both server connections are up.
@@ -1043,6 +1044,12 @@ impl Core {
     /// Fetch and process everything new, and send what is queued.
     pub async fn sync(&self) -> Result<()> {
         self.engine.lock().await.sync().await?;
+        self.keep_pictures().await
+    }
+
+    /// After catching up: keep this account's pictures on the server, and
+    /// fetch the pictures profiles name that are not here yet.
+    async fn keep_pictures(&self) -> Result<()> {
         match self.engine.lock().await.renew_pictures().await {
             Ok(()) => {}
             Err(e @ (Error::NotConnected | Error::Network(_))) => return Err(e),
