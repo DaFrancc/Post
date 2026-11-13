@@ -434,6 +434,14 @@ class _ProfileState extends State<_Profile> {
                 ),
               ),
             ],
+            if (p?.sinceMs case final since?) ...[
+              const SizedBox(height: 10),
+              Text(
+                'On Post since ${monthYear(since.toInt())}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, color: PColors.textFaint),
+              ),
+            ],
             // All of it: the panel scrolls.
             if (p != null && p.bio.isNotEmpty) ...[
               const SizedBox(height: 14),

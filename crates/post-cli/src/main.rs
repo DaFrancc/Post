@@ -713,6 +713,9 @@ fn print_human(method: &str, v: &Value) {
                     println!("{label}: {x}");
                 }
             }
+            if let Some(since) = v["since_ms"].as_u64() {
+                println!("on Post since: {} UTC", time(since));
+            }
             if let Some(colors) = v["colors"].as_array().filter(|c| !c.is_empty()) {
                 let colors: Vec<&str> = colors.iter().filter_map(|c| c.as_str()).collect();
                 println!("profile colours: {}", colors.join(", "));

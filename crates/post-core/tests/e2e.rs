@@ -135,6 +135,9 @@ async fn dm_messages_edits_deletes_and_profiles() {
     assert_eq!(alice_seen_by_bob.arrival, "decode", "her messages arrive her way on Bob's screen too");
     assert_eq!(alice_seen_by_bob.bio, "Climber, bad photographer.\n\nAsk me about **the spreadsheet**, @bob.", "line breaks and all");
     assert_eq!(alice_seen_by_bob.theme, Some([0x4a3a8f, 0x1b4e63]), "her card in her colours");
+    let since = alice_seen_by_bob.since_ms.expect("when her account began");
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("now").as_millis() as u64;
+    assert!(since <= now && now - since < 10 * 60 * 1000, "her account began minutes ago");
 
     // Bob replies.
     bob.send_text(dm.id, "hi alice").await.expect("reply");

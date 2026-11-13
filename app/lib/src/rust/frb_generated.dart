@@ -4377,8 +4377,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   PersonInfo dco_decode_person_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 13)
-      throw Exception('unexpected arr length: expect 13 but see ${arr.length}');
+    if (arr.length != 14)
+      throw Exception('unexpected arr length: expect 14 but see ${arr.length}');
     return PersonInfo(
       username: dco_decode_String(arr[0]),
       shownName: dco_decode_String(arr[1]),
@@ -4393,6 +4393,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       bannerColor: dco_decode_opt_box_autoadd_u_32(arr[10]),
       bio: dco_decode_String(arr[11]),
       colors: dco_decode_opt_box_autoadd_profile_colors(arr[12]),
+      sinceMs: dco_decode_opt_box_autoadd_u_64(arr[13]),
     );
   }
 
@@ -5506,6 +5507,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_bannerColor = sse_decode_opt_box_autoadd_u_32(deserializer);
     var var_bio = sse_decode_String(deserializer);
     var var_colors = sse_decode_opt_box_autoadd_profile_colors(deserializer);
+    var var_sinceMs = sse_decode_opt_box_autoadd_u_64(deserializer);
     return PersonInfo(
       username: var_username,
       shownName: var_shownName,
@@ -5520,6 +5522,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       bannerColor: var_bannerColor,
       bio: var_bio,
       colors: var_colors,
+      sinceMs: var_sinceMs,
     );
   }
 
@@ -6563,6 +6566,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_box_autoadd_u_32(self.bannerColor, serializer);
     sse_encode_String(self.bio, serializer);
     sse_encode_opt_box_autoadd_profile_colors(self.colors, serializer);
+    sse_encode_opt_box_autoadd_u_64(self.sinceMs, serializer);
   }
 
   @protected

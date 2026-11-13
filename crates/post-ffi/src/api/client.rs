@@ -250,6 +250,8 @@ pub struct PersonInfo {
     pub bio: String,
     /// Their profile colours, if they chose them.
     pub colors: Option<ProfileColors>,
+    /// When their account began (Unix ms), if known: "on Post since".
+    pub since_ms: Option<u64>,
 }
 
 /// Profile colours: the main colour of someone's profile card and its
@@ -1116,6 +1118,7 @@ impl Client {
             banner_color: p.banner_color,
             bio: p.bio,
             colors: p.theme.map(|[primary, accent]| ProfileColors { primary, accent }),
+            since_ms: p.since_ms,
         })
     }
 

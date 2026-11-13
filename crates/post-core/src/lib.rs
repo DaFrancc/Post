@@ -568,6 +568,9 @@ pub struct Person {
     /// Their profile colours (`0xRRGGBB`), main then accent, if they chose
     /// them.
     pub theme: Option<[u32; 2]>,
+    /// When their account began (Unix ms): signed into its device list and
+    /// checked by their server when it registered.
+    pub since_ms: Option<u64>,
 }
 
 /// A device asking to join this account, as shown before approving it.
@@ -1635,7 +1638,11 @@ impl Core {
 
     /// What this device knows about a person.
     pub async fn person(&self, username: &str) -> Result<Person> {
-        let account = self.engine.lock().await.resolve(username).await?;
+        let (account, since_ms) = {
+            let mut engine = self.engine.lock().await;
+            let account = engine.resolve(username).await?;
+            (account, engine.account_created_ms(&account))
+        };
         self.read(|c| {
             let p = store::profile(c, &account.0)?;
             let now = store::now_ms();
@@ -1659,6 +1666,7 @@ impl Core {
                 banner_color: p.as_ref().filter(|p| p.banner_color != 0).map(|p| p.banner_color & 0x00ff_ffff),
                 bio: p.as_ref().map(|p| p.bio.clone()).unwrap_or_default(),
                 theme: p.as_ref().filter(|p| p.theme != [0, 0]).map(|p| p.theme.map(|c| c & 0x00ff_ffff)),
+                since_ms,
                 note: p.filter(|p| !p.note_text.is_empty() && (p.note_expires_at == 0 || p.note_expires_at > now)).map(|p| p.note_text),
             })
         })

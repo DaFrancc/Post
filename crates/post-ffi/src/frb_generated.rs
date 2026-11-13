@@ -5793,6 +5793,7 @@ impl SseDecode for crate::api::client::PersonInfo {
         let mut var_bannerColor = <Option<u32>>::sse_decode(deserializer);
         let mut var_bio = <String>::sse_decode(deserializer);
         let mut var_colors = <Option<crate::api::client::ProfileColors>>::sse_decode(deserializer);
+        let mut var_sinceMs = <Option<u64>>::sse_decode(deserializer);
         return crate::api::client::PersonInfo {
             username: var_username,
             shown_name: var_shownName,
@@ -5807,6 +5808,7 @@ impl SseDecode for crate::api::client::PersonInfo {
             banner_color: var_bannerColor,
             bio: var_bio,
             colors: var_colors,
+            since_ms: var_sinceMs,
         };
     }
 }
@@ -6872,6 +6874,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::client::PersonInfo {
             self.banner_color.into_into_dart().into_dart(),
             self.bio.into_into_dart().into_dart(),
             self.colors.into_into_dart().into_dart(),
+            self.since_ms.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -7898,6 +7901,7 @@ impl SseEncode for crate::api::client::PersonInfo {
         <Option<u32>>::sse_encode(self.banner_color, serializer);
         <String>::sse_encode(self.bio, serializer);
         <Option<crate::api::client::ProfileColors>>::sse_encode(self.colors, serializer);
+        <Option<u64>>::sse_encode(self.since_ms, serializer);
     }
 }
 

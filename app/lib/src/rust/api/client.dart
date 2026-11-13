@@ -1296,6 +1296,9 @@ class PersonInfo {
   /// Their profile colours, if they chose them.
   final ProfileColors? colors;
 
+  /// When their account began (Unix ms), if known: "on Post since".
+  final BigInt? sinceMs;
+
   const PersonInfo({
     required this.username,
     required this.shownName,
@@ -1310,6 +1313,7 @@ class PersonInfo {
     this.bannerColor,
     required this.bio,
     this.colors,
+    this.sinceMs,
   });
 
   @override
@@ -1326,7 +1330,8 @@ class PersonInfo {
       banner.hashCode ^
       bannerColor.hashCode ^
       bio.hashCode ^
-      colors.hashCode;
+      colors.hashCode ^
+      sinceMs.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1345,7 +1350,8 @@ class PersonInfo {
           banner == other.banner &&
           bannerColor == other.bannerColor &&
           bio == other.bio &&
-          colors == other.colors;
+          colors == other.colors &&
+          sinceMs == other.sinceMs;
 }
 
 /// How far one person has got with the user's message.

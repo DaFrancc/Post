@@ -34,6 +34,8 @@ class _ProfileCard extends StatelessWidget {
 
   bool get _me => username == state.me.username;
 
+  static const _fact = TextStyle(fontSize: 12, color: PColors.textFaint);
+
   Future<void> _message(BuildContext context) async {
     // The card's own context goes with it.
     final nav = Navigator.of(context);
@@ -157,7 +159,14 @@ class _ProfileCard extends StatelessWidget {
                   ),
                 ],
                 const SizedBox(height: 10),
-                Text('Messages arrive: ${Arrival.parse(p?.arrival).label}', style: const TextStyle(fontSize: 12, color: PColors.textFaint)),
+                Wrap(
+                  spacing: 14,
+                  runSpacing: 2,
+                  children: [
+                    if (p?.sinceMs case final since?) Text('On Post since ${monthYear(since.toInt())}', style: _fact),
+                    Text('Messages arrive: ${Arrival.parse(p?.arrival).label}', style: _fact),
+                  ],
+                ),
                 const SizedBox(height: 14),
                 if (_me)
                   SizedBox(

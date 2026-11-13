@@ -131,6 +131,8 @@ pub struct Person {
     /// Their profile colours, main then accent, `#rrggbb` each; empty if
     /// they chose none.
     pub colors: Vec<String>,
+    /// When their account began (Unix ms), if known.
+    pub since_ms: Option<u64>,
 }
 
 /// A safety number.
@@ -1370,6 +1372,7 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 banner_color: x.banner_color.map(|c| format!("#{c:06x}")),
                 bio: x.bio,
                 colors: x.theme.into_iter().flatten().map(|c| format!("#{c:06x}")).collect(),
+                since_ms: x.since_ms,
             })
         }
         "set_verified" => {

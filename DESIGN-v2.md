@@ -180,7 +180,7 @@ Link {
   account_id        // absent in the genesis link
   seq               // 0, 1, 2, ...
   prev_hash         // link hash of the previous link; absent in genesis
-  timestamp_ms      // informational only; clocks are not trusted
+  timestamp_ms      // informational; clocks are not trusted (but see genesis below)
   signer            // device_id of the signing device
   op                // see below
 }
@@ -192,6 +192,11 @@ link_hash(b) = SHA-256(label("post/link-hash/v1") ‖ b)
 device_id    = SHA-256(label("post/device-id/v1") ‖ chain_pub_ed25519 ‖ chain_pub_mldsa65)[..16]
 label(s)     = len(s) as one byte ‖ s
 ```
+
+The genesis link's `timestamp_ms` is when the account began, shown on profiles as
+"On Post since". At registration the server refuses a genesis link whose timestamp is
+more than a day from its own clock, so it cannot be backdated. Because the link is
+signed, the server cannot change it afterwards either.
 
 A device ID is derived from its chain keys rather than chosen, so IDs cannot collide
 or be claimed by another key. Encoding is protobuf; decoders require the canonical

@@ -335,6 +335,11 @@ pub fn register(
     if !verify_auth(&chain) {
         return Err(err(ErrorCode::Unauthenticated, "bad login signature"));
     }
+    // The genesis timestamp says when the account began, for everyone who
+    // sees it: it must be now, by this server's clock, give or take.
+    if chain.created_ms().abs_diff(now_ms()) > post_identity::chain::GENESIS_CLOCK_SKEW_MS {
+        return Err(err(ErrorCode::ChainRejected, "the account's start time is not now: check this device's clock"));
+    }
     let device = &chain.devices()[0];
     let now = sql_i64(now_ms());
     let tx = write_tx(conn)?;

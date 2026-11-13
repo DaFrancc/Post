@@ -77,9 +77,17 @@ impl Client {
 
     /// A logged-in session for a newly registered account.
     async fn register(server: &Server, username: &str) -> (Self, DeviceKeys) {
+        let (c, keys, reply) = Self::try_register(server, username, now_ms()).await;
+        assert!(matches!(reply, Reply::Authenticated(_)), "{reply:?}");
+        (c, keys)
+    }
+
+    /// Try to register an account whose genesis link says it began at
+    /// `created_ms`.
+    async fn try_register(server: &Server, username: &str, created_ms: u64) -> (Self, DeviceKeys, Reply) {
         let mut c = Self::connect(&server.running.url()).await;
         let keys = DeviceKeys::generate().expect("keys");
-        let (_, genesis) = Chain::create(&keys, &server.domain, username, false, 1).expect("chain");
+        let (_, genesis) = Chain::create(&keys, &server.domain, username, false, created_ms).expect("chain");
         let sig = keys.chain.sign(labels::AUTH, &proto::auth_message(&server.domain, &c.nonce)).expect("sign");
         let reply = c
             .call(Request::Register(proto::Register {
@@ -89,9 +97,27 @@ impl Client {
                 auth_sig_mldsa65: sig.mldsa65_bytes().to_vec(),
             }))
             .await;
-        assert!(matches!(reply, Reply::Authenticated(_)), "{reply:?}");
-        (c, keys)
+        (c, keys, reply)
     }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("after 1970").as_millis() as u64
+}
+
+#[tokio::test]
+async fn an_account_begins_now_by_the_servers_clock() {
+    let server = Server::start().await;
+    // Its start time is shown to everyone as "on Post since", so it cannot
+    // be made up: a week ago, or next week, is refused.
+    let week = 7 * 24 * 3600 * 1000;
+    let (_, _, back) = Client::try_register(&server, "backdated", now_ms() - week).await;
+    assert_eq!(code(&back), ErrorCode::ChainRejected);
+    let (_, _, ahead) = Client::try_register(&server, "ahead", now_ms() + week).await;
+    assert_eq!(code(&ahead), ErrorCode::ChainRejected);
+    // A clock an hour off is allowed.
+    let (_, _, close) = Client::try_register(&server, "close", now_ms() - 3600 * 1000).await;
+    assert!(matches!(close, Reply::Authenticated(_)), "{close:?}");
 }
 
 async fn next(ws: &mut Ws) -> ServerFrame {

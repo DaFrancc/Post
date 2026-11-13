@@ -1067,6 +1067,11 @@ impl Engine {
 
     /// The account for a username, from the verified directory. Never asks
     /// the server about this particular name.
+    /// When an account began (Unix ms), from its device list, if known.
+    pub fn account_created_ms(&self, account: &AccountId) -> Option<u64> {
+        self.chains.get(account).map(Chain::created_ms)
+    }
+
     pub async fn resolve(&mut self, username: &str) -> Result<AccountId> {
         if store::account_by_username(&self.conn, username)?.is_none() {
             self.sync_directory().await?;
