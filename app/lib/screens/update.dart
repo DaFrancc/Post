@@ -158,6 +158,7 @@ class UpdateCard extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
+          mouseCursor: SystemMouseCursors.click,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
             child: Column(

@@ -193,6 +193,14 @@ TextTheme _textStyles(TextTheme t) {
   );
 }
 
+/// The pointing hand over anything clickable, the arrow when it is disabled.
+/// Flutter shows the hand only on the web and keeps the arrow in desktop
+/// apps, following native toolkits; Post follows the web and chat apps
+/// people know, Discord among them, where a hand says "this is a button".
+final WidgetStateProperty<MouseCursor?> pClickable = WidgetStateProperty.resolveWith(
+  (states) => states.contains(WidgetState.disabled) ? SystemMouseCursors.basic : SystemMouseCursors.click,
+);
+
 ThemeData postTheme() {
   final scheme = ColorScheme.fromSeed(
     seedColor: PColors.accent,
@@ -227,11 +235,17 @@ ThemeData postTheme() {
       radius: const Radius.circular(3),
     ),
     checkboxTheme: CheckboxThemeData(
+      mouseCursor: pClickable,
       side: const BorderSide(color: PColors.borderStrong, width: 1.5),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
     ),
+    iconButtonTheme: IconButtonThemeData(style: ButtonStyle(mouseCursor: pClickable)),
+    segmentedButtonTheme: SegmentedButtonThemeData(style: ButtonStyle(mouseCursor: pClickable)),
+    elevatedButtonTheme: ElevatedButtonThemeData(style: ButtonStyle(mouseCursor: pClickable)),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
+        enabledMouseCursor: SystemMouseCursors.click,
+        disabledMouseCursor: SystemMouseCursors.basic,
         foregroundColor: PColors.accentText,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         textStyle: const TextStyle(fontFamily: PType.body, fontWeight: FontWeight.w500, fontSize: 13.5),
@@ -261,6 +275,8 @@ ThemeData postTheme() {
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
+        enabledMouseCursor: SystemMouseCursors.click,
+        disabledMouseCursor: SystemMouseCursors.basic,
         backgroundColor: PColors.accent,
         foregroundColor: PColors.onAccent,
         minimumSize: const Size(44, 44),
@@ -271,6 +287,8 @@ ThemeData postTheme() {
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
+        enabledMouseCursor: SystemMouseCursors.click,
+        disabledMouseCursor: SystemMouseCursors.basic,
         foregroundColor: PColors.textBody,
         minimumSize: const Size(44, 44),
         padding: const EdgeInsets.symmetric(horizontal: 18),

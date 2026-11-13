@@ -611,6 +611,7 @@ class _PlanDialogState extends State<_PlanDialog> {
                     const Text('LASTS ABOUT', style: PType.label),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<int>(
+                      mouseCursor: SystemMouseCursors.click,
                       initialValue: _minutes,
                       items: [for (final m in _lengths) DropdownMenuItem(value: m, child: Text(minutesText(m)))],
                       onChanged: _busy ? null : (v) => setState(() => _minutes = v ?? _minutes),

@@ -462,6 +462,7 @@ class CallDock extends StatelessWidget {
           Expanded(
             child: InkWell(
               borderRadius: BorderRadius.circular(8),
+              mouseCursor: SystemMouseCursors.click,
               onTap: () => state.select(a.conversation),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
