@@ -19,7 +19,7 @@ out=$(realpath -m "${1:-$app/build/screens}")
 # (flutter_soloud) follow the clang link to ccache itself and fail. Use the
 # compilers directly.
 PATH=$(tr ':' '\n' <<<"$PATH" | grep -v '^/usr/lib64/ccache$' | paste -sd:)
-cargo build -q --release --manifest-path "$app/../Cargo.toml" -p post-server -p post-cli
+cargo build -q --manifest-path "$app/../Cargo.toml" -p post-server -p post-cli
 rm -rf "$out"
 cd "$app"
 # The test lists the server and accounts it starts; stop them however the

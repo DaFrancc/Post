@@ -8,7 +8,7 @@
 set -euo pipefail
 
 app=$(cd "$(dirname "$0")/.." && pwd)
-cargo build -q --release --manifest-path "$app/../Cargo.toml" -p post-server -p post-cli
+cargo build -q --manifest-path "$app/../Cargo.toml" -p post-server -p post-cli
 cd "$app"
 pids="$app/build/timing.pids"
 cleanup() {

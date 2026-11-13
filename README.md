@@ -105,8 +105,8 @@ To run another account at the same time, for example to message yourself, give
 the app its own profile folder and a key file instead of the keyring:
 
 ```sh
-B=target/release
-cargo build --release -p post-cli
+B=target/debug
+cargo build -p post-cli
 $B/post keygen .dev/second.key
 POST_PROFILE=.dev/second POST_DB_KEY_FILE=.dev/second.key \
   app/build/linux/x64/release/bundle/post
@@ -180,7 +180,7 @@ after `subscribe`. `post schema` prints the OpenRPC description.
 ## Development
 
 ```sh
-cargo test --workspace --release        # Rust tests, end to end included
+cargo test --workspace                  # Rust tests, end to end included
 cargo clippy --workspace --all-targets  # lints
 cd app
 flutter analyze && flutter test         # Dart checks and unit tests

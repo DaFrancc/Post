@@ -23,9 +23,9 @@ class Harness {
   late final int port;
   final _processes = <Process>[];
 
-  /// Release builds: tests make many CLI calls, each doing post-quantum
-  /// handshakes, which take seconds apiece unoptimised.
-  final bin = '${Directory.current.parent.path}/target/release';
+  /// Debug builds, whose dependencies are optimised (the root Cargo.toml):
+  /// tests make many CLI calls, each doing post-quantum handshakes.
+  final bin = '${Directory.current.parent.path}/target/debug';
 
   String get url => 'ws://127.0.0.1:$port/v1/ws';
 

@@ -100,3 +100,10 @@ missing_docs = "warn"
 
 [workspace.lints.clippy]
 unwrap_used = "warn"
+
+# Dependencies optimised in debug builds too: the post-quantum handshakes in
+# openmls and libcrux take seconds apiece unoptimised. Our own crates stay
+# unoptimised, so tests rebuild in seconds after an edit instead of the half
+# minute release takes, and run about as fast.
+[profile.dev.package."*"]
+opt-level = 3
