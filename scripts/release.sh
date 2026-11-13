@@ -6,7 +6,7 @@
 #   scripts/release.sh new server 0.3.0   tag a server version and push it:
 #                                         CI builds its server image
 #   scripts/release.sh changes            what changed in each since its last release
-#   scripts/release.sh sign               check, sign and publish the newest app draft
+#   scripts/release.sh sign               check, sign and publish the drafts, app and server
 #   scripts/release.sh status             which releases are drafts, which published
 #
 # The app and the server have their own versions (tags app-vX.Y.Z and
@@ -15,12 +15,15 @@
 # last release, then opens your editor for the notes: for the app, what it
 # shows as "What's new", where a line "Min-Version: 0.1.0" marks older apps
 # as too old. CI then builds it, which takes a few minutes. Before tagging,
-# run scripts/ci-local.sh: the same builds, here.
+# run scripts/ci-local.sh if you want the same builds tried here first.
 #
-# `sign` downloads the draft, checks every file against its manifest, asks for
-# the release key's passphrase, signs, and publishes after you confirm. The
-# key is ~/post-release.key unless POST_RELEASE_KEY names another file, and it
-# never leaves this machine. `sign app-v0.3.0` picks a draft other than the newest.
+# `sign` takes each draft in turn: it downloads it, checks it (an app's files
+# against its manifest; a server's commit against its tag), asks for the
+# release key's passphrase, signs, and publishes after you confirm. A server
+# release is signed under its own label and never becomes the latest
+# release, which stays the app's. The key is ~/post-release.key unless
+# POST_RELEASE_KEY names another file, and it never leaves this machine.
+# `sign app-v0.3.0` signs just that one.
 #
 # Needs the GitHub CLI (gh), signed in with write access to the repository.
 set -euo pipefail
@@ -74,11 +77,6 @@ cmd_changes() {
   show_changes server
 }
 
-newest_draft() {
-  gh release list -R "$repo" --json tagName,isDraft,createdAt \
-    -q '[.[] | select(.isDraft)] | sort_by(.createdAt) | last | .tagName // empty'
-}
-
 cmd_new() {
   local kind=${1:-} version=${2:-}
   [[ $kind == app || $kind == server ]] && [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
@@ -128,44 +126,81 @@ cmd_new() {
   fi
 }
 
+all_drafts() {
+  gh release list -R "$repo" --json tagName,isDraft,createdAt \
+    -q '[.[] | select(.isDraft)] | sort_by(.createdAt) | .[].tagName'
+}
+
+# Sign every draft (one passphrase each), or the one named.
 cmd_sign() {
-  local tag=${1:-}
-  if [[ -z $tag ]]; then
-    tag=$(newest_draft)
-    [[ -n $tag ]] || die "there is no draft release to sign (CI may still be building: scripts/release.sh status)"
+  local tags
+  if [[ -n ${1:-} ]]; then
+    tags=$1
+  else
+    tags=$(all_drafts)
+    [[ -n $tags ]] || die "there is no draft release to sign (CI may still be building: scripts/release.sh status)"
   fi
-  # App releases only; the first ones were tagged vX.Y.Z.
-  [[ $tag =~ ^(app-)?v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "usage: release.sh sign [app-vX.Y.Z]"
   [[ -f $key ]] || die "no release key at $key (set POST_RELEASE_KEY to where it is)"
+  cargo build -q --release -p post-release
+  git fetch -q --tags origin
+  local tag
+  for tag in $tags; do
+    sign_one "$tag"
+  done
+}
+
+sign_one() {
+  local tag=$1
+  # App releases (the first ones were tagged vX.Y.Z) and server releases.
+  [[ $tag =~ ^(app-|server-)?v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "usage: release.sh sign [app-vX.Y.Z | server-vX.Y.Z]"
   [[ $(gh release view "$tag" -R "$repo" --json isDraft -q .isDraft) == true ]] \
     || die "$tag is not a draft release (already published, or not built yet)"
 
-  # Expanded now: the cleanup runs after this function's locals are gone.
   local work
   work=$(mktemp -d)
-  # shellcheck disable=SC2064
-  trap "rm -rf '$work'" EXIT
+  echo
   echo "Downloading $tag…"
   gh release download "$tag" -R "$repo" -D "$work"
   shopt -s nullglob
   local manifests=("$work"/manifest-*.json)
-  [[ ${#manifests[@]} -gt 0 ]] || die "the draft has no manifests"
+  [[ ${#manifests[@]} -gt 0 ]] || { rm -rf -- "$work"; die "the draft has no manifests"; }
 
-  cargo build -q --release -p post-release
   local tool=target/release/post-release m
   for m in "${manifests[@]}"; do
-    echo
     echo "== $(basename "$m")"
-    sed -n 's/^  "\(version\|platform\|min_version\)": /  \1: /p' "$m"
-    "$tool" sign --key "$key" "$m"
-    "$tool" check "$m"
+    if [[ $tag == server-v* ]]; then
+      # What you sign: the image and the commit. The commit must be the
+      # tag's here too, so a tag moved on GitHub is noticed.
+      local want
+      want=$(git rev-parse "$tag^{commit}")
+      sed -n 's/^  "\(version\|image_digest\|commit\)": /  \1: /p' "$m"
+      grep -q "\"commit\": \"$want\"" "$m" || { rm -rf -- "$work"; die "the manifest's commit is not $tag's here ($want)"; }
+      "$tool" sign-server --key "$key" "$m"
+      "$tool" check-server "$m"
+    else
+      sed -n 's/^  "\(version\|platform\|min_version\)": /  \1: /p' "$m"
+      "$tool" sign --key "$key" "$m"
+      "$tool" check "$m"
+    fi
   done
 
   echo
-  read -rp "Publish $tag? Servers fetch it within the hour. [y/N] " answer
-  [[ $answer == [yY] ]] || { echo "Not published; the draft is unchanged."; exit 1; }
+  local where="Servers fetch it within the hour."
+  [[ $tag == server-v* ]] && where="Servers take it with deploy/server.sh update."
+  read -rp "Publish $tag? $where [y/N] " answer
+  if [[ $answer != [yY] ]]; then
+    rm -rf -- "$work"
+    echo "Not published; the draft is unchanged."
+    return 0
+  fi
   for m in "${manifests[@]}"; do gh release upload -R "$repo" "$tag" "$m.sig"; done
-  gh release edit "$tag" -R "$repo" --draft=false --latest >/dev/null
+  # The latest release is always the app's: servers hand it out to apps.
+  if [[ $tag == server-v* ]]; then
+    gh release edit "$tag" -R "$repo" --draft=false --latest=false >/dev/null
+  else
+    gh release edit "$tag" -R "$repo" --draft=false --latest >/dev/null
+  fi
+  rm -rf -- "$work"
   echo "$tag published."
 }
 

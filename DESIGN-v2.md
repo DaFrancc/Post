@@ -1346,9 +1346,20 @@ accept. Built in phase 5b for Linux (`crates/post-release`, `post-server/src/rel
   changed: tags `app-vX.Y.Z` and `server-vX.Y.Z` (the first releases were plain
   `vX.Y.Z`, both at once). They agree through the protocol version and additive
   changes, not their numbers; `min_version` marks apps too old for current
-  servers. A server release is a server image (`ghcr.io/…/post-server:X.Y.Z`),
-  which `deploy/server.sh` checks out and runs; it has no GitHub release, so the
-  latest GitHub release is always the app's.
+  servers. A server release is a server image (`ghcr.io/…/post-server:X.Y.Z`)
+  and a signed server manifest `{ version, image_digest, commit, notes,
+  released_at_ms }`, signed by the release key under its own label
+  `post/server-release/v1`, so an app manifest's signature never passes for one.
+  It is published as a GitHub release that is never marked latest: the latest is
+  always the app's, which servers hand out to apps.
+- **Servers check what they run.** `deploy/server.sh` verifies a server release
+  before moving to it, with OpenSSL 3.5 (both halves, Ed25519 and ML-DSA-65)
+  against the release key's PEM files in the checkout it already runs, so trust
+  carries from one release to the next and no new code is run before it is
+  checked. It requires the manifest's commit to be the tag's (a moved tag is
+  refused) and pulls the image by the signed digest (a swapped image is
+  refused). A test keeps the PEM files equal to the key built into apps. The
+  first install trusts the clone it starts from.
 - **Building and signing** (`scripts/release.sh`). `release.sh new app X.Y.Z` tags
   the pushed commit and pushes the tag (`new server X.Y.Z` the same for the
   server). CI then builds each platform's files and an unsigned manifest, and

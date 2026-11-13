@@ -50,9 +50,16 @@ releases are `server-vX.Y.Z` tags, the app's `app-vX.Y.Z`, and either is
 released only when it changed. They agree through the protocol, not their
 numbers, so any recent app works with any recent server.
 
+**Signed.** A server release is signed with Post's release key, like the
+app's. Before moving to one, the script checks its signature with OpenSSL
+against the key in the checkout it already runs (`deploy/release-key-*.pem`),
+checks the release's commit is the tag's, and then pulls the image by the
+exact digest the signature covers. A tag or image changed on GitHub is
+refused. A release is used only once it is signed and published.
+
 **The server image.** The script downloads the image CI built for the
-server release (`ghcr.io/dafrancc/post-server:X.Y.Z`), so the server never
-compiles anything. CI builds one when a server release is tagged, a few
+server release (`ghcr.io/dafrancc/post-server`, by digest), so the server
+never compiles anything. CI builds one when a server release is tagged, a few
 minutes after. If there is none yet, the script says so and asks before
 building here instead, which takes a long time on a small server. Two other
 ways, which use whatever this clone has checked out:

@@ -64,6 +64,8 @@ conf=$(getent passwd root | cut -d: -f6)/.config/post
 image=localhost/postd:latest
 backups=$(getent passwd root | cut -d: -f6)/post-backups
 registry=ghcr.io/dafrancc/post-server
+# Where server releases' signed manifests are published.
+release_repo=DaFrancc/Post
 caddy_image=docker.io/library/caddy:2
 livekit_image=docker.io/livekit/livekit-server:v1.13.11
 
@@ -199,7 +201,9 @@ check_dns() {
 #   iproute2 (ip, ss), procps        addresses and ports; sysctl
 #   git, gzip                        updating this clone; loading pushed images
 #   age                              encrypting backups
-packages=(podman netavark aardvark-dns catatonit ca-certificates curl iproute2 procps git gzip age)
+#   openssl, jq                      checking a server release's signature
+#                                    (OpenSSL 3.5 for ML-DSA) and reading it
+packages=(podman netavark aardvark-dns catatonit ca-certificates curl iproute2 procps git gzip age openssl jq)
 
 install_packages() {
   local missing=() p
@@ -362,6 +366,45 @@ fetch_releases() {
     die "could not fetch releases (if another user owns $repo: git config --global --add safe.directory $repo)"
 }
 
+# Check a server release with the release key in this checkout, the one
+# already trusted: its manifest's signature (Ed25519 and ML-DSA-65, both
+# needed), its version, and that its commit is the tag's here, so a moved
+# tag is caught. Prints the image digest it names; nothing else.
+verify_release() {
+  local tag=$1 version=${1#server-v} dir
+  local ed=$repo/deploy/release-key-ed25519.pem ml=$repo/deploy/release-key-mldsa65.pem
+  [[ -f $ed && -f $ml ]] || die "this checkout has no release key to check $tag with (deploy/release-key-*.pem)"
+  local v
+  v=$(openssl version | awk '{print $2}')
+  [[ $(printf '%s\n' 3.5 "$v" | sort -V | head -1) == 3.5 ]] || die "checking releases needs OpenSSL 3.5 or newer (Debian 13); this has $v"
+  dir=$(mktemp -d)
+  local url="https://github.com/$release_repo/releases/download/$tag"
+  if ! curl -fsSL --max-time 60 -o "$dir/manifest" "$url/manifest-server.json" ||
+    ! curl -fsSL --max-time 60 -o "$dir/sig" "$url/manifest-server.json.sig"; then
+    rm -rf -- "$dir"
+    die "$tag is not signed and published yet, so it is not used (scripts/release.sh sign publishes it)"
+  fi
+  # What the release key signs: the label's length, the label, the bytes.
+  { printf '\x16%s' 'post/server-release/v1'; cat "$dir/manifest"; } >"$dir/signed"
+  head -c 64 "$dir/sig" >"$dir/sig.ed"
+  tail -c +65 "$dir/sig" >"$dir/sig.ml"
+  local ok=true
+  [[ $(stat -c %s "$dir/sig") == 3373 ]] || ok=false
+  openssl pkeyutl -verify -pubin -inkey "$ed" -rawin -in "$dir/signed" -sigfile "$dir/sig.ed" >/dev/null 2>&1 || ok=false
+  openssl pkeyutl -verify -pubin -inkey "$ml" -rawin -in "$dir/signed" -sigfile "$dir/sig.ml" >/dev/null 2>&1 || ok=false
+  local m_version m_commit m_digest want
+  m_version=$(jq -r .version "$dir/manifest" 2>/dev/null || true)
+  m_commit=$(jq -r .commit "$dir/manifest" 2>/dev/null || true)
+  m_digest=$(jq -r .image_digest "$dir/manifest" 2>/dev/null || true)
+  rm -rf -- "$dir"
+  $ok || die "$tag's signature does not verify against the release key: not using it"
+  [[ $m_version == "$version" ]] || die "$tag's signed manifest is for version $m_version: not using it"
+  want=$(git -C "$repo" rev-parse "$tag^{commit}")
+  [[ $m_commit == "$want" ]] || die "$tag points at ${want:0:12} here, but the signed release is ${m_commit:0:12}: the tag was moved; not using it"
+  [[ $m_digest =~ ^sha256:[0-9a-f]{64}$ ]] || die "$tag's signed manifest names no image digest"
+  printf '%s' "$m_digest"
+}
+
 # Check out a server release. This file changes with it, so the caller runs
 # itself again from the new checkout straight after, before anything else.
 check_out_release() {
@@ -380,10 +423,14 @@ run_from_release() {
   local source=$1
   shift
   [[ $source == ci && -z $(release_at_head) ]] || return 0
+  # OpenSSL and jq, to check the release, before anything else needs them.
+  install_packages
   fetch_releases
   local tag
   tag=$(newest_release)
   [[ -n $tag ]] || die "there is no server release yet; build from this checkout with --image build"
+  # Checked with this checkout's key before its code is run.
+  verify_release "$tag" >/dev/null
   check_out_release "$tag"
   exec "$repo/deploy/server.sh" "$@"
 }
@@ -392,10 +439,13 @@ download_image() {
   local tag
   tag=$(release_at_head)
   [[ -n $tag ]] || die "this checkout is not a server release, and images are made for releases only: use --image build"
-  local version=${tag#server-v}
+  local version=${tag#server-v} digest
+  say "Checking Post server $version's signature"
+  digest=$(verify_release "$tag")
   say "Downloading the server image for Post server $version"
-  if podman pull -q "$registry:$version" >/dev/null 2>&1; then
-    podman tag "$registry:$version" "$image"
+  # By digest: exactly the image the signed release names.
+  if podman pull -q "$registry@$digest" >/dev/null 2>&1; then
+    podman tag "$registry@$digest" "$image"
     return
   fi
   warn "GitHub has no server image for $version"
@@ -547,6 +597,7 @@ cmd_update() {
   need_root
   [[ -n $(installed_domain) ]] || die "no Post server is set up here yet: deploy/server.sh install DOMAIN"
   if $pull; then
+    install_packages
     fetch_releases
     local tag
     if [[ -n $version ]]; then
@@ -559,6 +610,8 @@ cmd_update() {
     if [[ $(release_at_head) == "$tag" ]]; then
       note "Already on Post server ${tag#server-v}; setting it up again."
     else
+      say "Checking Post server ${tag#server-v}'s signature"
+      verify_release "$tag" >/dev/null
       check_out_release "$tag"
     fi
     # This script may have changed with the release: carry on with its own.

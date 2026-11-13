@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
-use post_release::{FileEntry, Manifest, Stretch};
+use post_release::{FileEntry, Manifest, ServerManifest, Stretch};
 use sha2::{Digest, Sha256};
 
 #[derive(Parser)]
@@ -72,6 +72,38 @@ enum Command {
         dir: Option<PathBuf>,
         manifest: PathBuf,
     },
+    /// Describe a server release, unsigned: its image digest and commit.
+    ServerManifest {
+        #[arg(long)]
+        version: String,
+        /// The image's digest in the registry (sha256:...).
+        #[arg(long)]
+        digest: String,
+        /// The commit the release's tag points at.
+        #[arg(long)]
+        commit: String,
+        #[arg(long)]
+        notes_file: Option<PathBuf>,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Sign a server manifest, writing MANIFEST.sig.
+    SignServer {
+        #[arg(long)]
+        key: PathBuf,
+        /// Sign even if the key is not the one built into apps (for testing).
+        #[arg(long)]
+        any_key: bool,
+        manifest: PathBuf,
+    },
+    /// Check a signed server manifest against the built-in release key.
+    CheckServer { manifest: PathBuf },
+    /// Write the built-in release key's halves as PEM, for servers to check
+    /// server releases with OpenSSL (deploy/release-key-*.pem).
+    ExportPem {
+        #[arg(long)]
+        out_dir: PathBuf,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -125,6 +157,53 @@ fn main() -> anyhow::Result<()> {
                 println!("{} {} verifies, and its files match", m.platform, m.version);
             } else {
                 println!("{} {} verifies (files not checked: not all in {})", m.platform, m.version, dir.display());
+            }
+            Ok(())
+        }
+        Command::ServerManifest { version, digest, commit, notes_file, out } => {
+            let notes = match notes_file {
+                Some(p) => fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?,
+                None => String::new(),
+            };
+            let released_at_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis() as u64;
+            let m = ServerManifest { version, image_digest: digest, commit, notes: notes.trim().into(), released_at_ms };
+            m.validate()?;
+            let mut bytes = serde_json::to_vec_pretty(&m)?;
+            bytes.push(b'\n');
+            fs::write(&out, bytes)?;
+            println!("wrote {}", out.display());
+            Ok(())
+        }
+        Command::SignServer { key, any_key, manifest } => {
+            let bytes = fs::read(&manifest)?;
+            let m: ServerManifest = serde_json::from_slice(&bytes).context("reading the server manifest")?;
+            m.validate()?;
+            let sealed = fs::read(&key).with_context(|| format!("reading {}", key.display()))?;
+            let passphrase = rpassword::prompt_password("Release key passphrase: ")?;
+            let signer = post_release::open_key(&sealed, &passphrase)?;
+            if !any_key && post_release::release_key().ok() != Some(signer.verifying_key()) {
+                bail!("this is not the release key built into apps (pass --any-key to sign anyway)");
+            }
+            let sig = post_release::sign_server(&signer, &bytes)?;
+            post_release::verify_server_with(&signer.verifying_key(), &bytes, &sig)?;
+            let out = PathBuf::from(format!("{}.sig", manifest.display()));
+            fs::write(&out, sig)?;
+            println!("signed server {}: {}", m.version, out.display());
+            Ok(())
+        }
+        Command::CheckServer { manifest } => {
+            let bytes = fs::read(&manifest)?;
+            let sig = fs::read(format!("{}.sig", manifest.display())).context("reading the signature (MANIFEST.sig)")?;
+            let m = post_release::verify_server_with(&post_release::release_key()?, &bytes, &sig)?;
+            println!("server {} verifies: image {}, commit {}", m.version, m.image_digest, m.commit);
+            Ok(())
+        }
+        Command::ExportPem { out_dir } => {
+            let (ed, ml) = post_release::public_keys_pem(&post_release::release_key()?);
+            for (name, pem) in [("release-key-ed25519.pem", ed), ("release-key-mldsa65.pem", ml)] {
+                let path = out_dir.join(name);
+                fs::write(&path, pem)?;
+                println!("wrote {}", path.display());
             }
             Ok(())
         }
