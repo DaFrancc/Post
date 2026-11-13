@@ -358,6 +358,29 @@ pub async fn dispatch(
         _ => Err(CallError::UnknownMethod(name.to_owned())),
     }
 }
+/// Check that a method exists and its parameters fit, without running it:
+/// so a mistake is refused before anything connects.
+pub fn check(name: &str, p: &::serde_json::Value) -> Result<(), CallError> {
+    match name {
+        "devices" => no_params(p.clone()),
+        "rename_device" => params::<RenameDeviceParams>(p.clone()).map(drop),
+        "create_invite" => params::<CreateInviteParams>(p.clone()).map(drop),
+        "set_admin" => params::<SetAdminParams>(p.clone()).map(drop),
+        "messages" => params::<MessagesParams>(p.clone()).map(drop),
+        "search" => params::<SearchParams>(p.clone()).map(drop),
+        "set_banner_fill" => params::<SetBannerFillParams>(p.clone()).map(drop),
+        "set_theme" => params::<SetThemeParams>(p.clone()).map(drop),
+        "is_connected" => no_params(p.clone()),
+        "clear_cache" => no_params(p.clone()),
+        "identity" => no_params(p.clone()),
+        "message_count" => no_params(p.clone()),
+        "greet" => params::<GreetParams>(p.clone()).map(drop),
+        "server_time" => params::<ServerTimeParams>(p.clone()).map(drop),
+        "start_dm" => params::<StartDmParams>(p.clone()).map(drop),
+        "register" => params::<RegisterParams>(p.clone()).map(drop),
+        _ => Err(CallError::UnknownMethod(name.to_owned())),
+    }
+}
 /// Each API type reads its fixtures (one sample per type, per variant for enums) and writes them back unchanged:
 /// the generator's idea of the JSON form is serde's. The Dart client is held to the same fixtures.
 #[cfg(test)]

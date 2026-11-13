@@ -6,11 +6,11 @@
 //! to operating-system permissions (design section 11).
 //!
 //! Beyond the API methods, two daemon methods:
-//! - `subscribe`: send this client `event` notifications from now on.
+//! - `subscribe`: send this client `event` notifications from now on, each
+//!   the core's `Event` in its JSON form (`{"type": "message_added", …}`).
 //! - `schema`: the OpenRPC document.
 
-use post_api::{ApiError, Needs};
-use post_core::Core;
+use post_core::{Core, Event};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncWrite, AsyncWriteExt as _, BufReader};
 use tokio::sync::mpsc;
@@ -24,20 +24,8 @@ fn error_response(id: Value, code: i64, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
 
-async fn handle(core: &Core, method: &str, params: Value) -> Result<Value, ApiError> {
-    let info = post_api::method(method).ok_or_else(|| ApiError { code: -32601, message: format!("unknown method {method}") })?;
-    if info.needs == Needs::Connection && !core.is_connected().await {
-        core.connect().await?;
-    }
-    match post_api::call(core, method, params.clone()).await {
-        // A local method that needed the server after all, such as looking
-        // up a user this device has never seen.
-        Err(e) if e.code == 1003 && info.needs == Needs::Local => {
-            core.connect().await?;
-            post_api::call(core, method, params).await
-        }
-        r => r,
-    }
+fn event_notification(e: &Event) -> Value {
+    json!({ "jsonrpc": "2.0", "method": "event", "params": e })
 }
 
 /// Serve one client over a byte stream until it closes.
@@ -85,20 +73,13 @@ where
                     let tx = out_tx.clone();
                     events_task = Some(tokio::spawn(async move {
                         loop {
-                            match rx.recv().await {
-                                Ok(e) => {
-                                    let n = json!({ "jsonrpc": "2.0", "method": "event", "params": post_api::event(e) });
-                                    if tx.send(n).await.is_err() {
-                                        break;
-                                    }
-                                }
-                                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                                    let n = json!({ "jsonrpc": "2.0", "method": "event", "params": { "type": "lagged", "missed": n } });
-                                    if tx.send(n).await.is_err() {
-                                        break;
-                                    }
-                                }
+                            let e = match rx.recv().await {
+                                Ok(e) => e,
+                                Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => Event::Lagged { missed },
                                 Err(_) => break,
+                            };
+                            if tx.send(event_notification(&e)).await.is_err() {
+                                break;
                             }
                         }
                     }));
@@ -106,7 +87,7 @@ where
                 Ok(json!({}))
             }
             "schema" => Ok(post_api::openrpc()),
-            m => handle(&core, m, params).await,
+            m => post_api::call(&core, m, params).await,
         };
         // A request without an id is a notification: no response.
         let Some(id) = id else { continue };

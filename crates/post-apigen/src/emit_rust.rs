@@ -154,6 +154,15 @@ pub fn dispatch(model: &ApiModel, cfg: &Config) -> String {
         let f = format_ident!("dispatch_{}", m.name);
         quote!(#name => #f(core, p).await,)
     });
+    let check_arms = model.methods.iter().map(|m| {
+        let name = &m.name;
+        if m.params.is_empty() {
+            quote!(#name => no_params(p.clone()),)
+        } else {
+            let ps = params_name(m);
+            quote!(#name => params::<#ps>(p.clone()).map(drop),)
+        }
+    });
     let fixtures = fixtures_test(model, cfg);
     print(
         quote! {
@@ -167,6 +176,15 @@ pub fn dispatch(model: &ApiModel, cfg: &Config) -> String {
             pub async fn dispatch(core: &::#krate::Core, name: &str, p: ::serde_json::Value) -> Result<::serde_json::Value, CallError> {
                 match name {
                     #(#arms)*
+                    _ => Err(CallError::UnknownMethod(name.to_owned())),
+                }
+            }
+
+            /// Check that a method exists and its parameters fit, without running it:
+            /// so a mistake is refused before anything connects.
+            pub fn check(name: &str, p: &::serde_json::Value) -> Result<(), CallError> {
+                match name {
+                    #(#check_arms)*
                     _ => Err(CallError::UnknownMethod(name.to_owned())),
                 }
             }

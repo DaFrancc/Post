@@ -99,10 +99,12 @@ async fn a_bot_drives_post_through_json_rpc() {
 
     // Protocol errors are JSON-RPC errors.
     assert_eq!(rpc.call("no_such_method", json!({})).await.expect_err("unknown")["code"], -32601);
-    assert_eq!(rpc.call("whoami", json!({ "typo": 1 })).await.expect_err("unknown field")["code"], -32602);
-    assert_eq!(rpc.call("whoami", json!({})).await.expect("whoami"), Value::Null);
+    assert_eq!(rpc.call("identity", json!({ "typo": 1 })).await.expect_err("no parameters")["code"], -32602);
+    assert_eq!(rpc.call("start_dm", json!({ "user": "bob" })).await.expect_err("unknown field")["code"], -32602);
+    assert_eq!(rpc.call("identity", json!({})).await.expect("identity"), Value::Null);
     let schema = rpc.call("schema", json!({})).await.expect("schema");
     assert_eq!(schema["info"]["version"], post_api::VERSION);
+    assert!(schema["components"]["schemas"]["Event"].is_object(), "events are described");
 
     // Register as a bot and subscribe to events.
     let me = rpc
@@ -112,14 +114,19 @@ async fn a_bot_drives_post_through_json_rpc() {
     assert_eq!(me["username"], "weatherbot");
     assert_eq!(me["bot"], true);
     rpc.call("subscribe", json!({})).await.expect("subscribe");
-    rpc.call("set_profile", json!({ "display_name": "Weather", "typing_template": "$$NAME$$ is checking the sky" }))
+    rpc.call("set_profile", json!({ "update": { "display_name": "Weather", "typing_template": "$$NAME$$ is checking the sky" } }))
         .await
         .expect("profile");
+    rpc.call("set_theme", json!({ "theme": { "colors": [0x6e8bff, 0xc2588e], "angle": 135 } })).await.expect("theme");
+    let bad = rpc.call("set_banner_fill", json!({ "fill": { "colors": [0x6e8bff], "angle": 90 } })).await.expect_err("bad fill");
+    assert_eq!(bad["code"], 1005, "the core checks fills: {bad}");
 
     // DM Bob by username; Bob sees it, with the bot's profile.
-    let sent = rpc.call("send", json!({ "to": "bob", "text": "sunny today" })).await.expect("send");
+    let dm = rpc.call("start_dm", json!({ "username": "bob" })).await.expect("dm");
+    let conversation = dm["id"].as_str().expect("conversation").to_string();
+    let sent = rpc.call("send_text", json!({ "conversation": conversation, "text": "sunny today" })).await.expect("send");
     assert_eq!(sent["state"], "sent");
-    let conversation = sent["conversation"].as_str().expect("conversation").to_string();
+    assert_eq!(sent["conversation"], json!(conversation));
     bob.sync().await.expect("bob sync");
     let bob_view = bob.messages(conversation.parse().expect("id"), 10).expect("messages");
     assert_eq!(bob_view.last().and_then(|m| m.body.as_deref()), Some("sunny today"));
@@ -132,8 +139,8 @@ async fn a_bot_drives_post_through_json_rpc() {
 
     // Edit and read back every version over JSON-RPC.
     let id = sent["id"].as_str().expect("id");
-    rpc.call("edit", json!({ "conversation": conversation, "message": id, "text": "sunny, 24°C" })).await.expect("edit");
-    let versions = rpc.call("versions", json!({ "conversation": conversation, "message": id })).await.expect("versions");
+    rpc.call("edit_message", json!({ "conversation": conversation, "id": id, "text": "sunny, 24°C" })).await.expect("edit");
+    let versions = rpc.call("message_versions", json!({ "conversation": conversation, "id": id })).await.expect("versions");
     let bodies: Vec<&str> = versions.as_array().expect("array").iter().filter_map(|v| v["body"].as_str()).collect();
     assert_eq!(bodies, vec!["sunny today", "sunny, 24°C"]);
 

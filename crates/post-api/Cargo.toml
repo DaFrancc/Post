@@ -10,7 +10,6 @@ publish.workspace = true
 post-core = { path = "../post-core" }
 serde.workspace = true
 serde_json.workspace = true
-schemars.workspace = true
 thiserror.workspace = true
 
 [lints]

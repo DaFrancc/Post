@@ -1,18 +1,23 @@
 //! `post`: the Post command-line client.
 //!
-//! Every subcommand calls one method of the local API (`post-api`); the
-//! same methods are served by `post daemon` as JSON-RPC. Output is
+//! Every subcommand calls the local API (`post-api`): the same methods, with
+//! the core's own types, that `post daemon` serves as JSON-RPC. Output is
 //! human-readable by default; `--json` prints the method's result as JSON,
 //! and failures exit non-zero with a JSON error.
+
+mod calls;
+mod show;
 
 use std::path::PathBuf;
 
 use anyhow::Context as _;
 use clap::{Parser, Subcommand};
-use post_api::Needs;
 use post_cli::{daemon, keyfile};
-use post_core::Core;
+use post_core::{self as core, Core};
 use serde_json::{Value, json};
+
+use calls::Call;
+use show::parse_utc;
 
 #[derive(Parser)]
 #[command(name = "post", version, about = "Post: private, post-quantum messaging")]
@@ -444,347 +449,37 @@ fn default_profile() -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from(home).join(".local/share/post"))
 }
 
-/// The API method and parameters for a subcommand.
-fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
-    Some(match cmd {
-        Command::Register { server, invite, username, bot } => {
-            ("register", json!({ "server": server, "invite": invite, "username": username, "bot": bot }))
-        }
-        Command::Devices { cmd: None } => ("devices", json!({})),
-        Command::Devices { cmd: Some(DevicesCommand::Rename { device, name }) } => {
-            ("rename_device", json!({ "device": device, "name": name }))
-        }
-        Command::Devices { cmd: Some(DevicesCommand::Remove { device, .. }) } => ("remove_device", json!({ "device": device })),
-        Command::RefreshKeys => ("refresh_keys", json!({})),
-        Command::Whoami => ("whoami", json!({})),
-        Command::Sync => ("sync", json!({})),
-        Command::Dm { username } => ("start_dm", json!({ "username": username })),
-        Command::Group { cmd: GroupCommand::Create { name, members } } => ("create_group", json!({ "name": name, "members": members })),
-        Command::Group { cmd: GroupCommand::Members { conversation } } => ("members", json!({ "conversation": conversation })),
-        Command::Call { cmd: CallCommand::List } => ("calls", json!({})),
-        Command::Call { cmd: CallCommand::Start { conversation, video, ring } } => {
-            ("call_start", json!({ "conversation": conversation, "video": video, "ring": ring }))
-        }
-        Command::Call { cmd: CallCommand::Ring { conversation, call, usernames } } => {
-            ("call_ring", json!({ "conversation": conversation, "call": call, "usernames": usernames }))
-        }
-        Command::Call { cmd: CallCommand::Join { conversation, call } } => {
-            ("call_join", json!({ "conversation": conversation, "call": call }))
-        }
-        Command::Call { cmd: CallCommand::Leave { conversation, call } } => {
-            ("call_leave", json!({ "conversation": conversation, "call": call }))
-        }
-        Command::Call { cmd: CallCommand::Decline { conversation, call } } => {
-            ("call_decline", json!({ "conversation": conversation, "call": call }))
-        }
-        Command::Group { cmd: GroupCommand::Add { conversation, members } } => {
-            ("add_members", json!({ "conversation": conversation, "members": members }))
-        }
-        Command::Group { cmd: GroupCommand::Remove { conversation, members } } => {
-            ("remove_members", json!({ "conversation": conversation, "members": members }))
-        }
-        Command::Group { cmd: GroupCommand::Leave { conversation, .. } } => ("leave_group", json!({ "conversation": conversation })),
-        Command::Group { cmd: GroupCommand::Rename { conversation, name } } => {
-            ("rename_group", json!({ "conversation": conversation, "name": name }))
-        }
-        Command::Group { cmd: GroupCommand::Admin { conversation, username, revoke } } => {
-            ("set_admin", json!({ "conversation": conversation, "username": username, "admin": !revoke }))
-        }
-        Command::Group { cmd: GroupCommand::History { conversation, shared, days, .. } } => {
-            ("set_history", json!({ "conversation": conversation, "shared": shared, "days": days }))
-        }
-        Command::Conversations => ("conversations", json!({})),
-        Command::Messages { conversation, limit } => ("messages", json!({ "conversation": conversation, "limit": limit })),
-        Command::Search { text, conversation, from, mentions, has_link, oldest, limit, offset } => (
-            "search",
-            json!({
-                "text": text.as_deref().unwrap_or_default(),
-                "conversation": conversation,
-                "from": from,
-                "mentions": mentions,
-                "has_link": has_link,
-                "oldest_first": oldest,
-                "limit": limit,
-                "offset": offset,
-            }),
-        ),
-        Command::Send { to, conversation, text } => ("send", json!({ "to": to, "conversation": conversation, "text": text })),
-        Command::Edit { conversation, message, text } => {
-            ("edit", json!({ "conversation": conversation, "message": message, "text": text }))
-        }
-        Command::Delete { conversation, message } => ("delete", json!({ "conversation": conversation, "message": message })),
-        Command::Versions { conversation, message } => ("versions", json!({ "conversation": conversation, "message": message })),
-        Command::Receipts { conversation, message } => ("message_receipts", json!({ "conversation": conversation, "message": message })),
-        Command::Profile { display_name, typing_template, note, keep_note, arrival, bio, banner_fill, theme } => (
-            "set_profile",
-            json!({
-                "display_name": display_name,
-                "typing_template": typing_template,
-                "note": note,
-                "note_keep": keep_note,
-                "arrival": arrival,
-                "bio": bio,
-                "banner_fill": banner_fill,
-                "theme": theme,
-            }),
-        ),
-        Command::Picture { cmd } => picture_call("picture", cmd),
-        Command::Banner { cmd } => picture_call("banner", cmd),
-        Command::Name { conversation, name } => ("set_conversation_name", json!({ "conversation": conversation, "name": name })),
-        Command::Nickname { username, nickname } => ("set_nickname", json!({ "username": username, "nickname": nickname })),
-        Command::Person { username } => ("person", json!({ "username": username })),
-        Command::SafetyNumber { username } => ("safety_number", json!({ "username": username })),
-        Command::Verify { username, undo } => ("set_verified", json!({ "username": username, "verified": !undo })),
-        Command::Read { conversation } => ("mark_read", json!({ "conversation": conversation })),
-        Command::ReadReceipts { set: None } => ("read_receipts", json!({})),
-        Command::ReadReceipts { set: Some(s) } => ("set_read_receipts", json!({ "on": s == "on" })),
-        Command::Announcements { cmd: None, limit } => ("announcements", json!({ "limit": limit })),
-        Command::Announcements { cmd: Some(AnnouncementsCommand::Read), .. } => ("mark_announcements_read", json!({})),
-        Command::Announce { text } => ("announce", json!({ "text": text })),
-        Command::Invite { bot, days } => ("create_invite", json!({ "bot": bot, "days": days })),
-        Command::Maintenance { cmd: MaintenanceCommand::Status } => ("announcement_summary", json!({})),
-        Command::Maintenance { cmd: MaintenanceCommand::Plan { at, minutes, reason, quiet } } => {
-            ("plan_maintenance", json!({ "starts_at_ms": at, "minutes": minutes, "reason": reason, "quiet": quiet }))
-        }
-        Command::Maintenance { cmd: MaintenanceCommand::End } => ("end_maintenance", json!({})),
-        Command::Presence { presence } => ("set_presence", json!({ "presence": presence })),
-        Command::Typing { conversation } => ("send_typing", json!({ "conversation": conversation })),
-        Command::Keygen { .. } | Command::Daemon { .. } | Command::Schema | Command::Link { .. } => return None,
-    })
+/// Run one call: its result, or the API's error.
+async fn api(core: &Core, c: &Call) -> Result<Value, post_api::ApiError> {
+    post_api::call(core, c.method, c.params.clone()).await
 }
 
-/// A picture command's call. Files are made absolute here: a daemon may run
-/// in another folder.
-fn picture_call(kind: &str, cmd: &PictureCommand) -> (&'static str, Value) {
-    let path = |f: &std::path::Path| std::path::absolute(f).unwrap_or_else(|_| f.to_path_buf()).to_string_lossy().into_owned();
-    match cmd {
-        PictureCommand::Set { file } => ("set_picture", json!({ "kind": kind, "file": path(file) })),
-        PictureCommand::Remove => ("set_picture", json!({ "kind": kind })),
-        PictureCommand::Save { id, file } => ("save_picture", json!({ "id": id, "file": path(file) })),
+/// Run one call where a failure ends the command.
+async fn api_typed<T: serde::de::DeserializeOwned>(core: &Core, c: &Call) -> anyhow::Result<T> {
+    let v = api(core, c).await.map_err(|e| anyhow::anyhow!(e.message))?;
+    Ok(serde_json::from_value(v)?)
+}
+
+/// Run `calls` in order, stopping at the first failure, and print the last
+/// result (or the failure).
+async fn run_calls(core: &Core, calls: &[Call], json_out: bool) -> anyhow::Result<()> {
+    let mut last = None;
+    for c in calls {
+        match api(core, c).await {
+            Ok(v) => last = Some((c.method, v)),
+            Err(e) if json_out => {
+                println!("{}", json!({ "error": { "code": e.code, "message": e.message } }));
+                std::process::exit(1);
+            }
+            Err(e) => anyhow::bail!(e.message),
+        }
     }
-}
-
-/// Unix milliseconds as `YYYY-MM-DD HH:MM` UTC.
-fn time(ms: u64) -> String {
-    let secs = ms / 1000;
-    let (days, rem) = (secs / 86_400, secs % 86_400);
-    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
-    let z = days as i64 + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}", rem / 3600, rem % 3600 / 60)
-}
-
-/// `YYYY-MM-DD HH:MM` in UTC as Unix milliseconds; the inverse of [`time`].
-fn parse_utc(s: &str) -> Result<u64, String> {
-    let bad = || format!("{s} is not a time like 2026-11-14 02:00 (UTC)");
-    let (date, clock) = s.trim().split_once([' ', 'T']).ok_or_else(bad)?;
-    let mut d = date.splitn(3, '-').map(str::parse::<i64>);
-    let (Some(Ok(y)), Some(Ok(m)), Some(Ok(day))) = (d.next(), d.next(), d.next()) else { return Err(bad()) };
-    let (h, min) = clock.split_once(':').ok_or_else(bad)?;
-    let (Ok(h), Ok(min)) = (h.parse::<i64>(), min.parse::<i64>()) else { return Err(bad()) };
-    if !(1..=12).contains(&m) || !(1..=31).contains(&day) || !(0..24).contains(&h) || !(0..60).contains(&min) {
-        return Err(bad());
+    match last {
+        Some((_, v)) if json_out => println!("{}", serde_json::to_string_pretty(&v)?),
+        Some((method, v)) => show::result(method, v)?,
+        None => {}
     }
-    // Days since 1970-01-01 from a civil date (Howard Hinnant's algorithm).
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y.rem_euclid(400);
-    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    u64::try_from((days * 86_400 + h * 3600 + min * 60) * 1000).map_err(|_| bad())
-}
-
-/// An announcement as a line of text, times in UTC.
-fn announcement_text(a: &Value) -> String {
-    let starts = time(a["starts_at_ms"].as_u64().unwrap_or(0));
-    let minutes = a["minutes"].as_u64().unwrap_or(0);
-    let reason = if s(a, "text").is_empty() { String::new() } else { format!(" Reason: {}.", s(a, "text")) };
-    let auto = " (Sent automatically by the server.)";
-    match s(a, "kind") {
-        "text" => s(a, "text").to_string(),
-        "maintenance_planned" => format!("Maintenance is planned for {starts} UTC, for about {minutes} minutes.{reason}{auto}"),
-        "maintenance_reminder" => {
-            let left = a["starts_at_ms"].as_u64().unwrap_or(0).saturating_sub(a["at_ms"].as_u64().unwrap_or(0)) / 60_000;
-            let left = if left >= 120 { format!("{} hours", (left + 30) / 60) } else { format!("{left} minutes") };
-            format!("Reminder: maintenance starts in about {left}, at {starts} UTC, for about {minutes} minutes.{reason}{auto}")
-        }
-        "maintenance_started" => format!("Maintenance has started. The server should be back in about {minutes} minutes.{reason}{auto}"),
-        "maintenance_over" => format!("Maintenance is over, and the server is back.{auto}"),
-        "maintenance_cancelled" => format!("The maintenance planned for {starts} UTC is cancelled.{auto}"),
-        _ => "[an announcement this version cannot show; update post]".into(),
-    }
-}
-
-fn s<'a>(v: &'a Value, k: &str) -> &'a str {
-    v[k].as_str().unwrap_or("")
-}
-
-fn print_human(method: &str, v: &Value) {
-    match method {
-        "register" | "whoami" if v.is_null() => println!("no account on this device"),
-        "register" | "whoami" => {
-            println!("{}{} on {}", s(v, "username"), if v["bot"] == true { " (bot)" } else { "" }, s(v, "server"));
-            println!("account {}", s(v, "account_id"));
-            println!("device  {}", s(v, "device_id"));
-        }
-        "start_dm" | "create_group" => println!("{}  {}", s(v, "id"), s(v, "title")),
-        "members" => {
-            for m in v.as_array().into_iter().flatten() {
-                let mut tags = Vec::new();
-                if m["you"] == true {
-                    tags.push("you".to_string());
-                }
-                if m["admin"] == true {
-                    tags.push("admin".to_string());
-                }
-                let devices = m["devices"].as_u64().unwrap_or(0);
-                tags.push(format!("{devices} device{}", if devices == 1 { "" } else { "s" }));
-                println!("{} (@{})  {}", s(m, "shown_name"), s(m, "username"), tags.join(", "));
-            }
-        }
-        "calls" => {
-            for c in v.as_array().into_iter().flatten() {
-                let people: Vec<&str> = c["participants"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect();
-                let ringing = if c["ringing"] == true { "  (calling you)" } else { "" };
-                println!("{}  in {}  started by {}: {}{ringing}", s(c, "id"), s(c, "conversation"), s(c, "started_by"), people.join(", "));
-            }
-        }
-        "call_start" | "call_join" => println!("in call {} as {}", s(&v["call"], "id"), s(v, "participant_id")),
-        "conversations" => {
-            for c in v.as_array().into_iter().flatten() {
-                let gone = if c["following"] == false { "  (left)" } else { "" };
-                let unread = match (c["unread"].as_u64(), c["mentions"].as_u64()) {
-                    (Some(n), Some(m)) if m > 0 => format!("  ({n} unread, {m} mentioning you)"),
-                    (Some(n), _) if n > 0 => format!("  ({n} unread)"),
-                    _ => String::new(),
-                };
-                println!("{}  {:5}  {}{unread}{gone}", s(c, "id"), s(c, "kind"), s(c, "title"));
-            }
-        }
-        "messages" | "search" => {
-            // A search gives a total and a page; messages, just the list.
-            let list = if method == "search" {
-                println!("{} found", v["total"]);
-                &v["messages"]
-            } else {
-                v
-            };
-            for m in list.as_array().into_iter().flatten() {
-                let body = if m["deleted"] == true {
-                    "[message deleted]".to_string()
-                } else if m["unsupported"] == true {
-                    "[unsupported message; update post]".to_string()
-                } else {
-                    s(m, "body").to_string()
-                };
-                let mut tags = Vec::new();
-                if m["edited"] == true {
-                    tags.push(format!("edited, {} versions", m["versions"]));
-                }
-                if matches!(s(m, "state"), "pending" | "failed" | "sent" | "delivered" | "read") {
-                    tags.push(s(m, "state").to_string());
-                }
-                let tags = if tags.is_empty() { String::new() } else { format!("  ({})", tags.join("; ")) };
-                println!("{}  {}  {}: {}{}", s(m, "id"), time(m["sent_at_ms"].as_u64().unwrap_or(0)), s(m, "sender"), body, tags);
-            }
-        }
-        "send" | "edit" => println!("{}  {}", s(v, "id"), s(v, "state")),
-        "versions" => {
-            for x in v.as_array().into_iter().flatten() {
-                let pending = if x["pending"] == true { "  (pending)" } else { "" };
-                println!("v{}  {}  {}{pending}", x["version"], time(x["at_ms"].as_u64().unwrap_or(0)), s(x, "body"));
-            }
-        }
-        "person" => {
-            println!("{} (@{})", s(v, "shown_name"), s(v, "username"));
-            for (k, label) in [
-                ("display_name", "display name"),
-                ("nickname", "your nickname"),
-                ("typing_template", "typing"),
-                ("arrival", "messages arrive"),
-            ] {
-                if !s(v, k).is_empty() {
-                    println!("{label}: {}", s(v, k));
-                }
-            }
-            if let Some(n) = v["note"].as_str() {
-                println!("note: {n}");
-            }
-            for (k, label) in [("picture", "picture"), ("banner", "banner"), ("banner_fill", "banner colour"), ("theme", "profile colours")]
-            {
-                if let Some(x) = v[k].as_str() {
-                    println!("{label}: {x}");
-                }
-            }
-            if let Some(since) = v["since_ms"].as_u64() {
-                println!("on Post since: {} UTC", time(since));
-            }
-            if !s(v, "bio").is_empty() {
-                println!("about me:");
-                for line in s(v, "bio").lines() {
-                    println!("  {line}");
-                }
-            }
-            println!("safety number: {}", if v["verified"] == true { "verified" } else { "not verified" });
-        }
-        "safety_number" => println!("{}", s(v, "safety_number")),
-        "create_invite" => {
-            println!("{}", s(v, "code"));
-            eprintln!(
-                "single use{}, until {} UTC; sign up at {}",
-                if v["bot"] == true { ", for a bot" } else { "" },
-                time(v["expires_at_ms"].as_u64().unwrap_or(0)),
-                s(v, "server")
-            );
-        }
-        "read_receipts" => println!("read receipts are {}", if v["on"] == true { "on" } else { "off" }),
-        "message_receipts" => {
-            if v["too_large"] == true {
-                println!("this conversation is too large for receipts");
-            }
-            for p in v["people"].as_array().into_iter().flatten() {
-                println!("{} (@{})  {}", s(p, "shown_name"), s(p, "username"), s(p, "state"));
-            }
-            if v["read_receipts_off"] == true {
-                println!("your read receipts are off, so you see deliveries only");
-            }
-        }
-        "announcements" => {
-            for a in v.as_array().into_iter().flatten() {
-                println!("{}  {}", time(a["at_ms"].as_u64().unwrap_or(0)), announcement_text(a));
-            }
-        }
-        "announcement_summary" => {
-            println!("{} unread announcements from {}", v["unread"], s(v, "server"));
-            if v["host"] == true {
-                println!("you are a host: you can announce and plan maintenance");
-            }
-            match v["maintenance"].as_object() {
-                None => println!("no maintenance planned"),
-                Some(m) => {
-                    let when = time(m["starts_at_ms"].as_u64().unwrap_or(0));
-                    let state = if m["underway"] == true { "underway since" } else { "planned for" };
-                    println!("maintenance {state} {when} UTC, for about {} minutes", m["minutes"]);
-                }
-            }
-        }
-        "devices" => {
-            for d in v.as_array().into_iter().flatten() {
-                let name = if s(d, "name").is_empty() { "(unnamed)" } else { s(d, "name") };
-                let this = if d["this_device"] == true { "  (this device)" } else { "" };
-                println!("{}  {name}{this}", s(d, "id"));
-            }
-        }
-        _ => println!("ok"),
-    }
+    Ok(())
 }
 
 async fn run(cli: Cli) -> anyhow::Result<()> {
@@ -848,32 +543,16 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         }
     }
 
-    let (method, params) = to_call(&cli.command).context("unknown command")?;
-    let info = post_api::method(method).context("unknown method")?;
-    if info.needs == Needs::Connection {
-        core.connect().await?;
+    // To a username: open the DM (creating it if needed), then send.
+    if let Command::Send { to: Some(username), text, .. } = &cli.command {
+        let dm: core::Conversation =
+            api_typed(&core, &calls::call("start_dm", post_api::StartDmParams { username: username.clone() })).await?;
+        let send = calls::call("send_text", post_api::SendTextParams { conversation: dm.id, text: text.clone() });
+        return run_calls(&core, &[send], cli.json).await;
     }
-    let result = match post_api::call(&core, method, params.clone()).await {
-        Err(e) if e.code == 1003 && info.needs == Needs::Local => {
-            core.connect().await?;
-            post_api::call(&core, method, params).await
-        }
-        r => r,
-    };
-    match result {
-        Ok(v) if cli.json => println!("{}", serde_json::to_string_pretty(&v)?),
-        Ok(v) => print_human(method, &v),
-        Err(e) if cli.json => {
-            println!("{}", json!({ "error": { "code": e.code, "message": e.message } }));
-            std::process::exit(1);
-        }
-        Err(e) => anyhow::bail!(e.message),
-    }
-    Ok(())
-}
 
-async fn api_call(core: &Core, method: &str, params: Value) -> anyhow::Result<Value> {
-    post_api::call(core, method, params).await.map_err(|e| anyhow::anyhow!(e.message))
+    let calls = calls::to_calls(&cli.command)?.context("unknown command")?;
+    run_calls(&core, &calls, cli.json).await
 }
 
 /// Print a result line now, even when stdout is a pipe, because the command
@@ -890,38 +569,40 @@ fn print_now(line: impl std::fmt::Display) -> anyhow::Result<()> {
 async fn run_link(core: &Core, cmd: &LinkCommand, json_out: bool) -> anyhow::Result<()> {
     match cmd {
         LinkCommand::New { server, name, bot } => {
-            let name = name.clone().unwrap_or_else(default_device_name);
-            let code = api_call(core, "link_begin", json!({ "server": server, "name": name, "bot": bot })).await?;
+            let device_name = name.clone().unwrap_or_else(default_device_name);
+            let begin = calls::call("begin_link", post_api::BeginLinkParams { server: server.clone(), device_name, bot: *bot });
+            let code: String = api_typed(core, &begin).await?;
             if json_out {
-                print_now(&code)?;
+                print_now(json!(code))?;
             } else {
                 print_now(format_args!(
-                    "On one of your devices, run:\n\n    post link add {}\n\nWaiting for that (the code works for ten minutes)...",
-                    s(&code, "code")
+                    "On one of your devices, run:\n\n    post link add {code}\n\nWaiting for that (the code works for ten minutes)..."
                 ))?;
             }
-            let id = api_call(core, "link_finish", json!({})).await?;
+            let id: core::Identity = api_typed(core, &Call { method: "finish_link", params: Value::Null }).await?;
             if json_out {
-                print_now(&id)?;
+                print_now(json!(id))?;
             } else {
-                println!("Linked. This device is now part of {}'s account.", s(&id, "username"));
-                print_human("whoami", &id);
+                println!("Linked. This device is now part of {}'s account.", id.username);
+                show::identity(&id);
             }
         }
         LinkCommand::Add { code, yes } => {
             core.connect().await?;
-            let req = api_call(core, "link_inspect", json!({ "code": code })).await?;
-            let name = if s(&req, "name").is_empty() { "unnamed".to_string() } else { s(&req, "name").to_string() };
+            let inspect = calls::call("link_inspect", post_api::LinkInspectParams { code: code.clone() });
+            let req: core::LinkRequest = api_typed(core, &inspect).await?;
+            let name = if req.name.is_empty() { "unnamed".to_string() } else { req.name.clone() };
             let question = format!(
                 "Add the device \"{name}\" ({}) to your account? It will see new messages in every conversation you are in.",
-                s(&req, "device_id")
+                req.device_id
             );
             if !yes && !confirm(&question)? {
                 anyhow::bail!("not linked");
             }
-            let done = api_call(core, "link_approve", json!({ "code": code })).await?;
+            let approve = calls::call("link_approve", post_api::LinkApproveParams { code: code.clone() });
+            let done: core::LinkRequest = api_typed(core, &approve).await?;
             if json_out {
-                print_now(&done)?;
+                print_now(json!(done))?;
             } else {
                 println!("Linked \"{name}\". It has been added to your conversations.");
             }
@@ -948,7 +629,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_subcommand_maps_to_a_known_method() {
+    fn every_subcommand_maps_to_known_methods() {
+        let id = || "00112233445566778899aabbccddeeff".to_string();
         let cmds = [
             Command::Whoami,
             Command::Sync,
@@ -959,16 +641,18 @@ mod tests {
             Command::Nickname { username: "a".into(), nickname: "b".into() },
             Command::Devices { cmd: None },
             Command::RefreshKeys,
-            Command::Presence { presence: "away".into() },
-            Command::Typing { conversation: "00".into() },
+            Command::Presence { presence: "dnd".into() },
+            Command::Typing { conversation: id() },
+            Command::Send { to: None, conversation: Some(id()), text: "hi".into() },
             Command::Group { cmd: GroupCommand::Create { name: "g".into(), members: vec!["a".into()] } },
-            Command::Group { cmd: GroupCommand::Members { conversation: "00".into() } },
-            Command::Group { cmd: GroupCommand::Add { conversation: "00".into(), members: vec!["a".into()] } },
-            Command::Group { cmd: GroupCommand::Remove { conversation: "00".into(), members: vec!["a".into()] } },
-            Command::Group { cmd: GroupCommand::Rename { conversation: "00".into(), name: "n".into() } },
-            Command::Group { cmd: GroupCommand::Leave { conversation: "00".into(), yes: true } },
-            Command::Group { cmd: GroupCommand::Admin { conversation: "00".into(), username: "a".into(), revoke: false } },
-            Command::Group { cmd: GroupCommand::History { conversation: "00".into(), shared: true, hidden: false, days: 7 } },
+            Command::Group { cmd: GroupCommand::Members { conversation: id() } },
+            Command::Group { cmd: GroupCommand::Add { conversation: id(), members: vec!["a".into()] } },
+            Command::Group { cmd: GroupCommand::Remove { conversation: id(), members: vec!["a".into()] } },
+            Command::Group { cmd: GroupCommand::Rename { conversation: id(), name: "n".into() } },
+            Command::Group { cmd: GroupCommand::Leave { conversation: id(), yes: true } },
+            Command::Group { cmd: GroupCommand::Admin { conversation: id(), username: "a".into(), revoke: false } },
+            Command::Group { cmd: GroupCommand::History { conversation: id(), shared: true, hidden: false, days: 7 } },
+            Command::Call { cmd: CallCommand::Join { conversation: id(), call: id() } },
             Command::Devices { cmd: Some(DevicesCommand::Rename { device: "abcd".into(), name: "x".into() }) },
             Command::Devices { cmd: Some(DevicesCommand::Remove { device: "abcd".into(), yes: true }) },
             Command::Announcements { cmd: None, limit: 5 },
@@ -976,7 +660,7 @@ mod tests {
             Command::Announce { text: "hi".into() },
             Command::ReadReceipts { set: None },
             Command::Invite { bot: false, days: 7 },
-            Command::Receipts { conversation: "00".into(), message: "00".into() },
+            Command::Receipts { conversation: id(), message: id() },
             Command::ReadReceipts { set: Some("off".into()) },
             Command::Maintenance { cmd: MaintenanceCommand::Status },
             Command::Maintenance { cmd: MaintenanceCommand::Plan { at: None, minutes: 5, reason: String::new(), quiet: false } },
@@ -984,29 +668,45 @@ mod tests {
             Command::Picture { cmd: PictureCommand::Set { file: "a.png".into() } },
             Command::Picture { cmd: PictureCommand::Remove },
             Command::Banner { cmd: PictureCommand::Save { id: "00".into(), file: "b.png".into() } },
+            Command::Profile {
+                display_name: None,
+                typing_template: None,
+                note: None,
+                keep_note: false,
+                arrival: None,
+                bio: None,
+                banner_fill: Some("#6e8bff".into()),
+                theme: Some(String::new()),
+            },
         ];
         for c in &cmds {
-            let (m, _) = to_call(c).expect("maps");
-            assert!(post_api::method(m).is_some(), "{m}");
+            let calls = calls::to_calls(c).expect("valid").expect("API calls");
+            assert!(!calls.is_empty());
+            for call in calls {
+                assert!(post_api::method(call.method).is_some(), "{}", call.method);
+            }
         }
     }
 
     #[test]
-    fn time_formatting() {
-        assert_eq!(time(0), "1970-01-01 00:00");
-        // Checked with `date -u -d @1794268800`.
-        assert_eq!(time(1_794_268_800_000), "2026-11-10 00:00");
-        assert_eq!(time(951_782_400_000 + 3_723_000), "2000-02-29 01:02");
+    fn ids_are_checked_before_calling() {
+        let bad = Command::Typing { conversation: "00".into() };
+        assert!(calls::to_calls(&bad).is_err());
     }
 
     #[test]
-    fn utc_times_parse_back() {
-        for ms in [0, 1_794_268_800_000, 951_782_400_000 + 3_720_000, 4_102_444_740_000] {
-            assert_eq!(parse_utc(&time(ms)), Ok(ms));
-        }
-        assert_eq!(parse_utc("2026-11-14T02:00"), parse_utc("2026-11-14 02:00"));
-        for bad in ["2026-13-01 00:00", "2026-11-14", "02:00", "2026-11-14 24:00", "tomorrow"] {
-            assert!(parse_utc(bad).is_err(), "{bad}");
-        }
+    fn only_the_colours_change_without_the_rest_of_the_profile() {
+        let theme_only = Command::Profile {
+            display_name: None,
+            typing_template: None,
+            note: None,
+            keep_note: false,
+            arrival: None,
+            bio: None,
+            banner_fill: None,
+            theme: Some("#6e8bff".into()),
+        };
+        let methods: Vec<&str> = calls::to_calls(&theme_only).expect("valid").expect("calls").iter().map(|c| c.method).collect();
+        assert_eq!(methods, ["set_theme"]);
     }
 }
