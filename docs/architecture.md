@@ -158,7 +158,7 @@ app/lib/
 | # | Phase | Document | Needs | State |
 |---|---|---|---|---|
 | 0 | Tooling | below | | done |
-| 1 | One generated local API | [`phase-1-api.md`](phase-1-api.md) | | M1 done |
+| 1 | One generated local API | [`phase-1-api.md`](phase-1-api.md) | | M2 done |
 | 2 | Core file layout | to write | 1, for `lib.rs`; `engine.rs` and `store.rs` can be split alongside phase 1 | not started |
 | 3 | App foundations: data layer, kit, gallery, tests | to write once phase 1's Dart client exists | 1 | not started |
 | 4 | Screens rebuilt on the foundations; the old bridge deleted | to write after 3 | 3 | not started |

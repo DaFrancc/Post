@@ -656,6 +656,31 @@ added.
 - `git diff --stat` shows nothing under `app/lib` except the new
   `app/lib/api/post_api.dart`.
 
+Done (the bridge's `call` and `events_json` land with M3, where they are
+used). 65 methods and 31 types; `post-api/src/lib.rs` went from 1,587 lines
+to under 200, with `ApiError` and `MethodInfo` its only structs. The dev
+script round was run on a throwaway server in a scratch folder (the same
+commands, without touching `.dev/`). As built:
+
+- **Parameters are checked before connecting.** The generator also writes
+  `check(name, params)`, and `call` runs it first: a typo in a connection
+  method's parameters was answered "not registered" or waited on the
+  network, in the old API as well.
+- `CallError` has a fourth case, `Internal`, for a result that cannot be
+  written as JSON (-32603); it should never happen.
+- A method's parameters are always an object keyed by parameter name, so
+  `set_profile` takes `{"update": {…}}`.
+- Facade changes beyond section 9's list: none. `plan_maintenance` takes
+  `Option<u64>` (none starts now), as section 9 implied.
+- The CLI is split: `calls.rs` builds each subcommand's calls from the
+  params structs, `show.rs` prints results read into core types (and holds
+  the time and fill formats). `post send --to` and `post profile` with
+  colours are more than one call; `main.rs` runs them in order.
+- A durability test (`messages_survive_the_server_stopping`) failed once in
+  a full parallel run during M2 (the group rename after the server's
+  restarts) and passed in every run alone and in the next full run. It does
+  not touch what M2 changed; it needs looking into separately.
+
 ### M3: the app reaches it (needs Flutter)
 
 - `flutter_rust_bridge_codegen generate` in `app/` adds `call` and
