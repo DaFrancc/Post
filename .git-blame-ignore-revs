@@ -1,0 +1,6 @@
+# Commits that only reformat. `git blame` skips them with
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (GitHub's blame view reads this file by itself.)
+
+# tooling: format the Rust code once with the committed settings
+dd796c95341e5b7016f774d9aa48740eaa272f63
