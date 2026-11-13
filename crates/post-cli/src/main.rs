@@ -573,7 +573,8 @@ async fn run_link(core: &Core, cmd: &LinkCommand, json_out: bool) -> anyhow::Res
             let begin = calls::call("begin_link", post_api::BeginLinkParams { server: server.clone(), device_name, bot: *bot });
             let code: String = api_typed(core, &begin).await?;
             if json_out {
-                print_now(json!(code))?;
+                // An object, as scripts (the app's test harness) read it.
+                print_now(json!({ "code": code }))?;
             } else {
                 print_now(format_args!(
                     "On one of your devices, run:\n\n    post link add {code}\n\nWaiting for that (the code works for ten minutes)..."

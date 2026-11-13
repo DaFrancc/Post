@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:post/src/rust/api/client.dart';
 
+// The local API, prefixed while the old bridge's types are here too.
+import '../api/post_api.dart' as post_api;
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../ui/controls.dart';
@@ -108,6 +110,21 @@ class _FormDialogState extends State<_FormDialog> {
       ),
     );
   }
+}
+
+/// Name one of the account's devices. The dialog owns its field, so the
+/// field outlives nothing it needs while the dialog animates away.
+Future<void> renameDevice(BuildContext context, AppState state, post_api.Device device) {
+  final name = _Input('Device name', initial: device.name, maxLength: 64, help: 'Shown only on your own devices.');
+  return showDialog(
+    context: context,
+    builder: (_) => _FormDialog(
+      title: 'Name this device',
+      inputs: [name],
+      action: 'Save',
+      submit: () => state.api.renameDevice(device: device.id, name: name.text),
+    ),
+  );
 }
 
 Future<void> startDm(BuildContext context, AppState state) {

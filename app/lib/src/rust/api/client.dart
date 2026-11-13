@@ -40,6 +40,12 @@ abstract class Client implements RustOpaqueInterface {
   /// line breaks included.
   static int bioLimit() => RustLib.instance.api.crateApiClientClientBioLimit();
 
+  /// Call a method of the local API (docs/phase-1-api.md): `params` and
+  /// the result are JSON text, read and written by the generated Dart
+  /// client. No connection handling: `run` keeps the app connected.
+  /// Neither is logged: they hold message text.
+  Future<String> call({required String method, required String params});
+
   /// The keys to install for a call's media now: fetch again on call and
   /// conversation events, and install them at `key_index`.
   Future<CallKeySet> callKeys({
@@ -106,6 +112,11 @@ abstract class Client implements RustOpaqueInterface {
 
   /// Live events, until the Dart stream is closed or the profile is.
   Stream<AppEvent> events();
+
+  /// Live events as JSON text, each the core's event in its API form,
+  /// until the Dart stream or the profile is closed. A subscriber that
+  /// falls behind gets `{"type": "lagged", …}` in place of what it missed.
+  Stream<String> eventsJson();
 
   /// On the new device: wait (up to ten minutes) for the code to be
   /// approved on another device, then join the account.

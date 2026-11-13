@@ -8,6 +8,10 @@ import 'package:flutter/widgets.dart';
 import 'package:post/src/rust/api/client.dart';
 import 'package:post/src/rust/api/error.dart';
 
+import '../api/bridge_transport.dart';
+// Prefixed while the old bridge's types, some of the same names, are here
+// too (until phase 4 of docs/architecture.md).
+import '../api/post_api.dart' as post_api;
 import '../theme.dart';
 import '../ui/arrival.dart';
 import '../ui/picture_view.dart';
@@ -58,6 +62,10 @@ class AppState extends ChangeNotifier {
 
   final Client client;
   final Identity me;
+
+  /// The local API (docs/phase-1-api.md). Screens move to it from [client]
+  /// as they are rebuilt; Settings › Devices is the first.
+  late final post_api.PostApi api = post_api.RpcPostApi(BridgeTransport(client));
 
   /// After [logOut]: close what shows this account and go back to the
   /// welcome screens. Call it once the screens on top are closed.

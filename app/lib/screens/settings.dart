@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:post/src/rust/api/client.dart';
 
+// The local API, prefixed while the old bridge's types are here too.
+import '../api/post_api.dart' as post_api;
 import '../state/app_state.dart';
 import '../state/spelling.dart';
 import '../theme.dart';
@@ -1298,15 +1300,17 @@ class _DeviceSettings extends StatefulWidget {
   State<_DeviceSettings> createState() => _DeviceSettingsState();
 }
 
+// On the local API (docs/phase-1-api.md), the first screen moved to it.
 class _DeviceSettingsState extends State<_DeviceSettings> {
-  List<DeviceInfo>? _devices;
+  List<post_api.Device>? _devices;
   String? _error;
-  late final StreamSubscription<AppEvent> _events;
+  late final StreamSubscription<post_api.Event> _events;
 
   @override
   void initState() {
     super.initState();
-    _events = widget.state.events.where((e) => e.kind == EventKind.devices && e.username == widget.state.me.username).listen((_) => _load());
+    final me = widget.state.me.username;
+    _events = widget.state.api.events.where((e) => (e is post_api.DevicesChangedEvent && e.username == me) || e is post_api.LaggedEvent).listen((_) => _load());
     unawaited(_load());
   }
 
@@ -1318,51 +1322,19 @@ class _DeviceSettingsState extends State<_DeviceSettings> {
 
   Future<void> _load() async {
     try {
-      final d = await widget.state.client.devices();
+      final d = await widget.state.api.devices();
       if (mounted) setState(() => _devices = d);
     } catch (e) {
       if (mounted) setState(() => _error = errorText(e));
     }
   }
 
-  Future<void> _rename(DeviceInfo d) async {
-    final controller = TextEditingController(text: d.name);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => PDialog(
-        title: 'Name this device',
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            PField(
-              label: 'Device name',
-              controller: controller,
-              autofocus: true,
-              maxLength: 64,
-              help: 'Shown only on your own devices.',
-              onSubmitted: (v) => Navigator.of(context).pop(v),
-            ),
-            PDialogActions(
-              children: [
-                OutlinedButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-                FilledButton(onPressed: () => Navigator.of(context).pop(controller.text), child: const Text('Save')),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-    controller.dispose();
-    if (name == null) return;
-    try {
-      await widget.state.client.renameDevice(device: d.id, name: name.trim());
-      await _load();
-    } catch (e) {
-      if (mounted) showToast(context, errorText(e), error: true);
-    }
+  Future<void> _rename(post_api.Device d) async {
+    await renameDevice(context, widget.state, d);
+    await _load();
   }
 
-  Future<void> _remove(DeviceInfo d) async {
+  Future<void> _remove(post_api.Device d) async {
     final label = d.name.isEmpty ? 'this device' : d.name;
     final ok = await confirm(
       context,
@@ -1373,7 +1345,7 @@ class _DeviceSettingsState extends State<_DeviceSettings> {
     );
     if (!ok) return;
     try {
-      await widget.state.client.removeDevice(device: d.id);
+      await widget.state.api.removeDevice(device: d.id);
       await _load();
     } catch (e) {
       if (mounted) showToast(context, errorText(e), error: true);
@@ -1414,7 +1386,7 @@ class _DeviceSettingsState extends State<_DeviceSettings> {
 class _DeviceRow extends StatelessWidget {
   const _DeviceRow({required this.device, required this.onRename, required this.onRemove});
 
-  final DeviceInfo device;
+  final post_api.Device device;
   final VoidCallback onRename;
   final VoidCallback? onRemove;
 

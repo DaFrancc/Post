@@ -857,6 +857,38 @@ impl Client {
         }
     }
 
+    /// Call a method of the local API (docs/phase-1-api.md): `params` and
+    /// the result are JSON text, read and written by the generated Dart
+    /// client. No connection handling: `run` keeps the app connected.
+    /// Neither is logged: they hold message text.
+    pub async fn call(&self, method: String, params: String) -> Result<String, PostError> {
+        let params: serde_json::Value = serde_json::from_str(&params)
+            .map_err(|e| PostError::new(ErrorKind::Other, format!("The app sent parameters that are not JSON: {e}")))?;
+        Ok(post_api::dispatch(&self.core, &method, params).await?.to_string())
+    }
+
+    /// Live events as JSON text, each the core's event in its API form,
+    /// until the Dart stream or the profile is closed. A subscriber that
+    /// falls behind gets `{"type": "lagged", …}` in place of what it missed.
+    pub async fn events_json(&self, sink: StreamSink<String>) {
+        let mut rx = self.core.subscribe();
+        loop {
+            let next = tokio::select! {
+                () = self.core.closed() => return,
+                next = rx.recv() => next,
+            };
+            let event = match next {
+                Ok(e) => e,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => core::Event::Lagged { missed },
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+            };
+            let Ok(json) = serde_json::to_string(&event) else { continue };
+            if sink.add(json).is_err() {
+                return;
+            }
+        }
+    }
+
     // ------------------------------------------------------------ announcements
 
     /// The announcements channel at a glance.

@@ -50,6 +50,20 @@ impl std::fmt::Display for PostError {
 
 impl std::error::Error for PostError {}
 
+impl From<post_api::CallError> for PostError {
+    fn from(e: post_api::CallError) -> Self {
+        use post_api::CallError as E;
+        match e {
+            E::Core(e) => e.into(),
+            // The generated Dart client and the dispatch come from one
+            // declaration, so these mean the app is out of date or broken.
+            E::UnknownMethod(m) => Self::new(ErrorKind::Other, format!("This app asked for {m}, which the core does not have.")),
+            E::InvalidParams(m) => Self::new(ErrorKind::Other, format!("This app sent parameters the core refused: {m}.")),
+            E::Internal(m) => Self::new(ErrorKind::Other, format!("Something went wrong: {m}.")),
+        }
+    }
+}
+
 impl From<core::Error> for PostError {
     fn from(e: core::Error) -> Self {
         use core::Error as E;
