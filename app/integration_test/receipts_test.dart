@@ -112,7 +112,11 @@ void main() {
     await waitFor(t, find.text('Message info'));
     final info = find.byType(Dialog);
     for (final s in ['READ · 1', 'DELIVERED · 1', 'NOT DELIVERED YET · 1', 'Bob B', 'Carol', '@dave']) {
-      expect(find.descendant(of: info, matching: find.text(s)), findsOneWidget, reason: s);
+      expect(
+        find.descendant(of: info, matching: find.text(s)),
+        findsOneWidget,
+        reason: s,
+      );
     }
     await _shot(t, 'receipts-03-details');
     await mouse.moveTo(Offset.zero);

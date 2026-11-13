@@ -64,12 +64,11 @@ class UpdateButton extends StatelessWidget {
     return FilledButton.icon(
       onPressed: busy ? null : () => unawaited(updateNow(context, state)),
       // Green, and readable while it shows its progress.
-      style: PButtons.tactile(face: PColors.update, onFace: PColors.onUpdate, fadeDisabled: false).merge(
-        FilledButton.styleFrom(
-          minimumSize: compact ? const Size(0, 32) : null,
-          padding: compact ? const EdgeInsets.symmetric(horizontal: 12) : null,
-        ),
-      ),
+      style: PButtons.tactile(
+        face: PColors.update,
+        onFace: PColors.onUpdate,
+        fadeDisabled: false,
+      ).merge(FilledButton.styleFrom(minimumSize: compact ? const Size(0, 32) : null, padding: compact ? const EdgeInsets.symmetric(horizontal: 12) : null)),
       icon: busy ? const PSpinner(size: 14, color: PColors.onUpdate) : Icon(Icons.system_update_alt_rounded, size: compact ? 16 : 18),
       label: Text(text),
     );
@@ -122,7 +121,12 @@ class UpdateCard extends StatelessWidget {
         onTap: onDetails,
       ),
       // Built from source: it never installs itself, so it only says so.
-      (final u?, _) when !u.canInstall => _card(key: 'manual', title: 'Post ${u.version} is out', detail: 'Built from source: see how to update', onTap: onDetails),
+      (final u?, _) when !u.canInstall => _card(
+        key: 'manual',
+        title: 'Post ${u.version} is out',
+        detail: 'Built from source: see how to update',
+        onTap: onDetails,
+      ),
       // Not downloaded yet: automatic updates are off, or a download failed.
       (final u?, _) => _card(
         key: 'available',

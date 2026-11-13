@@ -112,7 +112,8 @@ void main() {
         await settle(t, 600);
       }, reportKey: 'timeline');
       SchedulerBinding.instance.removeTimingsCallback(collect);
-      report = 'create: main screen after $shown ms (frame $atHome)\n${_report(frames)}\ncostliest:\n'
+      report =
+          'create: main screen after $shown ms (frame $atHome)\n${_report(frames)}\ncostliest:\n'
           '${_topEvents(binding.reportData!['timeline'] as Map<String, dynamic>)}';
     } else {
       await tap(t, find.text('Link to my account'));
@@ -130,7 +131,8 @@ void main() {
         await settle(t, 600);
       }, reportKey: 'timeline');
       SchedulerBinding.instance.removeTimingsCallback(collect);
-      report = 'link: code screen after $shown ms (frame $atCode)\n${_report(frames)}\ncostliest:\n'
+      report =
+          'link: code screen after $shown ms (frame $atCode)\n${_report(frames)}\ncostliest:\n'
           '${_topEvents(binding.reportData!['timeline'] as Map<String, dynamic>)}';
     }
     final out = File('build/timing-$_scenario.txt');
