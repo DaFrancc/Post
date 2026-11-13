@@ -4,3 +4,5 @@
 
 # tooling: format the Rust code once with the committed settings
 dd796c95341e5b7016f774d9aa48740eaa272f63
+# tooling: format the app's hand-written Dart once at the committed width
+c713aac4aacb1a9d42de14c49fb576235c877735
