@@ -29,8 +29,8 @@ obvious.**
 
 | To add… | You edit | Then |
 |---|---|---|
-| a field to something the app shows | the type in `post-core`, and where core fills it in | `just gen` |
-| a method the app or CLI can call | one `#[api]` method on `Core` | `just gen`; call it from Dart; optionally add a CLI command |
+| a field to something the app shows | the type in `post-core`, and where core fills it in | `scripts/gen.sh` |
+| a method the app or CLI can call | one `#[api]` method on `Core` | `scripts/gen.sh`; call it from Dart; optionally add a CLI command |
 | something sent between devices | the wire type, its validation, the migration, the engine: by hand, on purpose | |
 | a settings page | one file under `features/settings/`, built from kit widgets | |
 | a screen state to look at | one entry in the preview gallery, with fake data | hot reload |
@@ -105,7 +105,7 @@ by domain (phase 2); behaviour does not change.
 
 1. Generated files are committed, start with an `@generated` header, and are
    never edited or formatted by hand.
-2. `just gen` regenerates everything. `cargo test` fails if a generated file
+2. `scripts/gen.sh` regenerates everything. `cargo test` fails if a generated file
    is stale.
 3. A generator fails loudly on anything it does not support, naming the file
    and line. It never guesses.
@@ -196,13 +196,16 @@ Small and independent; no design document. Each item is one commit.
    the same 11.5 s test run. (The first build is slower: 224 s against 162 s.)
    Then switch the README, `scripts/` and `app/integration_test/harness.dart`
    from `--release` / `target/release` to the dev profile.
-4. **A `justfile`:** `gen` (all generators), `check` (formatters in check
-   mode, clippy, `flutter analyze`), `test`, `dev` (server and app), `fmt`.
-5. **CI on pull requests and pushes to `main` and `refactor`:** `just check`
-   and `just test`. Not on every branch push, to keep Actions minutes down;
-   `scripts/ci-local.sh` is there for anything else.
-6. **`CLAUDE.md`** at the root: points here, lists the `just` commands and the
-   rules in section 4 in brief.
+4. **Task scripts** beside the existing ones in `scripts/`, plain bash with
+   nothing extra to install: `gen.sh` (all generators), `check.sh`
+   (formatters in check mode, clippy, `flutter analyze`), `test.sh`, `fmt.sh`.
+   Running things locally stays with `dev-server.sh` and `dev-account.sh`.
+5. **CI on pull requests and pushes to `main` and `refactor`:**
+   `scripts/check.sh` and `scripts/test.sh`. Not on every branch push, to
+   keep Actions minutes down; `scripts/ci-local.sh` is there for anything
+   else.
+6. **`CLAUDE.md`** at the root: points here, lists the scripts and the rules
+   in section 4 in brief.
 
 ## 6. Decisions and why
 
