@@ -1,6 +1,9 @@
 #include "my_application.h"
 
 #include <flutter_linux/flutter_linux.h>
+#ifdef GDK_WINDOWING_WAYLAND
+#include <gdk/gdkwayland.h>
+#endif
 
 #include "flutter/generated_plugin_registrant.h"
 #include "window_channel.h"
@@ -11,6 +14,28 @@ struct _MyApplication {
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
+
+// On Wayland, GTK can paint the texture Flutter shares with it before the
+// newest frame has landed in it, so the window shows the frame before:
+// one frame behind. Usually another frame follows and hides it; when
+// nothing else moves (the pointer stops on a menu item, say), the window
+// keeps the old picture until the next frame, as if hover lagged behind
+// the pointer. Seen with Flutter 3.47 on KDE Plasma with NVIDIA; the
+// engine does not wait for the frame before GTK reads it
+// (flutter/flutter#195821, and the new Wayland renderer in later Flutter
+// replaces this path). Until the engine waits: after each paint, paint
+// once more on the next frame, by when the frame is complete. One extra
+// paint at the end of each burst of frames; Flutter's next frame and this
+// paint merge when it is busy. Remove once Flutter is upgraded past it.
+static gboolean repaint_pending = FALSE;
+static void repaint_once_more(GdkFrameClock*, gpointer view) {
+  if (repaint_pending) {
+    repaint_pending = FALSE;  // This was the extra paint.
+    return;
+  }
+  repaint_pending = TRUE;
+  gtk_widget_queue_draw(GTK_WIDGET(view));
+}
 
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
@@ -45,6 +70,17 @@ static void my_application_activate(GApplication* application) {
   g_signal_connect_swapped(view, "first-frame", G_CALLBACK(first_frame_cb),
                            self);
   gtk_widget_realize(GTK_WIDGET(view));
+
+#ifdef GDK_WINDOWING_WAYLAND
+  // The window one frame behind on Wayland: see repaint_once_more. X11
+  // does not need it.
+  if (GDK_IS_WAYLAND_DISPLAY(gtk_widget_get_display(GTK_WIDGET(window)))) {
+    GdkFrameClock* clock = gtk_widget_get_frame_clock(GTK_WIDGET(window));
+    if (clock != nullptr) {
+      g_signal_connect(clock, "after-paint", G_CALLBACK(repaint_once_more), view);
+    }
+  }
+#endif
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
   post_window_channel_register(window, view);
