@@ -1,0 +1,19 @@
+[package]
+name = "post-apigen"
+description = "Generates Post's local API glue (JSON dispatch, OpenRPC, the Dart client, fixtures) from post-core's #[api] annotations"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# Deliberately not depending on post-core or post-api: they include what this
+# writes, so it must build when that output is broken or stale.
+[dependencies]
+syn.workspace = true
+quote.workspace = true
+proc-macro2.workspace = true
+prettyplease.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

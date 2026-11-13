@@ -69,7 +69,7 @@ Fixed by `#[api]`; the generator and the Dart client assume exactly this.
 | `Option<T>` field | `null` when none; may be left out when read |
 | field marked `#[api(default)]` | may be left out when read (`Default::default()`) |
 | enum with only unit variants | the variant name in snake_case, as a string: `"do_not_disturb"` |
-| enum with fields | object with `"type": "<variant in snake_case>"` plus the variant's fields. Variants are unit or have named fields; no tuple variants |
+| enum with fields | object with `"type": "<variant in snake_case>"` plus the variant's fields; unknown keys refused. Variants are unit or have named fields; no tuple variants |
 | `ConversationId`, `MessageId`, `CallId` | 32 hex characters |
 | `bool`, `u32`, `u64`, `String` | as JSON |
 | `Vec<T>` | array |
@@ -131,13 +131,17 @@ Anything outside this table is a generator error.
 | parameter | `bool`, `u32`, `u64` | same | `bool`, `int`, `int` |
 | parameter | `u64` with `unix_ms` | `u64` | `DateTime` |
 | parameter | an ID | the ID type | `String` |
-| parameter | `&[String]` | `Vec<String>` | `List<String>` |
+| parameter | `&[T]` or `Vec<T>`, `T` any field type | `Vec<T>` | `List<T>` |
 | parameter | `T` or `&T`, `T` an `#[api]` type | `T` | `T` |
-| parameter | `Option<…>` of any of the above (`Option<&str>` included) | `Option<…>` | nullable |
-| field | `String`, `bool`, `u32`, `u64`, an ID, an `#[api]` type, and `Option` / `Vec` of those | | as above; `Vec<T>` is `List<T>` |
-| return | `()`, `bool`, `u32`, `u64`, `String`, an `#[api]` type, `Option` / `Vec` of those; alone or inside `Result` | | `Future<…>`; `()` is `Future<void>` |
+| parameter | `Option<…>` of any of the above (`Option<&str>`, `Option<&[T]>`, `Option<&T>` included) | `Option<…>` | nullable, and optional |
+| field | `String`, `bool`, `u32`, `u64`, an ID, an `#[api]` type, and `Option` / `Vec` of those (nested, but not `Option<Option<…>>`) | | as above; `Vec<T>` is `List<T>` |
+| return | `()`, or any field type; alone or inside `Result` | | `Future<…>`; `()` is `Future<void>` |
 
 Methods may be `async` or not. `Result` is `post_core::Result`.
+
+(As built, lists and returns are a little wider than first written: any
+field type may be listed or returned, IDs included, since nothing about them
+is harder to generate.)
 
 ### Generator errors
 
@@ -229,6 +233,8 @@ pub fn api(_args: TokenStream, item: TokenStream) -> TokenStream {
             } else {
                 quote!(#[derive(::serde::Serialize, ::serde::Deserialize)] #[serde(tag = "type", rename_all = "snake_case")] #e).into()
             }
+            // As built, a tagged enum also gets `deny_unknown_fields`, like a
+            // struct (serde supports it with `tag`; the macro's tests check it).
         }
         Ok(other) => syn::Error::new_spanned(other, "#[api] goes on a struct, an enum or a method").to_compile_error().into(),
         Err(e) => e.to_compile_error().into(),
@@ -252,12 +258,13 @@ A library and a binary.
 ```
 src/lib.rs        generate(root) -> Outputs; INPUTS and output paths
 src/model.rs      ApiModel { types, methods } and their parts
+src/names.rs      Rust names to JSON keys and Dart names; names Dart cannot use
 src/parse.rs      syn::File -> ApiModel, with the errors of section 5
-src/emit_rust.rs  api.generated.rs and the fixtures test
+src/emit_rust.rs  api.generated.rs, the fixtures test included
 src/emit_dart.rs  post_api.dart and the fixtures test
 src/emit_schema.rs  openrpc.generated.json and fixtures.generated.json
 src/main.rs       the command line
-tests/            golden.rs, errors.rs, up_to_date.rs, fixtures/, golden/
+tests/            golden.rs, errors.rs, up_to_date.rs (M2), fixtures/, golden/
 ```
 
 ```sh
@@ -274,12 +281,16 @@ the command:
 
 | File | Contents |
 |---|---|
-| `crates/post-api/src/api.generated.rs` | params structs, the method table, `dispatch` |
+| `crates/post-api/src/api.generated.rs` | params structs, the method table, `dispatch`, and a `#[cfg(test)]` module that reads each fixture into the core type and writes it back; must be equal |
 | `crates/post-api/src/openrpc.generated.json` | the OpenRPC description |
 | `crates/post-api/fixtures.generated.json` | one sample JSON value per API type (per variant for enums) |
-| `crates/post-api/tests/fixtures.generated.rs` | reads each sample into the core type and writes it back; must be equal |
 | `app/lib/api/post_api.dart` | the Dart client |
 | `app/test/api_fixtures_test.dart` | the same round trip through the Dart classes |
+
+(As built, the Rust fixtures test lives inside `api.generated.rs` rather
+than in `tests/`: rustfmt formats test files with the workspace settings,
+which prettyplease's output does not match, but leaves an `include!`d file
+alone. The JSON files carry the header as an `"x-generated"` key.)
 
 Rust is built with `quote!`, parsed as a `syn::File` and printed with
 `prettyplease::unparse`. Dart and JSON are written as text by the emitters,
@@ -294,7 +305,8 @@ each `Option`).
 
 Tests in `post-apigen`:
 
-- `golden.rs`: a fixture source (`tests/fixtures/sample.rs`, parsed, never
+- `golden.rs`: a fixture source (`tests/fixtures/sample.rs`, and
+  `sample_kinds.rs` read as a module so paths are covered; parsed, never
   compiled) covering every row of the type table and every annotation, against
   committed outputs in `tests/golden/`; `APIGEN_UPDATE_GOLDEN=1` rewrites them.
 - `errors.rs`: each error of section 5 from a small source string.
@@ -453,8 +465,11 @@ Rules: names in lowerCamelCase / UpperCamelCase; a variant's class is
 with the `Presence` enum); `unix_ms` values are `DateTime`
 (`DateTime.fromMillisecondsSinceEpoch`, and `millisecondsSinceEpoch` back);
 parameters are named, `required` unless they have a default, which is repeated
-as the Dart default; list fields compare element by element in `==`. The file
-imports nothing from Flutter, so it can be tested with plain Dart.
+as the Dart default, or are an `Option`, which may be left out as `null`;
+list fields compare element by element in `==`. `PostApi.events` exists when
+the API has a tagged enum called `Event`. A method's parameter docs are
+listed under its own doc (`- [device]: …`). The file imports nothing from
+Flutter, so it can be tested with plain Dart.
 
 ## 9. Hand-written changes
 
@@ -617,6 +632,11 @@ Tests are run as the README says until phase 0 changes that.
   and the error tests.
 - The golden Dart output is valid Dart: if `dart` is available,
   `dart analyze` on it is clean.
+
+Done. Beyond the above, the golden Dart was run: in a scratch Flutter
+package laid out like the repository, `dart analyze` (with the app's lint
+rules) is clean, `dart format` changes neither file, and the golden fixtures
+test passes, so the Dart classes read and write every fixture unchanged.
 
 ### M2: the Rust side runs on it
 
