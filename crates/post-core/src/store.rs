@@ -393,6 +393,8 @@ const MIGRATIONS: &[&str] = &[
          renew_secret  BLOB NOT NULL,
          expires_at    INTEGER NOT NULL
      );",
+    // 14: each profile's bio (about me); empty for none.
+    "ALTER TABLE profiles ADD COLUMN bio TEXT NOT NULL DEFAULT '';",
 ];
 
 /// Create tables, both ours and OpenMLS's, and bring old databases up to date.
@@ -1208,6 +1210,7 @@ pub struct ProfileRow {
     pub banner: Option<content::ProfileImage>,
     /// `0x01RRGGBB`, or 0 for none.
     pub banner_color: u32,
+    pub bio: String,
 }
 
 impl ProfileRow {
@@ -1239,12 +1242,13 @@ fn decode_image(b: Option<Vec<u8>>) -> Option<content::ProfileImage> {
 pub fn upsert_profile(conn: &Connection, account: &[u8], p: &ProfileRow) -> Result<bool> {
     let n = conn.execute(
         "INSERT INTO profiles (account_id, version, display_name, typing_template, note_text, note_set_at, note_expires_at, arrival,
-                               avatar, banner, banner_color)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                               avatar, banner, banner_color, bio)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
          ON CONFLICT (account_id) DO UPDATE SET
            version = excluded.version, display_name = excluded.display_name, typing_template = excluded.typing_template,
            note_text = excluded.note_text, note_set_at = excluded.note_set_at, note_expires_at = excluded.note_expires_at,
-           arrival = excluded.arrival, avatar = excluded.avatar, banner = excluded.banner, banner_color = excluded.banner_color
+           arrival = excluded.arrival, avatar = excluded.avatar, banner = excluded.banner, banner_color = excluded.banner_color,
+           bio = excluded.bio
          WHERE excluded.version > profiles.version",
         params![
             account,
@@ -1257,14 +1261,15 @@ pub fn upsert_profile(conn: &Connection, account: &[u8], p: &ProfileRow) -> Resu
             p.arrival,
             encode_image(p.avatar.as_ref()),
             encode_image(p.banner.as_ref()),
-            p.banner_color
+            p.banner_color,
+            p.bio
         ],
     )?;
     Ok(n > 0)
 }
 
 const PROFILE_COLUMNS: &str =
-    "version, display_name, typing_template, note_text, note_set_at, note_expires_at, arrival, avatar, banner, banner_color";
+    "version, display_name, typing_template, note_text, note_set_at, note_expires_at, arrival, avatar, banner, banner_color, bio";
 
 fn profile_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ProfileRow> {
     profile_row_at(r, 0)
@@ -1297,6 +1302,7 @@ fn profile_row_at(r: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<ProfileR
         avatar: decode_image(r.get(at + 7)?),
         banner: decode_image(r.get(at + 8)?),
         banner_color: r.get(at + 9)?,
+        bio: r.get(at + 10)?,
     })
 }
 

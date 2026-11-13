@@ -36,6 +36,10 @@ abstract class Client implements RustOpaqueInterface {
     required String deviceName,
   });
 
+  /// Longest bio, in characters (Unicode scalar values: Dart's runes),
+  /// line breaks included.
+  static int bioLimit() => RustLib.instance.api.crateApiClientClientBioLimit();
+
   /// The keys to install for a call's media now: fetch again on call and
   /// conversation events, and install them at `key_index`.
   Future<CallKeySet> callKeys({
@@ -1282,6 +1286,9 @@ class PersonInfo {
   /// The banner colour they chose, `0xRRGGBB`, if any.
   final int? bannerColor;
 
+  /// Their bio (about me), formatted like a message; empty if none.
+  final String bio;
+
   const PersonInfo({
     required this.username,
     required this.shownName,
@@ -1294,6 +1301,7 @@ class PersonInfo {
     this.avatar,
     this.banner,
     this.bannerColor,
+    required this.bio,
   });
 
   @override
@@ -1308,7 +1316,8 @@ class PersonInfo {
       arrival.hashCode ^
       avatar.hashCode ^
       banner.hashCode ^
-      bannerColor.hashCode;
+      bannerColor.hashCode ^
+      bio.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1325,7 +1334,8 @@ class PersonInfo {
           arrival == other.arrival &&
           avatar == other.avatar &&
           banner == other.banner &&
-          bannerColor == other.bannerColor;
+          bannerColor == other.bannerColor &&
+          bio == other.bio;
 }
 
 /// How far one person has got with the user's message.
@@ -1491,12 +1501,17 @@ class ProfileChange {
   /// How the user's messages arrive on screen: a preset's name.
   final String? arrival;
 
+  /// Bio (about me): up to `bio_limit()` characters, line breaks
+  /// included, formatted like a message.
+  final String? bio;
+
   const ProfileChange({
     this.displayName,
     this.typingTemplate,
     this.note,
     required this.noteKeep,
     this.arrival,
+    this.bio,
   });
 
   @override
@@ -1505,7 +1520,8 @@ class ProfileChange {
       typingTemplate.hashCode ^
       note.hashCode ^
       noteKeep.hashCode ^
-      arrival.hashCode;
+      arrival.hashCode ^
+      bio.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1516,7 +1532,8 @@ class ProfileChange {
           typingTemplate == other.typingTemplate &&
           note == other.note &&
           noteKeep == other.noteKeep &&
-          arrival == other.arrival;
+          arrival == other.arrival &&
+          bio == other.bio;
 }
 
 /// How far one person has got.

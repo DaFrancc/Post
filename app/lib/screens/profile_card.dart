@@ -5,12 +5,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../ui/arrival.dart';
 import '../ui/controls.dart';
 import '../ui/format.dart';
+import '../ui/markup_text.dart';
 import 'dialogs.dart';
 import 'settings.dart' show showSettings;
 
@@ -156,6 +158,20 @@ class _ProfileCard extends StatelessWidget {
                         child: Text(note, style: const TextStyle(fontSize: 13, height: 1.4, color: PColors.textBody)),
                       ),
                     ],
+                    if (p != null && p.bio.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      ProfileBio(
+                        state: state,
+                        bio: p.bio,
+                        maxHeight: 132,
+                        // Another person's card in place of this one.
+                        onMention: (u, at) {
+                          final nav = Navigator.of(context);
+                          nav.pop();
+                          unawaited(showProfileCard(nav.context, state, u, at: at));
+                        },
+                      ),
+                    ],
                     const SizedBox(height: 10),
                     Text('Messages arrive: ${Arrival.parse(p?.arrival).label}', style: const TextStyle(fontSize: 12, color: PColors.textFaint)),
                     const SizedBox(height: 14),
@@ -208,4 +224,171 @@ class _ProfileCard extends StatelessWidget {
       },
     );
   }
+}
+
+/// Someone's bio (about me), formatted like a message, mentions showing by
+/// name. Taller than [maxHeight], it is cut off there, fading out, with a
+/// way to show the rest.
+class ProfileBio extends StatefulWidget {
+  const ProfileBio({super.key, required this.state, required this.bio, this.maxHeight, this.onMention});
+
+  final AppState state;
+  final String bio;
+  final double? maxHeight;
+
+  /// A mention clicked, and where (window coordinates).
+  final void Function(String username, Offset at)? onMention;
+
+  @override
+  State<ProfileBio> createState() => _ProfileBioState();
+}
+
+class _ProfileBioState extends State<ProfileBio> {
+  final _scroll = ScrollController();
+  bool _cut = false;
+  bool _open = false;
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(ProfileBio old) {
+    super.didUpdateWidget(old);
+    if (old.bio != widget.bio) _open = false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final max = widget.maxHeight;
+    Widget text = Mentions(
+      nameOf: widget.state.knownName,
+      you: widget.state.me.username,
+      onTap: widget.onMention,
+      child: MarkupText(widget.bio, style: const TextStyle(fontSize: 13, height: 1.45, color: PColors.textBody)),
+    );
+    if (max != null && _open) {
+      // All of it, but a bio of line breaks could be thousands of pixels
+      // tall: past a few times the cut, it scrolls.
+      text = ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: max * 2.5),
+        child: Scrollbar(
+          controller: _scroll,
+          child: SingleChildScrollView(controller: _scroll, child: text),
+        ),
+      );
+    } else if (max != null) {
+      text = _CutOff(
+        maxHeight: max,
+        onCut: (cut) {
+          if (cut != _cut) setState(() => _cut = cut);
+        },
+        child: text,
+      );
+      if (_cut) {
+        // The last line fades out, so the text plainly goes on.
+        text = ShaderMask(
+          blendMode: BlendMode.dstIn,
+          shaderCallback: (r) => const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Colors.white, Colors.white, Colors.transparent],
+            stops: [0, 0.78, 1],
+          ).createShader(r),
+          child: text,
+        );
+      }
+    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(11, 9, 11, 10),
+      decoration: BoxDecoration(color: PColors.sunken, borderRadius: BorderRadius.circular(10)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('ABOUT ME', style: PType.label),
+          const SizedBox(height: 5),
+          text,
+          if (max != null && (_cut || _open))
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: TextButton(
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                ),
+                onPressed: () => setState(() => _open = !_open),
+                child: Text(_open ? 'Show less' : 'Show more'),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Its child at most [maxHeight] tall, the rest cut off; [onCut] hears
+/// whether anything was, after each layout that changes it.
+class _CutOff extends SingleChildRenderObjectWidget {
+  const _CutOff({required this.maxHeight, required this.onCut, required super.child});
+
+  final double maxHeight;
+  final ValueChanged<bool> onCut;
+
+  @override
+  _RenderCutOff createRenderObject(BuildContext context) => _RenderCutOff(maxHeight, onCut);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderCutOff r) {
+    r
+      ..maxHeight = maxHeight
+      ..onCut = onCut;
+  }
+}
+
+class _RenderCutOff extends RenderProxyBox {
+  _RenderCutOff(this._maxHeight, this.onCut);
+
+  double _maxHeight;
+  set maxHeight(double v) {
+    if (v == _maxHeight) return;
+    _maxHeight = v;
+    markNeedsLayout();
+  }
+
+  ValueChanged<bool> onCut;
+  bool? _told;
+  bool _cut = false;
+
+  @override
+  void performLayout() {
+    final c = child!;
+    c.layout(constraints.copyWith(minHeight: 0, maxHeight: double.infinity), parentUsesSize: true);
+    _cut = c.size.height > _maxHeight + 0.5;
+    size = constraints.constrain(Size(c.size.width, _cut ? _maxHeight : c.size.height));
+    if (_told != _cut) {
+      _told = _cut;
+      final cut = _cut;
+      // Not during layout: the listener rebuilds.
+      WidgetsBinding.instance.addPostFrameCallback((_) => onCut(cut));
+    }
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    if (!_cut) {
+      layer = null;
+      return super.paint(context, offset);
+    }
+    // Straight edges only, so no smoothing is lost to the clip.
+    layer = context.pushClipRect(needsCompositing, offset, Offset.zero & size, super.paint, oldLayer: layer as ClipRectLayer?);
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) =>
+      (Offset.zero & size).contains(position) && super.hitTestChildren(result, position: position);
 }

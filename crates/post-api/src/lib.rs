@@ -126,6 +126,8 @@ pub struct Person {
     pub banner: Option<String>,
     /// Their banner colour, `#rrggbb`, if they chose one.
     pub banner_color: Option<String>,
+    /// Their bio (about me), formatted like a message; empty if none.
+    pub bio: String,
 }
 
 /// A safety number.
@@ -813,6 +815,10 @@ pub struct ProfileParams {
     /// restores the app's choice.
     #[serde(default)]
     pub banner_color: Option<String>,
+    /// Bio (about me): up to 500 characters, line breaks included,
+    /// formatted like a message; empty clears it.
+    #[serde(default)]
+    pub bio: Option<String>,
 }
 
 /// `set_picture`: your profile picture or banner.
@@ -1030,7 +1036,7 @@ methods! {
     "edit", Connection, EditParams, Message, "Edit one of your messages; earlier versions stay visible.";
     "delete", Connection, MessageParams, Done, "Delete one of your messages, with every version, for everyone.";
     "versions", Local, MessageParams, Vec<MessageVersion>, "Every version of a message, the original first.";
-    "set_profile", Connection, ProfileParams, Done, "Change your display name, typing template, note, arrival style or banner colour.";
+    "set_profile", Connection, ProfileParams, Done, "Change your display name, typing template, note, arrival style, banner colour or bio.";
     "set_picture", Connection, SetPictureParams, Done, "Set your profile picture or banner from an image file, or remove it.";
     "save_picture", Local, SavePictureParams, Done, "Write a profile picture or banner this device has to a file.";
     "set_conversation_name", Connection, ConversationNameParams, Done, "Set your display name in one conversation.";
@@ -1293,6 +1299,7 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 note_keep: p.note_keep,
                 arrival: p.arrival,
                 banner_color,
+                bio: p.bio,
             })
             .await?;
             ok(Done {})
@@ -1347,6 +1354,7 @@ pub async fn call(core: &Core, name: &str, p: Value) -> Result<Value, ApiError> 
                 picture: x.avatar,
                 banner: x.banner,
                 banner_color: x.banner_color.map(|c| format!("#{c:06x}")),
+                bio: x.bio,
             })
         }
         "set_verified" => {

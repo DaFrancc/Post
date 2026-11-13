@@ -256,6 +256,10 @@ pub struct Profile {
     /// `0x01RRGGBB`; 0 for the app's choice. The 1 lets black be chosen.
     #[prost(uint32, tag = "8")]
     pub banner_color: u32,
+    /// About me: a few lines, formatted like a message (formatting and
+    /// mentions); empty for none.
+    #[prost(string, tag = "9")]
+    pub bio: String,
 }
 
 /// A profile picture or banner: an encrypted small blob on the server, and
@@ -365,6 +369,8 @@ pub const MAX_NOTE: usize = 60;
 pub const NOTE_DEFAULT_MS: u64 = 24 * 3600 * 1000;
 /// Longest arrival preset name.
 pub const MAX_ARRIVAL: usize = 32;
+/// Longest bio, in characters (line breaks count as one each).
+pub const MAX_BIO: usize = 500;
 
 // ---------------------------------------------------------------- what arrives
 //
@@ -390,6 +396,20 @@ pub fn fit_text(s: &str, max: usize) -> &str {
         end -= 1;
     }
     &s[..end]
+}
+
+/// A received bio made fit to show: line breaks made `\n`, other control
+/// characters and direction overrides dropped, then cut to [`MAX_BIO`]
+/// characters.
+pub fn fit_bio(s: &str) -> String {
+    let clean: String = s.replace("\r\n", "\n").chars().filter(|&c| c == '\n' || !(c.is_control() || reorders(c))).take(MAX_BIO).collect();
+    clean.trim_end().to_owned()
+}
+
+/// A character that reorders the text around it (an override or isolate),
+/// so text could show other than it reads.
+fn reorders(c: char) -> bool {
+    matches!(c, '\u{2028}' | '\u{2029}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
 }
 
 /// A received typing template cut to fit; one that no longer works (its
@@ -429,6 +449,8 @@ pub enum ProfileError {
     TooLong { what: &'static str, max: usize },
     #[error("{0} may not contain control characters or line breaks")]
     ControlCharacters(&'static str),
+    #[error("{0} may not contain control characters, other than line breaks")]
+    Unprintable(&'static str),
     #[error("a typing template must contain {NAME_PLACEHOLDER} between 1 and {MAX_PLACEHOLDERS} times")]
     Placeholders,
     #[error("an arrival style is a short name of lowercase letters, digits and dashes")]
@@ -439,8 +461,19 @@ fn check_text(s: &str, what: &'static str, max: usize) -> Result<(), ProfileErro
     if s.chars().count() > max {
         return Err(ProfileError::TooLong { what, max });
     }
-    if s.chars().any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}' | '\u{202e}' | '\u{2066}'..='\u{2069}')) {
+    if s.chars().any(|c| c.is_control() || reorders(c)) {
         return Err(ProfileError::ControlCharacters(what));
+    }
+    Ok(())
+}
+
+/// Check a bio: like a name, but line breaks (`\n`) are allowed.
+pub fn check_bio(s: &str) -> Result<(), ProfileError> {
+    if s.chars().count() > MAX_BIO {
+        return Err(ProfileError::TooLong { what: "a bio", max: MAX_BIO });
+    }
+    if s.chars().any(|c| c != '\n' && (c.is_control() || reorders(c))) {
+        return Err(ProfileError::Unprintable("a bio"));
     }
     Ok(())
 }
@@ -607,6 +640,11 @@ mod tests {
         let long = format!("{}{NAME_PLACEHOLDER}", "x".repeat(100));
         assert_eq!(fit_typing_template(&long), "");
         assert_eq!(fit_typing_template("$$NAME$$ types"), "$$NAME$$ types");
+        // A bio keeps its line breaks, but no more characters than allowed,
+        // and nothing that could make it show other than it reads.
+        assert_eq!(fit_bio("one\r\ntwo\u{7}\u{202e}\n\nfour\n"), "one\ntwo\n\nfour");
+        assert_eq!(fit_bio(&"é".repeat(900)).chars().count(), MAX_BIO);
+        assert_eq!(fit_bio(&"x\n".repeat(400)).chars().count(), MAX_BIO - 1, "line breaks count, and a trailing one goes");
         // A sync from another device: names cut, nonsense dropped.
         let s = SelfSync {
             nicknames: vec![
@@ -660,6 +698,19 @@ mod tests {
         assert!(check_typing_template(&format!("{} $$NAME$$", "x".repeat(80))).is_err());
         assert_eq!(render_typing("the one who types is $$NAME$$", "Alice"), "the one who types is Alice");
         assert_eq!(render_typing("", "Alice"), "Alice is typing");
+    }
+
+    #[test]
+    fn bios() {
+        assert!(check_bio("").is_ok());
+        assert!(check_bio("Climber, bad photographer.\n\nAsk me about **the spreadsheet**.").is_ok());
+        assert!(check_bio(&"é".repeat(MAX_BIO)).is_ok(), "characters, not bytes");
+        assert!(matches!(check_bio(&"x".repeat(MAX_BIO + 1)), Err(ProfileError::TooLong { .. })));
+        assert!(check_bio(&"\n".repeat(MAX_BIO)).is_ok(), "as many lines as fit");
+        assert!(check_bio(&"\n".repeat(MAX_BIO + 1)).is_err(), "line breaks count as characters");
+        for bad in ["tab\there", "carriage\r\nreturn", "over\u{202e}ride"] {
+            assert_eq!(check_bio(bad), Err(ProfileError::Unprintable("a bio")), "{bad:?}");
+        }
     }
 
     #[test]

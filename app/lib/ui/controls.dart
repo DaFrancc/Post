@@ -29,6 +29,9 @@ class PField extends StatelessWidget {
     this.maxLength,
     this.onSubmitted,
     this.onChanged,
+    this.lines,
+    this.inputFormatters,
+    this.counter,
   });
 
   final String label;
@@ -43,13 +46,30 @@ class PField extends StatelessWidget {
   final ValueChanged<String>? onSubmitted;
   final ValueChanged<String>? onChanged;
 
+  /// Several lines: at least this many tall, growing with the text, and
+  /// Enter starts a new line. Null for one line.
+  final int? lines;
+
+  final List<TextInputFormatter>? inputFormatters;
+
+  /// Shown at the end of the label's line (characters left, say).
+  final String? counter;
+
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // No label: a field that explains itself (a search box).
-        if (label.isNotEmpty) ...[Text(label.toUpperCase(), style: PType.label), const SizedBox(height: 8)],
+        if (label.isNotEmpty) ...[
+          Row(
+            children: [
+              Expanded(child: Text(label.toUpperCase(), style: PType.label)),
+              if (counter != null) Text(counter!, style: PType.small),
+            ],
+          ),
+          const SizedBox(height: 8),
+        ],
         TextField(
           controller: controller,
           enabled: enabled,
@@ -57,6 +77,10 @@ class PField extends StatelessWidget {
           onSubmitted: onSubmitted,
           onChanged: onChanged,
           autocorrect: false,
+          minLines: lines,
+          maxLines: lines == null ? 1 : null,
+          keyboardType: lines == null ? null : TextInputType.multiline,
+          inputFormatters: inputFormatters,
           maxLength: maxLength,
           maxLengthEnforcement: MaxLengthEnforcement.enforced,
           style: TextStyle(fontSize: 14.5, color: PColors.text, fontFamily: mono ? PType.mono : PType.body),
@@ -235,7 +259,13 @@ class PAvatar extends StatelessWidget {
         child: SizedBox(
           width: size,
           height: size,
-          child: img == null ? DefaultFace(color: colour) : PictureView(picture: img, circle: true, placeholder: DefaultFace(color: colour)),
+          child: img == null
+              ? DefaultFace(color: colour)
+              : PictureView(
+                  picture: img,
+                  circle: true,
+                  placeholder: DefaultFace(color: colour),
+                ),
         ),
       );
     }
@@ -874,12 +904,7 @@ Future<bool> confirm(BuildContext context, {required String title, required Stri
           PDialogActions(
             children: [
               OutlinedButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
-              FilledButton(
-                autofocus: true,
-                style: danger ? PButtons.danger : null,
-                onPressed: () => Navigator.of(context).pop(true),
-                child: Text(action),
-              ),
+              FilledButton(autofocus: true, style: danger ? PButtons.danger : null, onPressed: () => Navigator.of(context).pop(true), child: Text(action)),
             ],
           ),
         ],

@@ -100,12 +100,15 @@ async fn dm_messages_edits_deletes_and_profiles() {
             note: Some("at the beach".into()),
             note_keep: false,
             arrival: Some("decode".into()),
+            bio: Some("Climber, bad photographer.\n\nAsk me about **the spreadsheet**, @bob.".into()),
             ..Default::default()
         })
         .await
         .expect("profile");
     let bad = ProfileUpdate { arrival: Some("Not A Name".into()), ..Default::default() };
     assert!(alice.set_profile(bad).await.is_err(), "an arrival style must be a short lowercase name");
+    let bad = ProfileUpdate { bio: Some("x".repeat(post_core::MAX_BIO + 1)), ..Default::default() };
+    assert!(alice.set_profile(bad).await.is_err(), "a bio is at most 500 characters");
 
     // Alice opens a DM and writes.
     let dm = alice.start_dm("bob").await.expect("start dm");
@@ -129,6 +132,7 @@ async fn dm_messages_edits_deletes_and_profiles() {
     assert_eq!(alice_seen_by_bob.typing_template, "the one who types is $$NAME$$");
     assert_eq!(alice_seen_by_bob.note.as_deref(), Some("at the beach"));
     assert_eq!(alice_seen_by_bob.arrival, "decode", "her messages arrive her way on Bob's screen too");
+    assert_eq!(alice_seen_by_bob.bio, "Climber, bad photographer.\n\nAsk me about **the spreadsheet**, @bob.", "line breaks and all");
 
     // Bob replies.
     bob.send_text(dm.id, "hi alice").await.expect("reply");

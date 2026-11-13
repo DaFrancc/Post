@@ -32,7 +32,7 @@ use rusqlite::Connection;
 use tokio::sync::broadcast;
 use zeroize::Zeroizing;
 
-pub use content::{MAX_NOTE, MAX_TYPING_TEMPLATE, NAME_PLACEHOLDER, render_typing};
+pub use content::{MAX_BIO, MAX_NOTE, MAX_TYPING_TEMPLATE, NAME_PLACEHOLDER, render_typing};
 use engine::Engine;
 
 /// Everything that can go wrong in the core.
@@ -563,6 +563,8 @@ pub struct Person {
     pub banner: Option<String>,
     /// The banner colour they chose (`0xRRGGBB`), if any.
     pub banner_color: Option<u32>,
+    /// Their bio (about me), formatted like a message; empty if none.
+    pub bio: String,
 }
 
 /// A device asking to join this account, as shown before approving it.
@@ -689,6 +691,8 @@ pub struct ProfileUpdate {
     /// New banner colour (`0xRRGGBB`) shown when there is no banner image,
     /// or `Some(None)` for the app's choice.
     pub banner_color: Option<Option<u32>>,
+    /// New bio (about me); empty clears it.
+    pub bio: Option<String>,
 }
 
 /// Something that happened, for live views.
@@ -1561,6 +1565,7 @@ impl Core {
                 note_set_at,
                 note_expires_at,
                 arrival: update.arrival.unwrap_or_else(|| current.arrival.clone()),
+                bio: update.bio.unwrap_or_else(|| current.bio.clone()),
                 banner_color,
                 ..current
             })
@@ -1639,6 +1644,7 @@ impl Core {
                 avatar: held(picture::PictureKind::Avatar)?,
                 banner: held(picture::PictureKind::Banner)?,
                 banner_color: p.as_ref().filter(|p| p.banner_color != 0).map(|p| p.banner_color & 0x00ff_ffff),
+                bio: p.as_ref().map(|p| p.bio.clone()).unwrap_or_default(),
                 note: p.filter(|p| !p.note_text.is_empty() && (p.note_expires_at == 0 || p.note_expires_at > now)).map(|p| p.note_text),
             })
         })

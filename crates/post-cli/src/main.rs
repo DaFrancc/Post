@@ -149,6 +149,10 @@ enum Command {
         /// #6e8bff ("" restores the app's choice).
         #[arg(long)]
         banner_color: Option<String>,
+        /// About me: up to 500 characters, line breaks included, formatted
+        /// like a message ("" clears it).
+        #[arg(long)]
+        bio: Option<String>,
     },
     /// Your profile picture: set it from an image file (its middle is
     /// used, square), remove it, or save someone's to a file.
@@ -502,7 +506,7 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
         Command::Delete { conversation, message } => ("delete", json!({ "conversation": conversation, "message": message })),
         Command::Versions { conversation, message } => ("versions", json!({ "conversation": conversation, "message": message })),
         Command::Receipts { conversation, message } => ("message_receipts", json!({ "conversation": conversation, "message": message })),
-        Command::Profile { display_name, typing_template, note, keep_note, arrival, banner_color } => (
+        Command::Profile { display_name, typing_template, note, keep_note, arrival, banner_color, bio } => (
             "set_profile",
             json!({
                 "display_name": display_name,
@@ -511,6 +515,7 @@ fn to_call(cmd: &Command) -> Option<(&'static str, Value)> {
                 "note_keep": keep_note,
                 "arrival": arrival,
                 "banner_color": banner_color,
+                "bio": bio,
             }),
         ),
         Command::Picture { cmd } => picture_call("picture", cmd),
@@ -701,6 +706,12 @@ fn print_human(method: &str, v: &Value) {
             for (k, label) in [("picture", "picture"), ("banner", "banner"), ("banner_color", "banner colour")] {
                 if let Some(x) = v[k].as_str() {
                     println!("{label}: {x}");
+                }
+            }
+            if !s(v, "bio").is_empty() {
+                println!("about me:");
+                for line in s(v, "bio").lines() {
+                    println!("  {line}");
                 }
             }
             println!("safety number: {}", if v["verified"] == true { "verified" } else { "not verified" });

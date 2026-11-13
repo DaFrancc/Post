@@ -71,6 +71,13 @@ void main() {
     await h.cli('bob', ['send', '--to', 'sam', 'booked the hut for saturday!']);
     await h.cli('bob', ['picture', 'set', await _image('face', 900, 900, const [Color(0xFF3A2C4F), Color(0xFF6A3E9E)])]);
     await h.cli('bob', ['banner', 'set', await _image('sky', 2400, 900, const [Color(0xFF2B3B8F), Color(0xFF6A3E9E), Color(0xFFC2588E)])]);
+    // Taller than the card shows at first.
+    await h.cli('bob', [
+      'profile',
+      '--bio',
+      'Climber, bad photographer, **worse cook**.\nAsk @sam about the hut.\n\n'
+          'Routes this year:\n- the north ridge\n- the long traverse\n- the slab, again\n\n_Back on Sunday._',
+    ]);
 
     await _open(t, 'sam');
     await waitFor(t, find.text('Bob B'));
@@ -84,9 +91,15 @@ void main() {
     // His card: the banner across the top, the picture on its edge.
     await tap(t, find.byWidgetPredicate((w) => w is PAvatar && w.colorKey == 'bob' && w.size == 40).first);
     await waitFor(t, find.text('@bob'));
+    // His bio, formatted, cut off with a way to see the rest.
+    await waitFor(t, find.text('ABOUT ME'));
+    expect(find.text('Show more'), findsOneWidget);
     await _shot(t, 'profiles-02-card');
+    await tap(t, find.text('Show more'));
+    await waitFor(t, find.text('Show less'));
+    await _shot(t, 'profiles-02-card-bio');
     // Closed with a click outside it.
-    await t.tapAt(const Offset(640, 200));
+    await t.tapAt(const Offset(220, 600));
     await settle(t);
     expect(find.text('Messages arrive: Bubble'), findsNothing);
 
@@ -95,5 +108,16 @@ void main() {
     await waitFor(t, find.text('Add a picture'));
     expect(find.text('Banner colour'), findsOneWidget);
     await _shot(t, 'profiles-03-settings');
+
+    // She writes a bio over two lines, and it is saved as typed.
+    final bio = find.byWidgetPredicate((w) => w is TextField && w.minLines == 3);
+    await t.ensureVisible(bio);
+    await t.enterText(bio, 'Mostly **reading**.\nSometimes climbing.');
+    await settle(t);
+    await _shot(t, 'profiles-04-bio');
+    await tap(t, find.text('Save profile'));
+    await waitFor(t, find.text('Profile saved and shared with your conversations.'));
+    // The page reloads her profile from the core after saving.
+    expect(t.widget<TextField>(bio).controller!.text, 'Mostly **reading**.\nSometimes climbing.');
   });
 }

@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:post/src/rust/api/client.dart';
 
 import '../state/app_state.dart';
@@ -11,6 +12,7 @@ import '../theme.dart';
 import '../ui/arrival.dart';
 import '../ui/controls.dart';
 import '../ui/format.dart';
+import '../ui/markup_text.dart';
 import '../ui/zoom.dart';
 import 'dialogs.dart';
 import 'picture_editor.dart';
@@ -211,6 +213,9 @@ class _ProfileSettingsState extends State<_ProfileSettings> {
   final _name = TextEditingController();
   final _typing = TextEditingController();
   final _note = TextEditingController();
+  // Formatting shown as you type, as in the composer.
+  final _bio = MarkupEditingController();
+  final _bioLimit = Client.bioLimit();
   bool _keepNote = false;
   bool _busy = false;
   bool _loaded = false;
@@ -232,6 +237,7 @@ class _ProfileSettingsState extends State<_ProfileSettings> {
         _name.text = me.displayName;
         _typing.text = me.typingTemplate;
         _note.text = me.note ?? '';
+        _bio.text = me.bio;
         _loaded = true;
       });
     } catch (e) {
@@ -244,6 +250,7 @@ class _ProfileSettingsState extends State<_ProfileSettings> {
     _name.dispose();
     _typing.dispose();
     _note.dispose();
+    _bio.dispose();
     super.dispose();
   }
 
@@ -255,8 +262,9 @@ class _ProfileSettingsState extends State<_ProfileSettings> {
       typingTemplate: changed(_typing.text, was?.typingTemplate ?? ''),
       note: changed(_note.text, was?.note ?? ''),
       noteKeep: _keepNote,
+      bio: changed(_bio.text, was?.bio ?? ''),
     );
-    if (change.displayName == null && change.typingTemplate == null && change.note == null) {
+    if (change.displayName == null && change.typingTemplate == null && change.note == null && change.bio == null) {
       showToast(context, 'Nothing has changed.');
       return;
     }
@@ -290,6 +298,18 @@ class _ProfileSettingsState extends State<_ProfileSettings> {
           hint: widget.state.me.username,
           help: 'What people see, unless they gave you a nickname. Empty shows your username.',
           maxLength: 64,
+          enabled: !_busy,
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 16),
+        PField(
+          label: 'About me',
+          controller: _bio,
+          hint: 'A few words about you',
+          help: 'On your profile card. Formatting and mentions work as in messages.',
+          lines: 3,
+          inputFormatters: [BioFormatter(_bioLimit)],
+          counter: '${_bioLimit - _bio.text.runes.length}',
           enabled: !_busy,
           onChanged: (_) => setState(() {}),
         ),
@@ -346,6 +366,41 @@ class _ProfileSettingsState extends State<_ProfileSettings> {
         _ArrivalPicker(state: widget.state, chosen: Arrival.parse(_was?.arrival), onChosen: (_) => unawaited(_load())),
       ],
     );
+  }
+}
+
+/// Keeps a bio to what a bio may hold: line breaks as `\n`, tabs as
+/// spaces, no other control characters or direction overrides, and at
+/// most [limit] characters (runes, as the core counts them). Typing past
+/// the limit does nothing; a paste is cut to fit.
+class BioFormatter extends TextInputFormatter {
+  BioFormatter(this.limit);
+
+  final int limit;
+
+  /// Kept: a line break, or anything but a control character or one that
+  /// reorders the text around it (as the core's `check_bio`).
+  static bool _kept(int r) =>
+      r == 0x0A || !(r < 0x20 || (r >= 0x7F && r <= 0x9F) || r == 0x2028 || r == 0x2029 || (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069));
+
+  static String clean(String s) => String.fromCharCodes(s.replaceAll('\r\n', '\n').replaceAll('\r', '\n').replaceAll('\t', ' ').runes.where(_kept));
+
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    var text = clean(newValue.text);
+    // Where the cursor was, in the cleaned text.
+    int at(int offset) => offset < 0 ? offset : clean(newValue.text.substring(0, offset.clamp(0, newValue.text.length))).length;
+    var selection = newValue.selection.copyWith(baseOffset: at(newValue.selection.baseOffset), extentOffset: at(newValue.selection.extentOffset));
+    final runes = text.runes;
+    if (runes.length > limit) {
+      if (oldValue.text.runes.length >= limit) return oldValue;
+      text = String.fromCharCodes(runes.take(limit));
+      int fit(int o) => o < 0 ? o : o.clamp(0, text.length);
+      selection = selection.copyWith(baseOffset: fit(selection.baseOffset), extentOffset: fit(selection.extentOffset));
+    }
+    if (text == newValue.text && selection == newValue.selection) return newValue;
+    // A composing region no longer matches the changed text.
+    return TextEditingValue(text: text, selection: selection);
   }
 }
 
@@ -450,11 +505,9 @@ class _LookEditorState extends State<_LookEditor> {
               runSpacing: 8,
               children: [
                 _button('avatar', hasAvatar ? 'Change picture' : 'Add a picture', onPressed: () => choosePicture(context, state, PictureKind.avatar)),
-                if (hasAvatar)
-                  _button('avatar-remove', 'Remove picture', remove: true, onPressed: () => removePicture(context, state, PictureKind.avatar)),
+                if (hasAvatar) _button('avatar-remove', 'Remove picture', remove: true, onPressed: () => removePicture(context, state, PictureKind.avatar)),
                 _button('banner', hasBanner ? 'Change banner' : 'Add a banner', onPressed: () => choosePicture(context, state, PictureKind.banner)),
-                if (hasBanner)
-                  _button('banner-remove', 'Remove banner', remove: true, onPressed: () => removePicture(context, state, PictureKind.banner)),
+                if (hasBanner) _button('banner-remove', 'Remove banner', remove: true, onPressed: () => removePicture(context, state, PictureKind.banner)),
               ],
             ),
             const SizedBox(height: 8),
@@ -525,7 +578,9 @@ class _Swatch extends StatelessWidget {
                 shape: BoxShape.circle,
                 border: Border.all(color: chosen ? PColors.textStrong : Colors.transparent, width: 2),
               ),
-              child: DecoratedBox(decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+              child: DecoratedBox(
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
             ),
           ),
         ),
@@ -1346,7 +1401,11 @@ class _InviteCard extends StatelessWidget {
                   style: const TextStyle(fontFamily: PType.mono, fontSize: 15, letterSpacing: 0.5, color: PColors.textStrong),
                 ),
               ),
-              PIconButton(icon: Icons.copy_rounded, tooltip: 'Copy the code', onPressed: () => copyText(context, invite.code, what: 'Invite code copied')),
+              PIconButton(
+                icon: Icons.copy_rounded,
+                tooltip: 'Copy the code',
+                onPressed: () => copyText(context, invite.code, what: 'Invite code copied'),
+              ),
             ],
           ),
           const SizedBox(height: 6),
@@ -1358,18 +1417,17 @@ class _InviteCard extends StatelessWidget {
                   style: const TextStyle(fontFamily: PType.mono, fontSize: 12.5, color: PColors.textMuted),
                 ),
               ),
-              PIconButton(icon: Icons.copy_rounded, tooltip: 'Copy the server address', onPressed: () => copyText(context, invite.server, what: 'Server address copied')),
+              PIconButton(
+                icon: Icons.copy_rounded,
+                tooltip: 'Copy the server address',
+                onPressed: () => copyText(context, invite.server, what: 'Server address copied'),
+              ),
             ],
           ),
           const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(
-                child: Text(
-                  '${invite.bot ? 'For a bot. ' : ''}Works once, until ${longWhen(invite.expiresAtMs)}.',
-                  style: PType.small,
-                ),
-              ),
+              Expanded(child: Text('${invite.bot ? 'For a bot. ' : ''}Works once, until ${longWhen(invite.expiresAtMs)}.', style: PType.small)),
               OutlinedButton.icon(
                 onPressed: () => copyText(context, both, what: 'Server and code copied'),
                 icon: const Icon(Icons.content_copy_rounded, size: 16),

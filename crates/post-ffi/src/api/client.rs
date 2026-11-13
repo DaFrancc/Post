@@ -246,6 +246,8 @@ pub struct PersonInfo {
     pub banner: Option<String>,
     /// The banner colour they chose, `0xRRGGBB`, if any.
     pub banner_color: Option<u32>,
+    /// Their bio (about me), formatted like a message; empty if none.
+    pub bio: String,
 }
 
 /// One of this account's devices.
@@ -356,6 +358,9 @@ pub struct ProfileChange {
     pub note_keep: bool,
     /// How the user's messages arrive on screen: a preset's name.
     pub arrival: Option<String>,
+    /// Bio (about me): up to `bio_limit()` characters, line breaks
+    /// included, formatted like a message.
+    pub bio: Option<String>,
 }
 
 /// Which profile picture.
@@ -722,6 +727,7 @@ impl Client {
             note_keep: change.note_keep,
             arrival: change.arrival,
             banner_color: None,
+            bio: change.bio,
         };
         Ok(self.core.set_profile(update).await?)
     }
@@ -764,6 +770,13 @@ impl Client {
             max_bytes: k.max_bytes() as u32,
             max_source_bytes: core::picture::MAX_SOURCE_BYTES as u32,
         }
+    }
+
+    /// Longest bio, in characters (Unicode scalar values: Dart's runes),
+    /// line breaks included.
+    #[frb(sync)]
+    pub fn bio_limit() -> u32 {
+        core::MAX_BIO as u32
     }
 
     /// An app setting on this device, kept in the encrypted profile.
@@ -1081,6 +1094,7 @@ impl Client {
             avatar: p.avatar,
             banner: p.banner,
             banner_color: p.banner_color,
+            bio: p.bio,
         })
     }
 

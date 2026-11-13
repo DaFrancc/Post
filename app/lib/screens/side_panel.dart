@@ -114,8 +114,7 @@ class _MembersState extends State<_Members> {
     final choice = await showContextMenu<String>(context, at, [
       if (!m.you) const PMenuItem(value: 'dm', label: 'Message'),
       // Ring just them: into the call you are in here, or into a new one.
-      if (!m.you && _c.following && inCallHere && !theyreIn)
-        PMenuItem(value: 'ring', label: 'Ring ${m.shownName} into the call', icon: Icons.call_outlined),
+      if (!m.you && _c.following && inCallHere && !theyreIn) PMenuItem(value: 'ring', label: 'Ring ${m.shownName} into the call', icon: Icons.call_outlined),
       if (!m.you && _c.following && callHere == null)
         PMenuItem(value: 'call', label: 'Call ${m.shownName}', caption: 'Rings only them', icon: Icons.call_outlined),
       if (!m.you) const PMenuItem(value: 'nickname', label: 'Set nickname', caption: 'Only you see it'),
@@ -388,13 +387,7 @@ class _ProfileState extends State<_Profile> {
                         child: Container(
                           padding: const EdgeInsets.all(4),
                           decoration: const BoxDecoration(color: PColors.panel, shape: BoxShape.circle),
-                          child: PAvatar(
-                            name: name,
-                            colorKey: widget.username,
-                            size: 80,
-                            presence: presence,
-                            image: _state.avatarOf(widget.username),
-                          ),
+                          child: PAvatar(name: name, colorKey: widget.username, size: 80, presence: presence, image: _state.avatarOf(widget.username)),
                         ),
                       ),
                     ],
@@ -430,6 +423,15 @@ class _ProfileState extends State<_Profile> {
                     style: const TextStyle(fontSize: 13, color: PColors.textBody),
                   ),
                 ),
+              ),
+            ],
+            // All of it: the panel scrolls.
+            if (p != null && p.bio.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              ProfileBio(
+                state: _state,
+                bio: p.bio,
+                onMention: (u, at) => unawaited(showProfileCard(context, _state, u, at: at)),
               ),
             ],
             const SizedBox(height: 14),

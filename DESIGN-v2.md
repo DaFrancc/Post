@@ -735,6 +735,12 @@ member lists and details whatever name is shown.
   is about to lapse.
 - **Note.** Up to 60 characters, like an Instagram note. Expires 24 hours after it is
   set unless the user chooses no expiry; expired notes are hidden by every client.
+- **Bio (about me).** `bio`, tag 9: up to 500 characters (Unicode scalar values),
+  line breaks included and counted, with no other limit on lines. Formatted like a
+  message: formatting and mentions, which show by name and open that person's card.
+  No control characters other than `\n`, and none that reorder text. A received bio
+  is cut to fit, never refused. A profile card shows its first few lines, fading
+  out, with "Show more"; opened, a very tall one scrolls inside the card.
 
 ### Typing indicators
 
